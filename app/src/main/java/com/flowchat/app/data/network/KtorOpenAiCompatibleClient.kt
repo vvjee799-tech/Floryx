@@ -26,9 +26,13 @@ import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.emitAll
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.contentOrNull
+import com.flowchat.app.domain.provider.apiHost
 
 @Singleton
 class KtorOpenAiCompatibleClient @Inject constructor(
@@ -36,14 +40,20 @@ class KtorOpenAiCompatibleClient @Inject constructor(
     private val json: Json
 ) : ChatCompletionClient {
     override fun streamChat(request: ChatRequest, provider: ProviderConfig, apiKey: String?): Flow<ChatDelta> = flow {
+        val protocol = modelProtocol(provider, request.model)
+        if (protocol != ModelProtocol.ChatCompletions) {
+            emitAll(streamNative(request, provider, apiKey, protocol))
+            return@flow
+        }
         var sawOutput = false
         var sawError = false
         val toolCallAccumulator = OpenAiToolCallAccumulator()
+        val reasoningMetadata = ChatReasoningMetadata(json)
         val payload = request.toOpenAiRequest(provider, stream = true)
         if (BuildConfig.DEBUG) {
             Log.i(
                 TAG,
-                "request baseUrl=${provider.baseUrl} model=${request.model} messages=${request.messages.size} " +
+                "request host=${provider.apiHost()} model=${request.model} messages=${request.messages.size} " +
                     "hasApiKey=${!apiKey.isNullOrBlank()} stream=${payload.stream} thinking=${payload.thinking?.type}"
             )
         }
@@ -70,6 +80,7 @@ class KtorOpenAiCompatibleClient @Inject constructor(
                 Log.i(TAG, "response status=${response.status.value}")
             }
             if (!response.status.isSuccess()) {
+                sawError = true
                 emit(ChatDelta.Error(response.errorText()))
                 return@execute
             }
@@ -79,9 +90,10 @@ class KtorOpenAiCompatibleClient @Inject constructor(
                 if (BuildConfig.DEBUG) {
                     OpenAiStreamParser.summarizeLine(line)?.let { Log.i(TAG, "stream $it") }
                 }
-                when (val delta = OpenAiStreamParser.parseLine(line)) {
-                    null -> Unit
+                reasoningMetadata.readLine(line)
+                for (delta in OpenAiStreamParser.parseDeltas(line)) when (delta) {
                     ChatDelta.Done -> {
+                        reasoningMetadata.event()?.let { emit(it) }
                         val toolCalls = toolCallAccumulator.build()
                         if (toolCalls.isNotEmpty()) {
                             emit(ChatDelta.ToolCalls(toolCalls))
@@ -103,12 +115,14 @@ class KtorOpenAiCompatibleClient @Inject constructor(
                         emit(delta)
                     }
                     is ChatDelta.ToolCallDelta -> {
+                        sawOutput = true
                         toolCallAccumulator.append(delta.calls)
                     }
                     is ChatDelta.ToolCalls -> {
                         emit(delta)
                         return@execute
                     }
+                    is ChatDelta.ProviderData -> emit(delta)
                     is ChatDelta.Error -> {
                         sawError = true
                         emit(delta)
@@ -116,39 +130,83 @@ class KtorOpenAiCompatibleClient @Inject constructor(
                     }
                 }
             }
-            val toolCalls = toolCallAccumulator.build()
-            if (toolCalls.isNotEmpty()) {
-                emit(ChatDelta.ToolCalls(toolCalls))
-            } else if (sawOutput) {
-                emit(ChatDelta.Done)
+            // EOF is not a successful finish: never execute a possibly truncated tool call.
+            if (sawOutput || toolCallAccumulator.build().isNotEmpty()) {
+                sawError = true
+                emit(ChatDelta.Error("The model stream ended before the response completed. Please retry."))
             }
         }
         if (!sawOutput && !sawError && toolCallAccumulator.build().isEmpty()) {
             if (BuildConfig.DEBUG) {
                 Log.i(TAG, "stream produced no content; retrying with non-streaming request")
             }
-            when (val fallback = completeChat(request, provider, apiKey)) {
-                is ChatDelta.Content -> {
-                    emit(fallback)
-                    emit(ChatDelta.Done)
-                }
-                is ChatDelta.Reasoning -> {
-                    emit(fallback)
-                    emit(ChatDelta.Done)
-                }
-                is ChatDelta.FullResponse -> {
-                    emit(ChatDelta.Reasoning(fallback.reasoningText))
-                    emit(ChatDelta.Content(fallback.contentText))
-                    emit(ChatDelta.Done)
-                }
-                is ChatDelta.ToolCalls -> emit(fallback)
-                is ChatDelta.ToolCallDelta -> Unit
-                else -> emit(fallback)
+            val fallback = completeChat(request, provider, apiKey)
+            fallback.forEach { delta ->
+                if (delta is ChatDelta.FullResponse) {
+                    emit(ChatDelta.Reasoning(delta.reasoningText))
+                    emit(ChatDelta.Content(delta.contentText))
+                } else emit(delta)
             }
+            if (fallback.none { it is ChatDelta.ToolCalls || it is ChatDelta.Error }) emit(ChatDelta.Done)
         }
     }
 
-    private suspend fun completeChat(request: ChatRequest, provider: ProviderConfig, apiKey: String?): ChatDelta {
+    private fun streamNative(
+        request: ChatRequest,
+        provider: ProviderConfig,
+        apiKey: String?,
+        protocol: ModelProtocol
+    ): Flow<ChatDelta> = flow {
+        suspend fun statement(stream: Boolean) = httpClient.preparePost {
+            url(provider.baseUrl.trimEnd('/') + protocol.path())
+            timeout {
+                requestTimeoutMillis = ChatRequestTimeoutMillis
+                socketTimeoutMillis = ChatSocketTimeoutMillis
+                connectTimeoutMillis = ChatConnectTimeoutMillis
+            }
+            contentType(ContentType.Application.Json)
+            if (stream) header(HttpHeaders.Accept, "text/event-stream")
+            if (protocol == ModelProtocol.Anthropic) {
+                header("anthropic-version", "2023-06-01")
+                if (!apiKey.isNullOrBlank()) header("x-api-key", apiKey)
+            } else if (!apiKey.isNullOrBlank()) header(HttpHeaders.Authorization, "Bearer $apiKey")
+            provider.parseCustomHeaders().forEach { (key, value) -> header(key, value) }
+            setBody(request.toWireBody(provider, stream, json))
+        }
+        if (BuildConfig.DEBUG) Log.i(TAG, "request host=${provider.apiHost()} model=${request.model} protocol=$protocol")
+        var sawOutput = false
+        var sawError = false
+        var completed = false
+        val parser = NativeModelStreamParser(protocol, json)
+        statement(true).execute { response ->
+            if (!response.status.isSuccess()) {
+                sawError = true
+                emit(ChatDelta.Error(response.errorText()))
+                return@execute
+            }
+            val channel = response.bodyAsChannel()
+            while (!channel.isClosedForRead) {
+                val line = channel.readUTF8Line() ?: break
+                val deltas = parser.parseLine(line)
+                deltas.forEach { delta ->
+                    if (delta is ChatDelta.Content || delta is ChatDelta.Reasoning || delta is ChatDelta.ToolCalls) sawOutput = true
+                    if (delta is ChatDelta.Error) sawError = true
+                    if (delta is ChatDelta.Done || delta is ChatDelta.ToolCalls) completed = true
+                    emit(delta)
+                }
+                if (completed || sawError) return@execute
+            }
+        }
+        if (sawOutput && !completed && !sawError) {
+            emit(ChatDelta.Error("The model stream ended before the response completed. Please retry."))
+        } else if (!sawOutput && !sawError) {
+            val response = statement(false).execute()
+            if (!response.status.isSuccess()) emit(ChatDelta.Error(response.errorText()))
+            else NativeModelStreamParser(protocol, json).parseCompletion(response.bodyAsText()).forEach { emit(it) }
+        }
+    }
+
+    private suspend fun completeChat(request: ChatRequest, provider: ProviderConfig, apiKey: String?): List<ChatDelta> {
         val payload = request.toOpenAiRequest(provider, stream = false)
         val response = httpClient.preparePost {
             url(provider.baseUrl.trimEnd('/') + "/chat/completions")
@@ -170,9 +228,19 @@ class KtorOpenAiCompatibleClient @Inject constructor(
             Log.i(TAG, "fallback response status=${response.status.value}")
         }
         if (!response.status.isSuccess()) {
-            return ChatDelta.Error(response.errorText())
+            return listOf(ChatDelta.Error(response.errorText()))
         }
-        return OpenAiStreamParser.parseCompletionBody(response.bodyAsText())
+        val body = response.bodyAsText()
+        val parsed = OpenAiStreamParser.parseCompletionBody(body)
+        return buildList {
+            ChatReasoningMetadata.fromCompletion(body, json)?.let { add(it) }
+            if (parsed is ChatDelta.ToolCalls) {
+                val message = json.parseToJsonElement(body).jsonObject["choices"]!!.jsonArray.first().jsonObject["message"]!!.jsonObject
+                (message["reasoning_content"] ?: message["reasoning"])?.jsonPrimitive?.contentOrNull?.takeIf { it.isNotBlank() }?.let { add(ChatDelta.Reasoning(it)) }
+                message["content"]?.jsonPrimitive?.contentOrNull?.takeIf { it.isNotBlank() }?.let { add(ChatDelta.Content(it)) }
+            }
+            add(parsed)
+        }
     }
 
     private fun ProviderConfig.parseCustomHeaders(): Map<String, String> {

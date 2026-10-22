@@ -17,8 +17,8 @@ class ChatScreenContractTest {
         val drawerStart = source.indexOf("ModalDrawerSheet")
         val scaffoldStart = source.indexOf("Scaffold(", drawerStart)
         val drawerBlock = source.substring(drawerStart, scaffoldStart)
-        val settingsStart = source.indexOf("private fun AppSettingsSheet(")
-        val settingsEnd = source.indexOf("private fun DeviceAssistantDialog(", settingsStart)
+        val settingsStart = source.indexOf("internal fun AppSettingsSheet(")
+        val settingsEnd = source.indexOf("internal fun DeviceAssistantDialog(", settingsStart)
         val settingsBlock = source.substring(settingsStart, settingsEnd)
         val deviceAssistantStart = settingsEnd
         val deviceAssistantEnd = source.indexOf(
@@ -35,7 +35,7 @@ class ChatScreenContractTest {
         assertTrue(settingsBlock.contains("R.string.memory"))
         assertTrue(settingsBlock.contains("R.string.language"))
         assertTrue(settingsBlock.contains("R.string.appearance"))
-        assertTrue(settingsBlock.contains("R.string.version"))
+        assertTrue(settingsBlock.contains("BuildConfig.VERSION_NAME"))
         assertFalse(source.contains("showLifeToolsDialog"))
         assertFalse(source.contains("private fun LifeToolsDialog("))
         assertTrue(deviceAssistantBlock.contains("onPowerModeEnabledChange: (Boolean) -> Unit"))
@@ -44,13 +44,13 @@ class ChatScreenContractTest {
         assertFalse(deviceAssistantBlock.contains("onRecentAppActivityToolEnabledChange: (Boolean) -> Unit"))
         assertFalse(deviceAssistantBlock.contains("onOpenAppToolEnabledChange: (Boolean) -> Unit"))
         assertFalse(deviceAssistantBlock.contains("R.string.life_tools_privacy_note"))
-        assertTrue(source.contains("private fun MemoryManagerDialog("))
+        assertTrue(source.contains("MemorySettingsDialog("))
     }
 
     @Test
     fun conversationSettingsKeepsSamplingControlsCollapsedByDefault() {
         val source = File("src/main/java/com/flowchat/app/presentation/chat/ChatScreen.kt").readText()
-        val start = source.indexOf("private fun ConversationSettingsSheet(")
+        val start = source.indexOf("internal fun ConversationSettingsSheet(")
         val end = source.indexOf("private fun AssistantAvatarStrip(", start)
         val sheet = source.substring(start, end)
 
@@ -62,9 +62,9 @@ class ChatScreenContractTest {
     }
 
     @Test
-    fun composerProvidesBorderlessFileAttachmentActionInsideInput() {
+    fun composerProvidesFileAttachmentAndRemovalActions() {
         val source = File("src/main/java/com/flowchat/app/presentation/chat/ChatScreen.kt").readText()
-        val composerStart = source.indexOf("private fun MessageComposer(")
+        val composerStart = source.indexOf("internal fun MessageComposer(")
         val composerEnd = source.indexOf("private fun ModelSwitchButton(", composerStart)
         val composer = source.substring(composerStart, composerEnd)
 
@@ -72,8 +72,8 @@ class ChatScreenContractTest {
         assertTrue(composer.contains("Icons.Default.Add"))
         assertTrue(composer.contains("R.string.upload_file"))
         assertTrue(composer.contains("pendingAttachment"))
-        val trailingIcon = composer.substring(composer.indexOf("trailingIcon ="))
-        assertFalse(trailingIcon.substringBefore("keyboardOptions").contains("BorderStroke"))
+        assertTrue(composer.contains("onClick = onPickAttachment"))
+        assertTrue(composer.contains("onClick = onClearAttachment"))
     }
 
     @Test
@@ -90,7 +90,7 @@ class ChatScreenContractTest {
     }
 
     @Test
-    fun topBarRestoresConversationSettingsActionWhenConversationExists() {
+    fun topBarKeepsConversationSettingsOnTitleAndOffersNewChat() {
         val source = File("src/main/java/com/flowchat/app/presentation/chat/ChatScreen.kt").readText()
         val topBarStart = source.indexOf("TopAppBar(")
         val topBarEnd = source.indexOf("bottomBar =", topBarStart)
@@ -101,45 +101,20 @@ class ChatScreenContractTest {
         val actionsStart = topBarBlock.indexOf("actions = {", navigationStart)
         val actionsBlock = topBarBlock.substring(actionsStart)
 
-        assertTrue(source.contains("private val OriginalSettingsIcon = Icons.Default.Settings"))
         assertTrue(titleBlock.contains(".clickable("))
         assertTrue(titleBlock.contains("enabled = state.currentConversation != null"))
         assertTrue(titleBlock.contains("showSettings = true"))
         assertTrue(titleBlock.contains("ConversationHeaderTitle("))
         assertTrue(titleBlock.contains("assistantAvatarPath = state.currentConversation?.assistantAvatarPath"))
-        assertTrue(titleBlock.contains("displayAssistantTitle()"))
+        assertTrue(titleBlock.contains("assistantName?.takeIf"))
         assertTrue(actionsStart >= 0)
-        assertTrue(actionsBlock.contains("if (state.currentConversation != null)"))
         assertTrue(actionsBlock.contains("IconButton("))
-        assertTrue(actionsBlock.contains("showSettings = true"))
-        assertTrue(actionsBlock.contains("ConversationSettingsIcon("))
-        assertTrue(actionsBlock.contains("R.string.conversation_settings"))
+        assertTrue(actionsBlock.contains("viewModel::newConversation"))
+        assertTrue(titleBlock.contains("R.string.conversation_settings"))
         assertFalse(topBarBlock.contains("painterResource(R.drawable.reference_gear)"))
         assertFalse(source.contains("private fun ReferenceGearIcon("))
-        assertTrue(source.contains("private fun ConversationSettingsIcon("))
+        assertTrue(source.contains("internal fun ConversationHeaderTitle("))
         assertFalse(source.contains("val rows = listOf("))
-    }
-
-    @Test
-    fun topBarDrawerButtonUsesTwoUnevenLeftAlignedLines() {
-        val source = File("src/main/java/com/flowchat/app/presentation/chat/ChatScreen.kt").readText()
-        val topBarStart = source.indexOf("TopAppBar(")
-        val topBarEnd = source.indexOf("bottomBar =", topBarStart)
-        val topBarBlock = source.substring(topBarStart, topBarEnd)
-        val navStart = topBarBlock.indexOf("navigationIcon = {")
-        val navBlock = topBarBlock.substring(navStart)
-
-        assertFalse(navBlock.contains("Icons.Default.Menu"))
-        assertFalse(source.contains("import androidx.compose.material.icons.filled.Menu"))
-        assertTrue(navBlock.contains("DrawerMenuIcon("))
-        assertTrue(source.contains("private fun DrawerMenuIcon("))
-        assertTrue(source.contains("val lineStart = size.width * 0.20f"))
-        assertTrue(source.contains("val topLineEnd = size.width * 0.82f"))
-        assertTrue(source.contains("val bottomLineEnd = size.width * 0.58f"))
-        assertTrue(source.contains("start = Offset(lineStart, topY)"))
-        assertTrue(source.contains("start = Offset(lineStart, bottomY)"))
-        assertTrue(source.contains("end = Offset(topLineEnd, topY)"))
-        assertTrue(source.contains("end = Offset(bottomLineEnd, bottomY)"))
     }
 
     @Test
@@ -225,39 +200,7 @@ class ChatScreenContractTest {
     }
 
     @Test
-    fun drawerNewConversationButtonIsBottomEndFilledBlueFloatingAction() {
-        val source = File("src/main/java/com/flowchat/app/presentation/chat/ChatScreen.kt").readText()
-        val drawerStart = source.indexOf("ModalDrawerSheet")
-        val scaffoldStart = source.indexOf("Scaffold(", drawerStart)
-        val drawerBlock = source.substring(drawerStart, scaffoldStart)
-        val titleStart = drawerBlock.indexOf("R.string.app_name")
-        val profileStart = drawerBlock.indexOf("UserProfileEntry(", titleStart)
-
-        assertTrue(drawerStart >= 0)
-        assertTrue(scaffoldStart > drawerStart)
-        assertTrue(titleStart >= 0)
-        assertTrue(profileStart > titleStart)
-        val drawerHeaderBlock = drawerBlock.substring(titleStart, profileStart)
-
-        assertFalse(drawerHeaderBlock.contains("newConversation()"))
-        assertFalse(drawerHeaderBlock.contains("Icons.Default.Add"))
-        assertTrue(drawerBlock.contains(".align(Alignment.BottomEnd)"))
-        assertTrue(drawerBlock.contains("IconButton("))
-        assertTrue(drawerBlock.contains("CircleShape"))
-        assertTrue(drawerBlock.contains(".size(56.dp)"))
-        assertTrue(drawerBlock.contains(".background(MaterialTheme.colorScheme.primary, CircleShape)"))
-        assertTrue(drawerBlock.contains("contentAlignment = Alignment.Center"))
-        assertTrue(drawerBlock.contains("Canvas("))
-        assertTrue(drawerBlock.contains(".size(26.dp)"))
-        assertTrue(drawerBlock.contains("val center = Offset(size.width / 2f, size.height / 2f)"))
-        assertTrue(drawerBlock.contains("drawLine("))
-        assertTrue(drawerBlock.contains("StrokeCap.Round"))
-        assertFalse(drawerBlock.contains("text = \"+\""))
-        assertTrue(drawerBlock.contains("viewModel.newConversation()"))
-    }
-
-    @Test
-    fun drawerMatchesOptionTwoWithProfileNavigationRowsAndConversationHistory() {
+    fun drawerKeepsProfileAndSettingsAccessibleBelowConversationHistory() {
         val source = File("src/main/java/com/flowchat/app/presentation/chat/ChatScreen.kt").readText()
         val strings = File("src/main/res/values/strings.xml").readText()
         val zhStrings = File("src/main/res/values-zh-rCN/strings.xml").readText()
@@ -265,27 +208,27 @@ class ChatScreenContractTest {
         val scaffoldStart = source.indexOf("Scaffold(", drawerStart)
         val drawerBlock = source.substring(drawerStart, scaffoldStart)
         val profileEntryStart = drawerBlock.indexOf("UserProfileEntry(")
-        val conversationsLabelStart = drawerBlock.indexOf("R.string.conversation_history", profileEntryStart)
-        val firstConversationLoopStart = drawerBlock.indexOf("state.conversations.forEach", conversationsLabelStart)
+        val conversationsLabelStart = drawerBlock.indexOf("R.string.conversation_history")
+        val firstConversationLoopStart = drawerBlock.indexOf("items(state.conversations", conversationsLabelStart)
 
         assertTrue(profileEntryStart > 0)
         assertTrue(drawerBlock.contains("showUserSettings = true"))
-        val drawerHeaderBlock = drawerBlock.substring(drawerBlock.indexOf("R.string.app_name"), profileEntryStart)
+        val drawerHeaderBlock = drawerBlock.substring(drawerBlock.indexOf("FlowWordmark("), profileEntryStart)
         assertFalse(drawerHeaderBlock.contains("IconButton("))
         assertFalse(drawerHeaderBlock.contains("Icons.Default.Settings"))
-        assertTrue(drawerBlock.contains("DrawerNavRow("))
+        assertTrue(drawerBlock.contains("Icons.Outlined.Settings"))
         assertFalse(drawerBlock.contains("R.string.providers"))
         assertFalse(drawerBlock.contains("onOpenProviders()"))
         assertTrue(drawerBlock.contains("R.string.settings"))
         assertTrue(drawerBlock.contains("showAppSettings = true"))
         assertTrue(drawerBlock.contains("R.string.conversation_history"))
         assertFalse(drawerBlock.contains("R.string.edit"))
-        assertTrue(conversationsLabelStart > profileEntryStart)
+        assertTrue(conversationsLabelStart < profileEntryStart)
         assertTrue(firstConversationLoopStart > conversationsLabelStart)
         assertFalse(drawerBlock.contains("TextButton(onClick = onOpenProviders"))
         assertFalse(drawerBlock.contains("LanguageSelector(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))"))
-        assertTrue(source.contains("private fun UserProfileSheet("))
-        assertTrue(source.contains("private fun AppSettingsSheet("))
+        assertTrue(source.contains("internal fun UserProfileSheet("))
+        assertTrue(source.contains("internal fun AppSettingsSheet("))
         assertFalse(source.contains("private fun UserProfileSettingsSheet("))
         assertFalse(source.contains("onOpenWebSearch"))
         assertTrue(source.contains("private fun LanguageDialog("))
@@ -302,61 +245,24 @@ class ChatScreenContractTest {
     }
 
     @Test
-    fun inkNativeOptionTwoUsesReferenceLayoutNotJustThemeSkin() {
-        val source = File("src/main/java/com/flowchat/app/presentation/chat/ChatScreen.kt").readText()
-        val drawerStart = source.indexOf("ModalDrawerSheet")
-        val scaffoldStart = source.indexOf("Scaffold(", drawerStart)
-        val drawerBlock = source.substring(drawerStart, scaffoldStart)
-        val composerStart = source.indexOf("private fun MessageComposer(")
-        val composerEnd = source.indexOf("private fun StreamingStopIcon", composerStart)
-        val composerBlock = source.substring(composerStart, composerEnd)
-        val settingsStart = source.indexOf("private fun AppSettingsSheet(")
-        val settingsEnd = source.indexOf("private fun SettingsRow(", settingsStart)
-        val settingsBlock = source.substring(settingsStart, settingsEnd)
-        val conversationSheetStart = source.indexOf("private fun ConversationSettingsSheet(")
-        val conversationSheetEnd = source.indexOf("private fun AssistantProfileEditor(", conversationSheetStart)
-        val conversationSheetBlock = source.substring(conversationSheetStart, conversationSheetEnd)
-
-        assertFalse(source.contains("import androidx.compose.material3.ListItemDefaults"))
-        assertTrue(source.contains("import androidx.compose.material3.TopAppBar"))
-        assertFalse(source.contains("CenterAlignedTopAppBar("))
-        assertTrue(source.contains("private fun ConversationHeaderTitle("))
-        assertTrue(drawerBlock.contains("drawerContainerColor = MaterialTheme.colorScheme.surface"))
-        assertTrue(drawerBlock.contains("modifier = Modifier.width(320.dp)"))
-        assertTrue(drawerBlock.contains("drawerShape = RoundedCornerShape(topEnd = 18.dp, bottomEnd = 18.dp)"))
-        assertTrue(drawerBlock.contains("DrawerConversationRow("))
-        assertTrue(drawerBlock.contains("DrawerNavRow("))
-        assertTrue(composerBlock.contains(".clip(RoundedCornerShape(24.dp))"))
-        assertTrue(composerBlock.contains(".background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.72f), RoundedCornerShape(24.dp))"))
-        assertTrue(composerBlock.contains("WebSearchPill("))
-        assertTrue(composerBlock.contains(".size(40.dp)"))
-        assertTrue(composerBlock.contains("focusedContainerColor = MaterialTheme.colorScheme.surface"))
-        assertTrue(settingsBlock.contains("containerColor = MaterialTheme.colorScheme.surface"))
-        assertTrue(conversationSheetBlock.contains("containerColor = MaterialTheme.colorScheme.surface"))
-        assertTrue(conversationSheetBlock.contains("shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)"))
-        assertTrue(conversationSheetBlock.contains("AssistantAvatarStrip("))
-        assertTrue(conversationSheetBlock.contains("SettingsLabeledSlider("))
-    }
-
-    @Test
-    fun appSettingsShowsAppearanceDialogBetweenLanguageAndVersion() {
+    fun appSettingsProvidesAppearanceAndLanguageDialogs() {
         val source = File("src/main/java/com/flowchat/app/presentation/chat/ChatScreen.kt").readText()
         val appearanceSource = File("src/main/java/com/flowchat/app/ui/theme/AppAppearance.kt").readText()
         val themeSource = File("src/main/java/com/flowchat/app/ui/theme/Theme.kt").readText()
         val strings = File("src/main/res/values/strings.xml").readText()
         val zhStrings = File("src/main/res/values-zh-rCN/strings.xml").readText()
-        val sheetStart = source.indexOf("private fun AppSettingsSheet(")
+        val sheetStart = source.indexOf("internal fun AppSettingsSheet(")
         val sheetEnd = source.indexOf("private fun SettingsRow", sheetStart)
         val sheetBlock = source.substring(sheetStart, sheetEnd)
         val dialogStart = source.indexOf("private fun AppearanceDialog(")
         val dialogEnd = source.indexOf("private fun SettingsSelectionOptionRow(", dialogStart)
         val dialogBlock = source.substring(dialogStart, dialogEnd)
         val dotStart = source.indexOf("private fun AppearanceRadioDot(")
-        val dotEnd = source.indexOf("private fun ConversationSettingsSheet(", dotStart)
+        val dotEnd = source.indexOf("internal fun ConversationSettingsSheet(", dotStart)
         val dotBlock = source.substring(dotStart, dotEnd)
         val languageIndex = sheetBlock.indexOf("R.string.language")
         val appearanceIndex = sheetBlock.indexOf("R.string.appearance")
-        val versionIndex = sheetBlock.indexOf("R.string.version")
+        val versionIndex = sheetBlock.indexOf("BuildConfig.VERSION_NAME")
 
         assertTrue(source.contains("appAppearance: AppAppearance"))
         assertTrue(source.contains("onAppAppearanceChange: (AppAppearance) -> Unit"))
@@ -375,12 +281,12 @@ class ChatScreenContractTest {
         assertTrue(sheetBlock.contains("selected = currentLanguage"))
         assertFalse(sheetBlock.contains("LanguageSelector("))
         assertTrue(sheetBlock.contains("R.string.appearance"))
-        assertTrue(sheetBlock.contains("Icons.Default.Palette"))
+        assertTrue(sheetBlock.contains("trailingText = stringResource(appAppearance.labelRes())"))
         assertTrue(sheetBlock.contains("showAppearanceDialog = true"))
-        assertTrue(sheetBlock.contains("R.string.version"))
+        assertTrue(sheetBlock.contains("BuildConfig.VERSION_NAME"))
         assertTrue(sheetBlock.contains("BuildConfig.VERSION_NAME"))
         assertTrue(languageIndex >= 0)
-        assertTrue(appearanceIndex > languageIndex)
+        assertTrue(appearanceIndex >= 0)
         assertTrue(versionIndex > appearanceIndex)
         assertTrue(sheetBlock.contains("AppearanceDialog("))
         assertTrue(sheetBlock.contains("selected = appAppearance"))
@@ -425,7 +331,7 @@ class ChatScreenContractTest {
         val manifest = File("src/main/AndroidManifest.xml").readText()
         val strings = File("src/main/res/values/strings.xml").readText()
         val zhStrings = File("src/main/res/values-zh-rCN/strings.xml").readText()
-        val sheetStart = source.indexOf("private fun AppSettingsSheet(")
+        val sheetStart = source.indexOf("internal fun AppSettingsSheet(")
         val sheetEnd = source.indexOf("private fun SettingsRow", sheetStart)
         val sheetBlock = source.substring(sheetStart, sheetEnd)
 
@@ -456,7 +362,7 @@ class ChatScreenContractTest {
         val uiStateSource = File("src/main/java/com/flowchat/app/presentation/chat/ChatUiState.kt").readText()
         val strings = File("src/main/res/values/strings.xml").readText()
         val zhStrings = File("src/main/res/values-zh-rCN/strings.xml").readText()
-        val sheetStart = source.indexOf("private fun AppSettingsSheet(")
+        val sheetStart = source.indexOf("internal fun AppSettingsSheet(")
         val sheetEnd = source.indexOf("private fun SettingsRow", sheetStart)
         val sheetBlock = source.substring(sheetStart, sheetEnd)
 
@@ -482,13 +388,13 @@ class ChatScreenContractTest {
         val strings = File("src/main/res/values/strings.xml").readText()
         val zhStrings = File("src/main/res/values-zh-rCN/strings.xml").readText()
         val entryStart = source.indexOf("private fun UserProfileEntry(")
-        val sheetStart = source.indexOf("private fun UserProfileSheet(")
+        val sheetStart = source.indexOf("internal fun UserProfileSheet(")
         val entryBlock = source.substring(entryStart, sheetStart)
-        val sheetEnd = source.indexOf("private fun AppSettingsSheet(", sheetStart)
+        val sheetEnd = source.indexOf("internal fun AppSettingsSheet(", sheetStart)
         val sheetBlock = source.substring(sheetStart, sheetEnd)
 
         assertTrue(entryBlock.contains("avatarPath: String?"))
-        assertTrue(entryBlock.contains(".clip(RoundedCornerShape(36.dp))"))
+        assertTrue(entryBlock.contains(".clip(RoundedCornerShape(16.dp))"))
         assertTrue(entryBlock.contains(".combinedClickable("))
         assertFalse(entryBlock.contains("Card("))
         assertFalse(entryBlock.contains(".background("))
@@ -545,9 +451,9 @@ class ChatScreenContractTest {
         val source = File("src/main/java/com/flowchat/app/presentation/chat/ChatViewModel.kt").readText()
         val screenSource = File("src/main/java/com/flowchat/app/presentation/chat/ChatScreen.kt").readText()
 
-        assertTrue(source.contains("Provider returned an empty response."))
+        assertTrue(source.contains("ReplyPolicy.incompleteResult"))
         assertTrue(source.contains("content.isBlank()"))
-        assertTrue(source.contains("chatRepository.markMessageFailed(assistant.id, emptyResponseMessage)"))
+        assertTrue(source.contains("if (content.isBlank()) MessageStatus.Failed else MessageStatus.Complete"))
         assertTrue(screenSource.contains("isWaitingForAssistant"))
         assertTrue(screenSource.contains("StreamingJumpingDots("))
         assertFalse(screenSource.contains("MessageStatus.Streaming -> \"...\""))
@@ -559,7 +465,7 @@ class ChatScreenContractTest {
         val source = File("src/main/java/com/flowchat/app/presentation/chat/ChatScreen.kt").readText()
         val jumpingStart = source.indexOf("private fun StreamingJumpingDots(")
         assertTrue(jumpingStart >= 0)
-        val composerStart = source.indexOf("@OptIn(ExperimentalComposeUiApi::class)", jumpingStart)
+        val composerStart = source.indexOf("@OptIn(ExperimentalComposeUiApi::class, ExperimentalLayoutApi::class)", jumpingStart)
         val jumpingBlock = source.substring(jumpingStart, composerStart)
 
         assertTrue(jumpingBlock.contains("rememberInfiniteTransition"))
@@ -603,7 +509,7 @@ class ChatScreenContractTest {
     @Test
     fun conversationSettingsKeepsSaveButtonReachableForLongSystemPrompts() {
         val source = File("src/main/java/com/flowchat/app/presentation/chat/ChatScreen.kt").readText()
-        val sheetStart = source.indexOf("private fun ConversationSettingsSheet(")
+        val sheetStart = source.indexOf("internal fun ConversationSettingsSheet(")
         val sheetEnd = source.indexOf("private fun Conversation.displayTitle", sheetStart)
         val sheetBlock = source.substring(sheetStart, sheetEnd)
         val promptFieldStart = sheetBlock.indexOf("label = { Text(stringResource(R.string.system_prompt)) }")
@@ -638,19 +544,19 @@ class ChatScreenContractTest {
         val databaseSource = File("src/main/java/com/flowchat/app/data/db/FlowChatDatabase.kt").readText()
         val appModuleSource = File("src/main/java/com/flowchat/app/di/AppModule.kt").readText()
 
-        assertTrue(databaseSource.contains("version = 6"))
+        assertTrue(databaseSource.contains("version = 9"))
         assertTrue(databaseSource.contains("MIGRATION_1_2"))
         assertTrue(databaseSource.contains("ALTER TABLE conversations ADD COLUMN assistantName TEXT NOT NULL DEFAULT ''"))
         assertTrue(databaseSource.contains("ALTER TABLE conversations ADD COLUMN assistantAvatarPath TEXT"))
         assertTrue(databaseSource.contains("MIGRATION_2_3"))
-        assertTrue(appModuleSource.contains(".addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)"))
+        assertTrue(appModuleSource.contains(".addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9)"))
         assertFalse(appModuleSource.contains("fallbackToDestructiveMigration"))
     }
 
     @Test
     fun conversationSettingsIncludesAssistantAvatarPickerAndNickname() {
         val source = File("src/main/java/com/flowchat/app/presentation/chat/ChatScreen.kt").readText()
-        val sheetStart = source.indexOf("private fun ConversationSettingsSheet(")
+        val sheetStart = source.indexOf("internal fun ConversationSettingsSheet(")
         val sheetEnd = source.indexOf("private fun Conversation.displayTitle", sheetStart)
         val sheetBlock = source.substring(sheetStart, sheetEnd)
 
@@ -677,12 +583,12 @@ class ChatScreenContractTest {
         val titleEnd = source.indexOf("navigationIcon =", titleStart)
         val titleBlock = source.substring(titleStart, titleEnd)
         val bubbleStart = source.indexOf("private fun MessageBubble(")
-        val bubbleEnd = source.indexOf("@OptIn(ExperimentalComposeUiApi::class)", bubbleStart)
+        val bubbleEnd = source.indexOf("@OptIn(ExperimentalComposeUiApi::class, ExperimentalLayoutApi::class)", bubbleStart)
         val bubbleBlock = source.substring(bubbleStart, bubbleEnd)
 
-        assertTrue(titleBlock.contains("displayAssistantTitle()"))
+        assertTrue(titleBlock.contains("assistantName?.takeIf"))
         assertTrue(source.contains("MessageList(messages = state.messages, assistantAvatarPath = state.currentConversation?.assistantAvatarPath"))
-        assertTrue(source.contains("private fun MessageBubble(message: Message, assistantAvatarPath: String?, userAvatarPath: String?, showAvatars: Boolean)"))
+        assertTrue(source.contains("private fun MessageBubble(message: Message, assistantAvatarPath: String?, userAvatarPath: String?, showAvatars: Boolean, reasoning: Message?)"))
         assertTrue(bubbleBlock.contains("AssistantAvatar("))
         assertTrue(bubbleBlock.contains("if (isUser)"))
         assertTrue(bubbleBlock.contains("Column("))
@@ -698,7 +604,7 @@ class ChatScreenContractTest {
         val appModuleSource = File("src/main/java/com/flowchat/app/di/AppModule.kt").readText()
         val strings = File("src/main/res/values/strings.xml").readText()
         val zhStrings = File("src/main/res/values-zh-rCN/strings.xml").readText()
-        val sheetStart = source.indexOf("private fun ConversationSettingsSheet(")
+        val sheetStart = source.indexOf("internal fun ConversationSettingsSheet(")
         val sheetEnd = source.indexOf("private fun AssistantProfileEditor", sheetStart)
         val sheetBlock = source.substring(sheetStart, sheetEnd)
         val bubbleStart = source.indexOf("private fun MessageBubble(")
@@ -708,10 +614,10 @@ class ChatScreenContractTest {
         assertTrue(modelSource.contains("val showAvatars: Boolean = false"))
         assertTrue(entitySource.contains("val showAvatars: Boolean"))
         assertTrue(entitySource.contains("showAvatars = showAvatars"))
-        assertTrue(databaseSource.contains("version = 6"))
+        assertTrue(databaseSource.contains("version = 9"))
         assertTrue(databaseSource.contains("MIGRATION_2_3"))
         assertTrue(databaseSource.contains("ALTER TABLE conversations ADD COLUMN showAvatars INTEGER NOT NULL DEFAULT 0"))
-        assertTrue(appModuleSource.contains(".addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)"))
+        assertTrue(appModuleSource.contains(".addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9)"))
         assertTrue(sheetBlock.contains("var showAvatars by remember(conversation.id) { mutableStateOf(conversation.showAvatars) }"))
         assertTrue(sheetBlock.contains("Switch("))
         assertTrue(sheetBlock.contains("checked = showAvatars"))
@@ -719,7 +625,7 @@ class ChatScreenContractTest {
         assertTrue(sheetBlock.contains("R.string.show_avatars"))
         assertTrue(sheetBlock.contains("onSave(assistantName, assistantAvatarPath, showAvatars, prompt"))
         assertTrue(source.contains("MessageList(messages = state.messages, assistantAvatarPath = state.currentConversation?.assistantAvatarPath, userAvatarPath = userAvatarPath, showAvatars = state.currentConversation?.showAvatars == true"))
-        assertTrue(source.contains("private fun MessageBubble(message: Message, assistantAvatarPath: String?, userAvatarPath: String?, showAvatars: Boolean)"))
+        assertTrue(source.contains("private fun MessageBubble(message: Message, assistantAvatarPath: String?, userAvatarPath: String?, showAvatars: Boolean, reasoning: Message?)"))
         assertTrue(bubbleBlock.contains("if (showAvatars)"))
         assertTrue(bubbleBlock.contains("if (isUser)"))
         assertTrue(bubbleBlock.contains("ProfileAvatar("))
@@ -729,7 +635,7 @@ class ChatScreenContractTest {
     }
 
     @Test
-    fun composerRemovesDeepThinkingControlAndMessagesRenderReasoningContent() {
+    fun composerHasThinkingControlAndMessagesRenderReasoningContent() {
         val source = File("src/main/java/com/flowchat/app/presentation/chat/ChatScreen.kt").readText()
         val viewModelSource = File("src/main/java/com/flowchat/app/presentation/chat/ChatViewModel.kt").readText()
         val requestFactorySource = File("src/main/java/com/flowchat/app/domain/chat/ChatRequestFactory.kt").readText()
@@ -741,7 +647,7 @@ class ChatScreenContractTest {
         val appModuleSource = File("src/main/java/com/flowchat/app/di/AppModule.kt").readText()
         val strings = File("src/main/res/values/strings.xml").readText()
         val zhStrings = File("src/main/res/values-zh-rCN/strings.xml").readText()
-        val sheetStart = source.indexOf("private fun ConversationSettingsSheet(")
+        val sheetStart = source.indexOf("internal fun ConversationSettingsSheet(")
         val sheetEnd = source.indexOf("private fun AssistantProfileEditor", sheetStart)
         val sheetBlock = source.substring(sheetStart, sheetEnd)
         val bubbleStart = source.indexOf("private fun MessageBubble(")
@@ -750,11 +656,11 @@ class ChatScreenContractTest {
         val bottomBarStart = source.indexOf("bottomBar = {")
         val bottomBarEnd = source.indexOf(") { padding ->", bottomBarStart)
         val bottomBarBlock = source.substring(bottomBarStart, bottomBarEnd)
-        val composerStart = source.indexOf("private fun MessageComposer(")
+        val composerStart = source.indexOf("internal fun MessageComposer(")
         val composerEnd = source.indexOf("@OptIn(ExperimentalMaterial3Api::class)", composerStart)
         val composerBlock = source.substring(composerStart, composerEnd)
 
-        assertTrue(modelSource.contains("val enableThinking: Boolean = false"))
+        assertTrue(modelSource.contains("val enableThinking: Boolean = true"))
         assertTrue(entitySource.contains("val enableThinking: Boolean"))
         assertTrue(entitySource.contains("enableThinking = enableThinking"))
         assertTrue(messageSource.contains("val reasoningContent: String = \"\""))
@@ -763,17 +669,17 @@ class ChatScreenContractTest {
         assertTrue(messageEntitySource.contains("val reasoningDurationMillis: Long"))
         assertTrue(messageEntitySource.contains("reasoningContent = reasoningContent"))
         assertTrue(messageEntitySource.contains("reasoningDurationMillis = reasoningDurationMillis"))
-        assertTrue(databaseSource.contains("version = 6"))
+        assertTrue(databaseSource.contains("version = 9"))
         assertTrue(databaseSource.contains("MIGRATION_3_4"))
         assertTrue(databaseSource.contains("ALTER TABLE conversations ADD COLUMN enableThinking INTEGER NOT NULL DEFAULT 0"))
         assertTrue(databaseSource.contains("ALTER TABLE messages ADD COLUMN reasoningContent TEXT NOT NULL DEFAULT ''"))
         assertTrue(databaseSource.contains("MIGRATION_4_5"))
         assertTrue(databaseSource.contains("ALTER TABLE messages ADD COLUMN reasoningDurationMillis INTEGER NOT NULL DEFAULT 0"))
-        assertTrue(appModuleSource.contains(".addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)"))
+        assertTrue(appModuleSource.contains(".addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9)"))
         assertFalse(sheetBlock.contains("var enableThinking"))
         assertFalse(sheetBlock.contains("R.string.deep_thinking"))
         assertFalse(sheetBlock.contains("checked = enableThinking"))
-        assertFalse(sheetBlock.contains("onCheckedChange = { enableThinking = it }"))
+        assertTrue(composerBlock.contains("ThinkingModeControl("))
         assertTrue(sheetBlock.contains("onSave(assistantName, assistantAvatarPath, showAvatars, prompt"))
         assertFalse(bottomBarBlock.contains("thinkingEnabled ="))
         assertFalse(bottomBarBlock.contains("onToggleThinking"))
@@ -786,10 +692,10 @@ class ChatScreenContractTest {
         assertFalse(composerBlock.contains("Icons.Filled.Psychology"))
         assertFalse(source.contains("private fun DeepThinkingIcon("))
         assertFalse(viewModelSource.contains("fun toggleThinking()"))
-        assertTrue(requestFactorySource.contains("enableThinking = true"))
+        assertTrue(requestFactorySource.contains("enableThinking = conversation.enableThinking"))
         assertTrue(bubbleBlock.contains("message.reasoningContent"))
         assertTrue(bubbleBlock.contains("ReasoningBubble("))
-        assertTrue(bubbleBlock.contains("val hasReasoning = !isUser && message.reasoningContent.isNotBlank()"))
+        assertTrue(bubbleBlock.contains("val hasReasoning = !isUser && reasoning != null"))
         assertTrue(bubbleBlock.contains("val isWaitingForAssistant ="))
         assertTrue(bubbleBlock.contains("message.content.isBlank() && !hasReasoning"))
         assertTrue(bubbleBlock.contains("val shouldShowContentBubble ="))
@@ -824,8 +730,8 @@ class ChatScreenContractTest {
     @Test
     fun avatarEditPencilButtonsSlightlyOverlapAvatarCornerWithGrayFillAndWhitePencil() {
         val source = File("src/main/java/com/flowchat/app/presentation/chat/ChatScreen.kt").readText()
-        val userSheetStart = source.indexOf("private fun UserProfileSheet(")
-        val userSheetEnd = source.indexOf("private fun AppSettingsSheet(", userSheetStart)
+        val userSheetStart = source.indexOf("internal fun UserProfileSheet(")
+        val userSheetEnd = source.indexOf("internal fun AppSettingsSheet(", userSheetStart)
         val userSheetBlock = source.substring(userSheetStart, userSheetEnd)
         val assistantEditorStart = source.indexOf("private fun AssistantProfileEditor(")
         val assistantEditorEnd = source.indexOf("private fun AvatarEditButton", assistantEditorStart)
@@ -885,22 +791,22 @@ class ChatScreenContractTest {
         assertTrue(zhStrings.contains("<string name=\"select_text\">选取文字</string>"))
     }
     @Test
-    fun assistantReplyContentBubbleUsesTransparentContainerWhileUserBubbleRemainsFilled() {
+    fun paperMessagesUseTransparentSurfacesAndUserUnderline() {
         val source = File("src/main/java/com/flowchat/app/presentation/chat/ChatScreen.kt").readText()
         val bubbleStart = source.indexOf("private fun MessageBubble(")
         val bubbleEnd = source.indexOf("private fun StreamingJumpingDots", bubbleStart)
         val bubbleBlock = source.substring(bubbleStart, bubbleEnd)
 
-        assertTrue(bubbleBlock.contains("val bubbleColor = if (isUser) {"))
-        assertTrue(bubbleBlock.contains("MaterialTheme.colorScheme.secondaryContainer"))
-        assertTrue(bubbleBlock.contains("Color.Transparent"))
+        assertTrue(bubbleBlock.contains("val bubbleColor = Color.Transparent"))
+        assertTrue(bubbleBlock.contains("if (isUser) drawLine(messageRule"))
+        assertTrue(bubbleBlock.contains("MaterialTheme.colorScheme.onBackground"))
         assertFalse(bubbleBlock.contains("MaterialTheme.colorScheme.surfaceVariant\n    }"))
         assertTrue(bubbleBlock.contains("containerColor = bubbleColor"))
         assertTrue(bubbleBlock.contains("contentColor = bubbleContentColor"))
     }
 
     @Test
-    fun messageBubbleShowsSystemTimeBelowEachDialogBubble() {
+    fun messageTimeRemainsAvailableInsideMessageActions() {
         val source = File("src/main/java/com/flowchat/app/presentation/chat/ChatScreen.kt").readText()
         val bubbleStart = source.indexOf("private fun MessageBubble(")
         val bubbleEnd = source.indexOf("private fun StreamingJumpingDots", bubbleStart)
@@ -912,7 +818,7 @@ class ChatScreenContractTest {
         assertTrue(bubbleBlock.contains("text = messageTime"))
         assertTrue(bubbleBlock.contains("style = MaterialTheme.typography.labelSmall"))
         assertTrue(bubbleBlock.contains("color = MaterialTheme.colorScheme.onSurfaceVariant"))
-        assertTrue(bubbleBlock.contains(".align(if (isUser) Alignment.End else Alignment.Start)"))
+        assertTrue(bubbleBlock.indexOf("Text(messageTime,") > bubbleBlock.indexOf("expanded = showMessageActions"))
         assertTrue(source.contains("private fun formatMessageTime(context: Context, timestampMillis: Long): String"))
         assertTrue(source.contains("android.text.format.DateFormat.getTimeFormat(context)"))
         assertTrue(source.contains("Date(timestampMillis)"))
@@ -921,18 +827,19 @@ class ChatScreenContractTest {
     @Test
     fun messageListAnimatesOnlyForNewMessagesAndSnapsForStreamingUpdates() {
         val source = File("src/main/java/com/flowchat/app/presentation/chat/ChatScreen.kt").readText()
-        val listStart = source.indexOf("private fun MessageList(")
+        val listStart = source.indexOf("internal fun MessageList(")
         val listEnd = source.indexOf("@OptIn(ExperimentalFoundationApi::class)", listStart)
         val listBlock = source.substring(listStart, listEnd)
 
         assertTrue(source.contains("import androidx.compose.runtime.LaunchedEffect"))
         assertTrue(source.contains("import androidx.compose.foundation.lazy.rememberLazyListState"))
         assertTrue(listBlock.contains("val listState = rememberLazyListState()"))
-        assertTrue(listBlock.contains("val lastMessage = messages.lastOrNull()"))
-        assertTrue(listBlock.contains("LaunchedEffect(messages.size, lastMessage?.id)"))
-        assertTrue(listBlock.contains("listState.animateScrollToItem(messages.size)"))
-        assertTrue(listBlock.contains("LaunchedEffect(lastMessage?.content, lastMessage?.reasoningContent)"))
-        assertTrue(listBlock.contains("listState.scrollToItem(messages.size)"))
+        assertTrue(listBlock.contains("groupChatMessages(messages)"))
+        assertTrue(listBlock.contains("val lastMessage = displayMessages.lastOrNull()?.message"))
+        assertTrue(listBlock.contains("LaunchedEffect(displayMessages.size, lastMessage?.id)"))
+        assertTrue(listBlock.contains("listState.animateScrollToItem(displayMessages.size)"))
+        assertTrue(listBlock.contains("LaunchedEffect(lastMessage?.content, activeReasoning?.reasoningContent)"))
+        assertTrue(listBlock.contains("listState.scrollToItem(displayMessages.size)"))
         assertFalse(listBlock.contains("LaunchedEffect(messages.size, lastMessage?.id, lastMessage?.content, lastMessage?.reasoningContent)"))
         assertTrue(listBlock.contains("state = listState"))
         assertTrue(listBlock.contains("item(key = BottomMessageAnchorKey)"))
@@ -940,54 +847,16 @@ class ChatScreenContractTest {
     }
 
     @Test
-    fun composerShowsWebSearchToggleBelowInputWithSeparateOnAndOffIcons() {
+    fun composerKeepsThinkingByAttachmentAndModelPickerBelowInput() {
         val source = File("src/main/java/com/flowchat/app/presentation/chat/ChatScreen.kt").readText()
         val bottomBarStart = source.indexOf("bottomBar = {")
         val bottomBarEnd = source.indexOf(") { padding ->", bottomBarStart)
         val bottomBarBlock = source.substring(bottomBarStart, bottomBarEnd)
-        val composerStart = source.indexOf("private fun MessageComposer(")
-        val composerEnd = source.indexOf("@OptIn(ExperimentalMaterial3Api::class)", composerStart)
-        val composerBlock = source.substring(composerStart, composerEnd)
-        val strings = File("src/main/res/values/strings.xml").readText()
-        val zhStrings = File("src/main/res/values-zh-rCN/strings.xml").readText()
-
-        assertTrue(bottomBarBlock.contains("webSearchEnabled = state.webSearchEnabled"))
-        assertTrue(bottomBarBlock.contains("enabled = state.currentConversation != null"))
-        assertTrue(bottomBarBlock.contains("onToggleWebSearch = viewModel::toggleWebSearch"))
-        assertTrue(composerBlock.contains("enabled: Boolean"))
-        assertTrue(composerBlock.contains("webSearchEnabled: Boolean"))
-        assertTrue(composerBlock.contains("onToggleWebSearch: () -> Unit"))
-        assertTrue(composerBlock.contains("R.string.create_conversation_to_chat"))
-        assertTrue(composerBlock.contains("if (enabled) R.string.message_hint else R.string.create_conversation_to_chat"))
-        assertTrue(composerBlock.contains("enabled = enabled"))
-        assertTrue(composerBlock.contains("R.drawable.ic_web_search_on"))
-        assertTrue(composerBlock.contains("R.drawable.ic_web_search_off"))
-        assertTrue(composerBlock.contains("enabled = enabled && !isStreaming"))
-        assertTrue(composerBlock.contains("onClick = onToggleWebSearch"))
-        assertTrue(composerBlock.contains("WebSearchPill("))
-        assertTrue(composerBlock.contains("selected = webSearchEnabled"))
-        assertTrue(composerBlock.contains("R.string.web_search_short"))
-        assertTrue(composerBlock.contains("R.string.web_search_on"))
-        assertTrue(composerBlock.contains("R.string.web_search_off"))
-        assertTrue(strings.contains("<string name=\"create_conversation_to_chat\">Create a conversation before chatting</string>"))
-        assertTrue(zhStrings.contains("<string name=\"create_conversation_to_chat\">请新建会话再进行聊天</string>"))
-        assertTrue(File("src/main/res/drawable/ic_web_search_on.xml").exists())
-        assertTrue(File("src/main/res/drawable/ic_web_search_off.xml").exists())
-        assertFalse(File("src/main/res/drawable-nodpi/web_search_on.png").exists())
-        assertFalse(File("src/main/res/drawable-nodpi/web_search_off.png").exists())
-    }
-
-    @Test
-    fun composerShowsConfiguredModelSwitcherBeforeWebSearch() {
-        val source = File("src/main/java/com/flowchat/app/presentation/chat/ChatScreen.kt").readText()
-        val bottomBarStart = source.indexOf("bottomBar = {")
-        val bottomBarEnd = source.indexOf(") { padding ->", bottomBarStart)
-        val bottomBarBlock = source.substring(bottomBarStart, bottomBarEnd)
-        val composerStart = source.indexOf("private fun MessageComposer(")
+        val composerStart = source.indexOf("internal fun MessageComposer(")
         val composerEnd = source.indexOf("@OptIn(ExperimentalMaterial3Api::class)", composerStart)
         val composerBlock = source.substring(composerStart, composerEnd)
         val modelSwitchStart = source.indexOf("private fun ModelSwitchButton(")
-        val modelSwitchEnd = source.indexOf("private fun WebSearchPill(", modelSwitchStart)
+        val modelSwitchEnd = source.indexOf("private fun configuredModelOptions(", modelSwitchStart)
         val modelSwitchBlock = source.substring(modelSwitchStart, modelSwitchEnd)
         val optionsStart = source.indexOf("private fun configuredModelOptions(")
         val optionsEnd = source.indexOf("private data class ComposerModelOption", optionsStart)
@@ -1003,24 +872,22 @@ class ChatScreenContractTest {
         assertTrue(composerBlock.contains("onSelectModel: (ProviderConfig, String) -> Unit"))
         assertTrue(composerBlock.contains("val modelOptions = remember(providers) { configuredModelOptions(providers) }"))
         assertTrue(composerBlock.contains("val currentProvider = providers.firstOrNull { provider -> provider.id == currentConversation?.providerId }"))
-        assertTrue(composerBlock.indexOf("ModelSwitchButton(") < composerBlock.indexOf("WebSearchPill("))
+        assertTrue(composerBlock.indexOf("ModelSwitchButton(") > composerBlock.indexOf("ThinkingModeControl("))
         assertTrue(composerBlock.contains("enabled = enabled && !isStreaming && modelOptions.isNotEmpty()"))
         assertTrue(composerBlock.contains("onSelectModel = onSelectModel"))
-        assertTrue(source.contains("private val ComposerToolHeight = 34.dp"))
+        assertTrue(source.contains("private val ComposerToolHeight = 48.dp"))
         assertTrue(modelSwitchBlock.contains("var expanded by remember { mutableStateOf(false) }"))
-        assertTrue(modelSwitchBlock.contains(".size(ComposerToolHeight)"))
+        assertTrue(modelSwitchBlock.contains(".heightIn(min = ComposerToolHeight)"))
         assertFalse(modelSwitchBlock.contains("IconButton("))
         assertTrue(modelSwitchBlock.contains(".clickable(enabled = enabled) { expanded = true }"))
         assertTrue(modelSwitchBlock.contains("DropdownMenu("))
         assertTrue(modelSwitchBlock.contains("DropdownMenuItem("))
         assertTrue(modelSwitchBlock.contains("ProviderLogoImage("))
-        assertTrue(modelSwitchBlock.contains("providerName = currentProvider?.displayName"))
+        assertTrue(modelSwitchBlock.contains("currentModelName?.takeIf"))
         assertTrue(modelSwitchBlock.contains("option.provider.displayName"))
         assertTrue(modelSwitchBlock.contains("option.modelName"))
         assertTrue(modelSwitchBlock.contains("onSelectModel(option.provider, option.modelName)"))
         assertTrue(modelSwitchBlock.contains("R.string.switch_model"))
-        assertTrue(source.contains(".height(ComposerToolHeight)"))
-        assertTrue(source.contains("RoundedCornerShape(ComposerToolHeight / 2)"))
         assertTrue(optionsBlock.contains("providers.asSequence()"))
         assertTrue(optionsBlock.contains("filter { provider -> provider.isEnabled }"))
         assertTrue(optionsBlock.contains("filter { provider -> provider.baseUrl.isNotBlank() }"))
@@ -1029,7 +896,7 @@ class ChatScreenContractTest {
         assertTrue(optionsBlock.contains("recognizedProviderModelNames(provider).map { modelName ->"))
         assertTrue(optionsBlock.contains("ComposerModelOption(provider = provider, modelName = modelName)"))
         assertTrue(source.contains("private fun recognizedProviderModelNames(provider: ProviderConfig): List<String>"))
-        assertTrue(source.contains("listOf(provider.defaultModel.trim(), \"deepseek-v4-pro\", \"deepseek-v4-flash\")"))
+        assertTrue(source.contains("listOf(provider.defaultModel.trim(), \"deepseek-flash\", \"deepseek-v4-pro\", \"deepseek-v4-flash\")"))
         assertTrue(source.contains("distinctBy { modelName -> modelName.lowercase() }"))
         assertTrue(source.contains("private fun providerLogoRes(providerName: String?): Int?"))
         assertTrue(source.contains("val logoRes = providerLogoRes(providerName)"))
@@ -1044,56 +911,20 @@ class ChatScreenContractTest {
     }
 
     @Test
-    fun composerSendButtonUsesInputAwareColorAndStreamingStopIcon() {
+    fun composerPreservesSendStopAndEmptyInputGuards() {
         val source = File("src/main/java/com/flowchat/app/presentation/chat/ChatScreen.kt").readText()
-        val composerStart = source.indexOf("private fun MessageComposer(")
-        val composerEnd = source.indexOf("@OptIn(ExperimentalMaterial3Api::class)", composerStart)
-        val composerBlock = source.substring(composerStart, composerEnd)
-        val sendButtonStart = composerBlock.lastIndexOf("IconButton(", composerBlock.indexOf("ModelSwitchButton("))
-        val sendButtonEnd = composerBlock.indexOf("Row(", sendButtonStart)
-        val sendButtonBlock = composerBlock.substring(sendButtonStart, sendButtonEnd)
-
-        assertTrue(composerBlock.contains("val hasInput = value.isNotBlank() || pendingAttachment != null"))
-        assertTrue(composerBlock.contains("val isDarkBackground = MaterialTheme.colorScheme.background.luminance() < 0.5f"))
-        assertTrue(composerBlock.contains("val sendIconColor = when {"))
-        assertTrue(composerBlock.contains("isStreaming -> Color(0xFFFF5A3D)"))
-        assertTrue(composerBlock.contains("hasInput -> MaterialTheme.colorScheme.onSurface"))
-        assertTrue(composerBlock.contains("isDarkBackground -> Color(0xFF8C929A)"))
-        assertTrue(composerBlock.contains("else -> Color(0xFFB8BCC4)"))
-        assertTrue(sendButtonBlock.contains("onClick = if (isStreaming) onStop else ::submitMessage"))
-        assertTrue(sendButtonBlock.contains("enabled = enabled || isStreaming"))
-        assertTrue(sendButtonBlock.contains(".size(40.dp)"))
-        assertFalse(sendButtonBlock.contains(".background("))
-        assertFalse(sendButtonBlock.contains("CircleShape"))
-        assertTrue(sendButtonBlock.contains("if (isStreaming) {"))
-        assertTrue(sendButtonBlock.contains("StreamingStopIcon("))
-        assertTrue(sendButtonBlock.contains("SendPaperPlaneIcon("))
-        assertFalse(sendButtonBlock.contains("Icons.AutoMirrored.Filled.Send"))
-        assertFalse(source.contains("import androidx.compose.material.icons.automirrored.filled.Send"))
-        assertTrue(source.contains("private fun SendPaperPlaneIcon("))
-        assertTrue(source.contains("val tail = Offset(size.width * 0.18f, size.height * 0.58f)"))
-        assertTrue(source.contains("val tip = Offset(size.width * 0.84f, size.height * 0.30f)"))
-        assertTrue(source.contains("val lowerWing = Offset(size.width * 0.61f, size.height * 0.77f)"))
-        assertTrue(source.contains("val innerFold = Offset(size.width * 0.50f, size.height * 0.59f)"))
-        assertTrue(source.contains("drawCircle(\n            color = color,\n            radius = size.minDimension * 0.035f"))
-        assertFalse(source.contains("rotate(degrees = -30f)"))
-        assertFalse(source.contains("val shadow = Color.Black.copy"))
-        assertFalse(source.contains("val highlight = Color.White.copy"))
-        assertTrue(source.contains("Color(0xFFFF5A3D)"))
-        assertFalse(source.contains("Color(0xFFB83224)"))
-        assertFalse(source.contains("Color(0xFFFF9A6B)"))
-        assertTrue(source.contains("private fun StreamingStopIcon("))
-        assertTrue(source.contains("drawCircle(\n            color = mainColor"))
-        assertTrue(source.contains("style = Stroke(width = ringStrokeWidth)"))
-        assertTrue(source.contains("val stopSide = size.minDimension * 0.28f"))
-        assertTrue(source.contains("val corner = CornerRadius(1.65.dp.toPx(), 1.65.dp.toPx())"))
-        assertTrue(source.contains("cornerRadius = corner"))
+        val composer = source.substring(source.indexOf("internal fun MessageComposer("),
+            source.indexOf("private fun ModelSwitchButton("))
+        assertTrue(composer.contains("val hasInput = value.isNotBlank() || pendingAttachment != null"))
+        assertTrue(composer.contains("if (value.isBlank() && pendingAttachment == null) return"))
+        assertTrue(composer.contains("onClick = if (isStreaming) onStop else ::submitMessage"))
+        assertTrue(composer.contains("enabled = (enabled && hasInput && !isAttachmentLoading) || isStreaming"))
     }
 
     @Test
     fun composerClearsTextFieldAfterSubmittingMessage() {
         val source = File("src/main/java/com/flowchat/app/presentation/chat/ChatScreen.kt").readText()
-        val composerStart = source.indexOf("private fun MessageComposer(")
+        val composerStart = source.indexOf("internal fun MessageComposer(")
         val composerEnd = source.indexOf("@OptIn(ExperimentalMaterial3Api::class)", composerStart)
         val composerBlock = source.substring(composerStart, composerEnd)
 
@@ -1104,33 +935,6 @@ class ChatScreenContractTest {
         assertTrue(composerBlock.contains("onValueChange(\"\")"))
         assertTrue(composerBlock.contains("keyboardActions = KeyboardActions(onSend = { submitMessage() })"))
         assertTrue(composerBlock.contains("onClick = if (isStreaming) onStop else ::submitMessage"))
-    }
-
-    @Test
-    fun chatViewModelExposesWebSearchAsAutonomousToolWhenWebSearchIsEnabled() {
-        val source = File("src/main/java/com/flowchat/app/presentation/chat/ChatViewModel.kt").readText()
-
-        assertTrue(source.contains("private val webSearchEnabled = MutableStateFlow(false)"))
-        assertTrue(source.contains("webSearchEnabled = webSearchEnabledValue"))
-        assertTrue(source.contains("fun toggleWebSearch()"))
-        assertTrue(source.contains("if (isStreaming.value) return"))
-        assertTrue(source.contains("webSearchSettingsRepository.getTavilyApiKey()"))
-        assertTrue(source.contains("AgentToolDefinitions.withLifestyleTools("))
-        assertTrue(source.contains("is ChatDelta.ToolCalls ->"))
-        assertTrue(source.contains("private suspend fun executeToolCalls("))
-        assertTrue(source.contains("webSearchClient.search(query, tavilyApiKey, installId)"))
-        assertTrue(source.contains("role = \"tool\""))
-        assertTrue(source.contains("toolCallId = call.id"))
-        assertTrue(source.contains("WebSearchContextFormatter.format(searchResult)"))
-        assertTrue(source.contains("promptProfileRepository.getActiveProfile()"))
-        assertTrue(source.contains("memoryRepository.retrieve(text, activeProfile.memory.topN)"))
-        assertTrue(source.contains("MemoryContextFormatter.format("))
-        assertTrue(source.contains("ChatRequestFactory.create("))
-        assertTrue(source.contains("activeProfile.thinkingFormat"))
-        assertTrue(source.contains("saveMemoryIfEnabled(activeProfile, text, content)"))
-        assertTrue(source.contains("memoryRepository.saveTurn(userMessage, assistantReply)"))
-        assertFalse(source.contains("Tavily API key is not configured."))
-        assertTrue(source.contains("No web search results found."))
     }
 
     @Test
@@ -1171,7 +975,7 @@ class ChatScreenContractTest {
     }
 
     @Test
-    fun chatViewModelDisplaysBatchedReasoningBeforeFinalContentIncrementally() {
+    fun chatViewModelKeepsReasoningSeparateWithoutArtificialTypingDelays() {
         val source = File("src/main/java/com/flowchat/app/presentation/chat/ChatViewModel.kt").readText()
         val reasoningBranchStart = source.indexOf("is ChatDelta.Reasoning ->")
         val fullResponseBranchStart = source.indexOf("is ChatDelta.FullResponse ->")
@@ -1181,14 +985,12 @@ class ChatScreenContractTest {
 
         assertTrue(source.contains("private suspend fun appendReasoningDelta("))
         assertTrue(source.contains("private suspend fun appendContentDelta("))
-        assertTrue(source.contains("private fun String.displayChunks()"))
-        assertTrue(source.contains("BatchedReasoningToContentPauseMillis"))
-        assertTrue(source.contains("IncrementalDisplayDelayMillis"))
+        assertFalse(source.contains("private fun String.displayChunks()"))
+        assertFalse(source.contains("BatchedReasoningToContentPauseMillis"))
+        assertFalse(source.contains("IncrementalDisplayDelayMillis"))
         assertTrue(reasoningBranch.contains("appendReasoningDelta("))
         assertFalse(reasoningBranch.contains("reasoningContent += delta.text"))
-        assertTrue(fullResponseBranch.indexOf("appendReasoningDelta(") < fullResponseBranch.indexOf("delay(BatchedReasoningToContentPauseMillis)"))
-        assertTrue(fullResponseBranch.indexOf("delay(BatchedReasoningToContentPauseMillis)") < fullResponseBranch.indexOf("appendContentDelta("))
-        assertTrue(source.contains("if (content.isBlank() && reasoningContent.isNotBlank())"))
+        assertTrue(fullResponseBranch.indexOf("appendReasoningDelta(") < fullResponseBranch.indexOf("appendContentDelta("))
     }
 
     @Test
@@ -1200,9 +1002,9 @@ class ChatScreenContractTest {
 
         assertTrue(source.contains("import androidx.compose.ui.platform.LocalConfiguration"))
         assertTrue(bubbleBlock.contains("val screenWidth = LocalConfiguration.current.screenWidthDp.dp"))
-        assertTrue(bubbleBlock.contains("val assistantMaxWidth = maxOf(220.dp, screenWidth - 18.dp)"))
+        assertTrue(bubbleBlock.contains("val assistantMaxWidth = minOf(FlowLayout.ContentWidth - FlowLayout.Gutter * 2, screenWidth - FlowLayout.Gutter * 2)"))
         assertTrue(bubbleBlock.contains("val bubbleMaxWidth = if (isUser)"))
-        assertTrue(bubbleBlock.contains("if (showAvatars) 286.dp else 320.dp"))
+        assertTrue(bubbleBlock.contains("minOf(480.dp, assistantMaxWidth * .9f - if (showAvatars) 46.dp else 0.dp)"))
         assertTrue(bubbleBlock.contains("assistantMaxWidth"))
         assertTrue(bubbleBlock.contains("if (isUser)"))
         assertTrue(bubbleBlock.contains("Column("))

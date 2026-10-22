@@ -207,6 +207,7 @@ class AgentToolDefinitionsTest {
         assertEquals(
             listOf(
                 AgentToolDefinitions.ObserveScreenToolName,
+                AgentToolDefinitions.WaitForScreenToolName,
                 AgentToolDefinitions.TapUiElementToolName,
                 AgentToolDefinitions.InputTextToolName,
                 AgentToolDefinitions.SwipeScreenToolName,
@@ -222,6 +223,8 @@ class AgentToolDefinitionsTest {
             result.tools.first { it.name == AgentToolDefinitions.InputTextToolName }.parameters
         )
         assertTrue(tapPayload.contains("\"index\""))
+        assertTrue(tapPayload.contains("\"screen_id\""))
+        assertTrue(inputPayload.contains("\"screen_id\""))
         assertTrue(tapPayload.contains("\"long_press\""))
         assertTrue(inputPayload.contains("\"clear_existing\""))
         val guidance = result.messages.first { it.role == "system" }.content.orEmpty()

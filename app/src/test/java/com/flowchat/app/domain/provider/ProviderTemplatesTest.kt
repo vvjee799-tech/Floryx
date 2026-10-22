@@ -21,7 +21,7 @@ class ProviderTemplatesTest {
 
         assertEquals(
             listOf("preset-chatgpt", "preset-deepseek", "preset-gemini"),
-            presets.map { it.id }
+            presets.take(3).map { it.id }
         )
         assertTrue(presets.all { it.displayName.isNotBlank() })
         assertTrue(presets.all { it.baseUrl.startsWith("https://") })
@@ -32,7 +32,7 @@ class ProviderTemplatesTest {
         assertEquals("DeepSeek", presets[1].displayName)
         assertEquals("https://api.deepseek.com", presets[1].baseUrl)
         assertEquals("deepseek-v4-flash", presets[1].defaultModel)
-        assertTrue(presets.none { it.baseUrl.contains("api.anthropic.com") })
+        assertTrue(presets.any { it.baseUrl == "https://api.anthropic.com/v1" })
         assertTrue(presets.all { it.iconResName == null })
     }
 }

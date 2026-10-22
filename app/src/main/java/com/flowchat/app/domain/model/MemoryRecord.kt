@@ -8,5 +8,11 @@ data class MemoryRecord(
     val goal: String,
     val summary: String,
     val quality: String,
-    val timestamp: Long
+    val timestamp: Long,
+    val key: String = "",
+    val category: String = "",
+    val formatVersion: Int = 0
 )
+
+data class MemoryDraft(val key: String, val category: String, val summary: String)
+data class MemorySnapshot(val records: List<MemoryRecord>, val revision: Long)

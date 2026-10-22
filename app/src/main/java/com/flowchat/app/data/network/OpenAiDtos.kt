@@ -5,9 +5,22 @@ package com.flowchat.app.data.network
 import com.flowchat.app.domain.model.ChatRequest
 import com.flowchat.app.domain.model.ChatRequestMessage
 import com.flowchat.app.domain.model.ProviderConfig
+import com.flowchat.app.domain.model.ThinkingEffort
+import com.flowchat.app.domain.provider.ThinkingStyle
+import com.flowchat.app.domain.provider.ThinkingSupport
+import com.flowchat.app.domain.provider.apiHost
 import kotlinx.serialization.EncodeDefault
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonArray
+import kotlinx.serialization.json.add
+import kotlinx.serialization.json.jsonObject
 
 @Serializable
 data class OpenAiChatCompletionRequest(
@@ -15,10 +28,17 @@ data class OpenAiChatCompletionRequest(
     val messages: List<OpenAiChatMessage>,
     @EncodeDefault
     val stream: Boolean = true,
-    val temperature: Double,
-    @SerialName("top_p") val topP: Double,
+    val temperature: Double? = null,
+    @SerialName("top_p") val topP: Double? = null,
     @SerialName("max_tokens") val maxTokens: Int? = null,
     val thinking: OpenAiThinkingConfig? = null,
+    @SerialName("reasoning_effort") val reasoningEffort: String? = null,
+    @SerialName("enable_thinking") val enableThinking: Boolean? = null,
+    @SerialName("thinking_budget") val thinkingBudget: Int? = null,
+    @SerialName("max_completion_tokens") val maxCompletionTokens: Int? = null,
+    val reasoning: JsonObject? = null,
+    @SerialName("reasoning_split") val reasoningSplit: Boolean? = null,
+    @SerialName("output_config") val outputConfig: JsonObject? = null,
     val tools: List<OpenAiTool>? = null,
     @SerialName("tool_choice") val toolChoice: String? = null,
     @SerialName("parallel_tool_calls") val parallelToolCalls: Boolean? = null
@@ -27,15 +47,17 @@ data class OpenAiChatCompletionRequest(
 @Serializable
 data class OpenAiChatMessage(
     val role: String,
-    val content: String? = null,
+    val content: JsonElement? = null,
     @SerialName("reasoning_content") val reasoningContent: String? = null,
+    @SerialName("reasoning_details") val reasoningDetails: JsonArray? = null,
     @SerialName("tool_call_id") val toolCallId: String? = null,
     @SerialName("tool_calls") val toolCalls: List<OpenAiToolCall>? = null
 )
 
 @Serializable
 data class OpenAiThinkingConfig(
-    val type: String
+    val type: String,
+    @SerialName("budget_tokens") val budgetTokens: Int? = null
 )
 
 @Serializable
@@ -66,53 +88,93 @@ data class OpenAiToolCallFunction(
     val arguments: String
 )
 
-fun ChatRequest.toOpenAiRequest(provider: ProviderConfig? = null): OpenAiChatCompletionRequest = OpenAiChatCompletionRequest(
-    model = model,
-    messages = messages.map { it.toOpenAiMessage() },
-    stream = true,
-    temperature = temperature,
-    topP = topP,
-    maxTokens = maxTokens,
-    thinking = provider.deepSeekThinkingConfig(model),
-    tools = tools.map { tool ->
-        OpenAiTool(
-            function = OpenAiToolFunction(
-                name = tool.name,
-                description = tool.description,
-                parameters = tool.parameters
+fun ChatRequest.toOpenAiRequest(provider: ProviderConfig? = null, stream: Boolean = true): OpenAiChatCompletionRequest {
+    val support = ThinkingSupport.resolve(provider, model)
+    val enabled = support.isEnabled(enableThinking)
+    val effort = support.normalize(thinkingEffort).takeUnless { it == ThinkingEffort.Auto }?.wireValue
+    val name = model.lowercase().substringAfterLast('/')
+    val host = provider?.apiHost().orEmpty()
+    val aliCloud = host.endsWith(".aliyuncs.com") && (host.contains("dashscope") || host.contains("maas"))
+    val booleanSwitch = support.style == ThinkingStyle.Qwen || (aliCloud && support.style in
+        setOf(ThinkingStyle.DeepSeek, ThinkingStyle.GLM, ThinkingStyle.Kimi))
+    val thinking = when {
+        booleanSwitch -> null
+        support.style == ThinkingStyle.DeepSeek && (name.contains("r1") || name.contains("reasoner")) -> null
+        support.style == ThinkingStyle.Kimi && (support.fixedOn || name.startsWith("kimi-k3")) -> null
+        support.style in setOf(ThinkingStyle.DeepSeek, ThinkingStyle.GLM, ThinkingStyle.Kimi, ThinkingStyle.Doubao) ->
+            OpenAiThinkingConfig(if (enabled) "enabled" else "disabled")
+        support.style == ThinkingStyle.MiniMax && !name.startsWith("minimax-m2") ->
+            OpenAiThinkingConfig(if (enabled) "adaptive" else "disabled")
+        support.style == ThinkingStyle.ClaudeAdaptive -> OpenAiThinkingConfig(if (enabled) "adaptive" else "disabled")
+        support.style == ThinkingStyle.ClaudeBudget -> if (!enabled) OpenAiThinkingConfig("disabled") else {
+            val limit = maxTokens ?: 16_384
+            require(limit > 1024) { "Thinking requires a maximum output above 1024 tokens." }
+            val budget = when (support.normalize(thinkingEffort)) { ThinkingEffort.Low -> 1024; ThinkingEffort.High -> 8192; else -> 4096 }
+            OpenAiThinkingConfig("enabled", minOf(budget, limit - 1))
+        }
+        else -> null
+    }
+    val usesEffort = support.style in setOf(ThinkingStyle.OpenAI, ThinkingStyle.Gemini, ThinkingStyle.Grok,
+        ThinkingStyle.DeepSeek, ThinkingStyle.GLM, ThinkingStyle.Kimi, ThinkingStyle.Doubao, ThinkingStyle.MiniMax) ||
+        (support.style == ThinkingStyle.Qwen && !support.usesBudget)
+    val wireEffort = if (support.style in setOf(ThinkingStyle.OpenAI, ThinkingStyle.Gemini, ThinkingStyle.Grok) && !enabled && support.canDisable) "none"
+        else if (enabled && support.style == ThinkingStyle.OpenAI && support.efforts.isNotEmpty())
+            effort ?: (ThinkingEffort.Medium.takeIf { it in support.efforts } ?: support.efforts.first()).wireValue
+        else effort.takeIf { enabled && usesEffort }
+    val omitSampling = support.style in setOf(ThinkingStyle.OpenAI, ThinkingStyle.Kimi) ||
+        (support.style == ThinkingStyle.DeepSeek && enabled)
+    val completionLimit = support.style == ThinkingStyle.OpenAI || name.startsWith("kimi-k3")
+    return OpenAiChatCompletionRequest(
+        model = model,
+        messages = messages.map { it.toOpenAiMessage(
+            replayReasoning = enabled && support.style !in setOf(ThinkingStyle.OpenAI, ThinkingStyle.Gemini, ThinkingStyle.ClaudeAdaptive, ThinkingStyle.ClaudeBudget)
+        ) },
+        stream = stream,
+        temperature = temperature.takeUnless { omitSampling },
+        topP = topP.takeUnless { omitSampling },
+        maxTokens = maxTokens.takeUnless { completionLimit },
+        maxCompletionTokens = maxTokens.takeIf { completionLimit },
+        thinking = thinking,
+        reasoningEffort = wireEffort,
+        enableThinking = enabled.takeIf { booleanSwitch },
+        thinkingBudget = if (enabled && support.usesBudget && support.style == ThinkingStyle.Qwen) when (support.normalize(thinkingEffort)) {
+            ThinkingEffort.Low -> 1024
+            ThinkingEffort.Medium -> 8192
+            ThinkingEffort.High -> 24576
+            else -> null
+        } else null,
+        reasoning = if (support.style == ThinkingStyle.OpenRouter) buildJsonObject {
+            put("enabled", enabled)
+            if (enabled && effort != null) put("effort", effort)
+        } else null,
+        reasoningSplit = true.takeIf { support.style == ThinkingStyle.MiniMax },
+        outputConfig = if (enabled && support.style == ThinkingStyle.ClaudeAdaptive && effort != null) buildJsonObject { put("effort", effort) } else null,
+        tools = tools.map { tool ->
+            OpenAiTool(
+                function = OpenAiToolFunction(
+                    name = tool.name,
+                    description = tool.description,
+                    parameters = tool.parameters
+                )
             )
-        )
-    }.takeIf { it.isNotEmpty() },
-    toolChoice = toolChoice,
-    parallelToolCalls = parallelToolCalls
-)
+        }.takeIf { it.isNotEmpty() },
+        toolChoice = toolChoice,
+        parallelToolCalls = parallelToolCalls
+    )
+}
 
-fun ChatRequest.toOpenAiRequest(provider: ProviderConfig? = null, stream: Boolean): OpenAiChatCompletionRequest = OpenAiChatCompletionRequest(
-    model = model,
-    messages = messages.map { it.toOpenAiMessage() },
-    stream = stream,
-    temperature = temperature,
-    topP = topP,
-    maxTokens = maxTokens,
-    thinking = provider.deepSeekThinkingConfig(model),
-    tools = tools.map { tool ->
-        OpenAiTool(
-            function = OpenAiToolFunction(
-                name = tool.name,
-                description = tool.description,
-                parameters = tool.parameters
-            )
-        )
-    }.takeIf { it.isNotEmpty() },
-    toolChoice = toolChoice,
-    parallelToolCalls = parallelToolCalls
-)
-
-private fun ChatRequestMessage.toOpenAiMessage(): OpenAiChatMessage =
+private fun ChatRequestMessage.toOpenAiMessage(replayReasoning: Boolean): OpenAiChatMessage =
     OpenAiChatMessage(
         role = role,
-        content = content,
-        reasoningContent = reasoningContent,
+        content = if (images.isEmpty()) content?.let(::JsonPrimitive) else buildJsonArray {
+            if (!content.isNullOrBlank()) add(buildJsonObject { put("type", "text"); put("text", content) })
+            images.forEach { image -> add(buildJsonObject {
+                put("type", "image_url")
+                put("image_url", buildJsonObject { put("url", image.dataUrl) })
+            }) }
+        },
+        reasoningContent = reasoningContent.takeIf { replayReasoning },
+        reasoningDetails = (providerData?.firstOrNull()?.jsonObject?.get("reasoning_details") as? JsonArray).takeIf { replayReasoning },
         toolCallId = toolCallId,
         toolCalls = toolCalls.map { call ->
             OpenAiToolCall(
@@ -124,14 +186,3 @@ private fun ChatRequestMessage.toOpenAiMessage(): OpenAiChatMessage =
             )
         }.takeIf { it.isNotEmpty() }
     )
-
-private fun ProviderConfig?.deepSeekThinkingConfig(model: String): OpenAiThinkingConfig? {
-    if (this == null) return null
-    val isDeepSeekApi = baseUrl.contains("api.deepseek.com", ignoreCase = true)
-    val isDeepSeekV4 = model.startsWith("deepseek-v4", ignoreCase = true)
-    return if (isDeepSeekApi && isDeepSeekV4) {
-        OpenAiThinkingConfig(type = "enabled")
-    } else {
-        null
-    }
-}

@@ -7,9 +7,11 @@ import android.app.Service
 import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.graphics.PixelFormat
+import android.hardware.input.InputManager
 import android.os.Build
 import android.os.IBinder
 import android.view.Gravity
+import android.view.View
 import android.view.WindowManager
 import android.view.inputmethod.InputMethodManager
 import androidx.compose.animation.Crossfade
@@ -46,12 +48,14 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Send
 import androidx.compose.material.icons.rounded.KeyboardArrowUp
+import androidx.compose.material.icons.automirrored.rounded.Reply
 import androidx.compose.material.icons.rounded.Stop
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -105,6 +109,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 
 @AndroidEntryPoint
@@ -118,10 +123,15 @@ class FloatingAssistantService : Service(), LifecycleOwner, ViewModelStoreOwner,
     private lateinit var windowManager: WindowManager
     private lateinit var overlayView: ComposeView
     private lateinit var layoutParams: WindowManager.LayoutParams
+    private lateinit var controlsView: ComposeView
+    private lateinit var controlsLayoutParams: WindowManager.LayoutParams
     private var overlayAttached = false
+    private var controlsAttached = false
     private var visibilityJob: Job? = null
-    private var eventJob: Job? = null
     private var expanded by mutableStateOf(false)
+    private var watching by mutableStateOf(false)
+    private var automationBusy = false
+    private var anchorY = 0
     private var appearance by mutableStateOf(AppAppearance.System)
 
     override val lifecycle: Lifecycle get() = lifecycleRegistry
@@ -156,7 +166,6 @@ class FloatingAssistantService : Service(), LifecycleOwner, ViewModelStoreOwner,
     override fun onDestroy() {
         removeOverlay()
         visibilityJob?.cancel()
-        eventJob?.cancel()
         serviceScope.cancel()
         lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_PAUSE)
         lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_STOP)
@@ -169,6 +178,7 @@ class FloatingAssistantService : Service(), LifecycleOwner, ViewModelStoreOwner,
         val edgeInset = dp(8)
         val savedY = getSharedPreferences(PositionPreferences, MODE_PRIVATE)
             .getInt(PositionYKey, dp(214))
+        anchorY = savedY.coerceIn(dp(48), (resources.displayMetrics.heightPixels - dp(360)).coerceAtLeast(dp(48)))
         layoutParams = WindowManager.LayoutParams(
             WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.WRAP_CONTENT,
@@ -180,8 +190,23 @@ class FloatingAssistantService : Service(), LifecycleOwner, ViewModelStoreOwner,
         ).apply {
             gravity = Gravity.TOP or Gravity.END
             x = edgeInset
-            y = savedY
+            y = anchorY
+            setTitle(OutputWindowTitle)
             softInputMode = WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE
+        }
+        controlsLayoutParams = WindowManager.LayoutParams(
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
+                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+            PixelFormat.TRANSLUCENT
+        ).apply {
+            gravity = Gravity.TOP or Gravity.END
+            x = edgeInset
+            y = anchorY
+            setTitle(ControlsWindowTitle)
         }
         overlayView = ComposeView(this).apply {
             setViewTreeLifecycleOwner(this@FloatingAssistantService)
@@ -195,6 +220,7 @@ class FloatingAssistantService : Service(), LifecycleOwner, ViewModelStoreOwner,
                     FloatingAssistantOverlay(
                         state = state,
                         expanded = expanded,
+                        watching = watching,
                         onExpand = { updateExpanded(true) },
                         onCollapse = { updateExpanded(false) },
                         onDrag = ::moveVertically,
@@ -207,24 +233,46 @@ class FloatingAssistantService : Service(), LifecycleOwner, ViewModelStoreOwner,
                 }
             }
         }
+        controlsView = ComposeView(this).apply {
+            setViewTreeLifecycleOwner(this@FloatingAssistantService)
+            setViewTreeViewModelStoreOwner(this@FloatingAssistantService)
+            setViewTreeSavedStateRegistryOwner(this@FloatingAssistantService)
+            setBackgroundColor(android.graphics.Color.TRANSPARENT)
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS
+            setContent {
+                FlowChatTheme(appAppearance = appearance) {
+                    val state by bridge.state.collectAsState()
+                    WatchingAssistantControls(
+                        isStreaming = state.isStreaming,
+                        onCollapse = { updateExpanded(false) },
+                        onReply = {
+                            if (!bridge.state.value.isStreaming && !automationBusy) {
+                                watching = false
+                                updateOverlayWindows()
+                            }
+                        },
+                        onStop = bridge::stop,
+                        onDrag = ::moveVertically,
+                        onDragFinished = ::savePosition
+                    )
+                }
+            }
+        }
     }
 
     private fun observeVisibility() {
         visibilityJob = serviceScope.launch {
-            combine(bridge.state, bridge.appInForeground) { state, appInForeground ->
-                !appInForeground && state.canChat
-            }.collect { shouldShow ->
+            combine(bridge.state, bridge.appInForeground, bridge.uiInteractionCount) { state, appInForeground, interactions ->
+                Triple(!appInForeground && state.canChat, state.isStreaming, interactions > 0)
+            }.distinctUntilChanged().collect { (shouldShow, streaming, busy) ->
+                automationBusy = busy
+                // Viewing output never needs keyboard focus, including after the task finishes.
+                if (expanded && (streaming || busy)) watching = true
                 if (shouldShow && FloatingAssistantPermission.isGranted(this@FloatingAssistantService)) {
                     showOverlay()
+                    updateOverlayWindows()
                 } else {
                     removeOverlay()
-                }
-            }
-        }
-        eventJob = serviceScope.launch {
-            bridge.events.collect { event ->
-                if (event == FloatingAssistantEvent.CollapseForAutomation) {
-                    updateExpanded(false)
                 }
             }
         }
@@ -240,42 +288,82 @@ class FloatingAssistantService : Service(), LifecycleOwner, ViewModelStoreOwner,
     }
 
     private fun removeOverlay() {
+        removeControls()
         if (!overlayAttached) return
-        updateExpanded(false)
+        clearOverlayFocus()
         runCatching { windowManager.removeViewImmediate(overlayView) }
         overlayAttached = false
+        expanded = false
+        watching = false
     }
 
     private fun updateExpanded(value: Boolean) {
-        if (expanded == value) return
         expanded = value
+        watching = value && (bridge.state.value.isStreaming || automationBusy)
+        updateOverlayWindows()
+    }
+
+    private fun clearOverlayFocus() {
+        if (layoutParams.flags and WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE != 0) return
+        overlayView.clearFocus()
+        getSystemService(InputMethodManager::class.java)
+            .hideSoftInputFromWindow(overlayView.windowToken, 0)
+    }
+
+    private fun updateOverlayWindows() {
         if (!overlayAttached) return
-        if (value) {
-            layoutParams.flags = WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
-                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
-        } else {
-            overlayView.clearFocus()
-            getSystemService(InputMethodManager::class.java)
-                .hideSoftInputFromWindow(overlayView.windowToken, 0)
-            layoutParams.flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
-                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
-        }
+        val passive = expanded && watching
+        val focusable = expanded && !watching && !automationBusy
+        if (!focusable) clearOverlayFocus()
+        layoutParams.flags = WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
+            WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+            (if (focusable) 0 else WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE) or
+            (if (passive || automationBusy) WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE else 0)
+        // Android 12+ can block pass-through touches when an untrusted overlay is too opaque.
+        // The controls occupy a separate, non-overlapping window above the text panel.
+        layoutParams.alpha = if (passive) passThroughAlpha() else 1f
+        layoutParams.y = anchorY + if (passive) dp(48) else 0
+        overlayView.visibility = if (automationBusy && !passive) View.INVISIBLE else View.VISIBLE
         runCatching { windowManager.updateViewLayout(overlayView, layoutParams) }
+        if (passive) {
+            controlsLayoutParams.y = anchorY
+            controlsView.visibility = if (automationBusy) View.INVISIBLE else View.VISIBLE
+            runCatching {
+                if (controlsAttached) windowManager.updateViewLayout(controlsView, controlsLayoutParams)
+                else {
+                    windowManager.addView(controlsView, controlsLayoutParams)
+                    controlsAttached = true
+                }
+            }.onFailure { stopSelf() }
+        } else {
+            removeControls()
+        }
+    }
+
+    private fun passThroughAlpha(): Float = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+        minOf(0.78f, getSystemService(InputManager::class.java).maximumObscuringOpacityForTouch)
+    } else {
+        0.78f
+    }
+
+    private fun removeControls() {
+        if (!controlsAttached) return
+        runCatching { windowManager.removeViewImmediate(controlsView) }
+        controlsAttached = false
     }
 
     private fun moveVertically(deltaY: Float) {
-        if (!overlayAttached || expanded) return
+        if (!overlayAttached || (expanded && !watching) || automationBusy) return
         val displayHeight = resources.displayMetrics.heightPixels
-        layoutParams.y = (layoutParams.y + deltaY.roundToInt())
-            .coerceIn(dp(48), displayHeight - dp(104))
-        windowManager.updateViewLayout(overlayView, layoutParams)
+        anchorY = (anchorY + deltaY.roundToInt())
+            .coerceIn(dp(48), (displayHeight - dp(360)).coerceAtLeast(dp(48)))
+        updateOverlayWindows()
     }
 
     private fun savePosition() {
         getSharedPreferences(PositionPreferences, MODE_PRIVATE)
             .edit()
-            .putInt(PositionYKey, layoutParams.y)
+            .putInt(PositionYKey, anchorY)
             .apply()
     }
 
@@ -323,6 +411,8 @@ class FloatingAssistantService : Service(), LifecycleOwner, ViewModelStoreOwner,
         const val NotificationId = 1207
         const val PositionPreferences = "floating_assistant_position"
         const val PositionYKey = "position_y"
+        const val OutputWindowTitle = "FlowChatOutput"
+        const val ControlsWindowTitle = "FlowChatControls"
     }
 }
 
@@ -330,6 +420,7 @@ class FloatingAssistantService : Service(), LifecycleOwner, ViewModelStoreOwner,
 private fun FloatingAssistantOverlay(
     state: FloatingAssistantState,
     expanded: Boolean,
+    watching: Boolean,
     onExpand: () -> Unit,
     onCollapse: () -> Unit,
     onDrag: (Float) -> Unit,
@@ -338,13 +429,14 @@ private fun FloatingAssistantOverlay(
     onStop: () -> Unit
 ) {
     Crossfade(
-        targetState = expanded,
+        targetState = expanded to watching,
         animationSpec = tween(140, easing = FastOutSlowInEasing),
         label = "floating-assistant"
-    ) { isExpanded ->
+    ) { (isExpanded, isWatching) ->
         if (isExpanded) {
             ExpandedAssistantPanel(
                 state = state,
+                watching = isWatching,
                 onCollapse = onCollapse,
                 onSend = onSend,
                 onStop = onStop
@@ -425,6 +517,7 @@ private fun FloatingAssistantBubble(
 @Composable
 private fun ExpandedAssistantPanel(
     state: FloatingAssistantState,
+    watching: Boolean,
     onCollapse: () -> Unit,
     onSend: (String) -> Unit,
     onStop: () -> Unit
@@ -436,17 +529,25 @@ private fun ExpandedAssistantPanel(
     Surface(
         modifier = Modifier
             .width(272.dp)
-            .shadow(10.dp, RoundedCornerShape(18.dp)),
+            .shadow(4.dp, RoundedCornerShape(20.dp)),
         shape = RoundedCornerShape(18.dp),
-        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.84f),
+        color = MaterialTheme.colorScheme.surface,
         contentColor = MaterialTheme.colorScheme.onSurface,
         border = androidx.compose.foundation.BorderStroke(
             1.dp,
-            MaterialTheme.colorScheme.outline.copy(alpha = 0.34f)
+            MaterialTheme.colorScheme.outlineVariant
         ),
         tonalElevation = 0.dp
     ) {
         Column(modifier = Modifier.padding(10.dp)) {
+            if (watching) {
+                Text(
+                    text = stringResource(R.string.floating_assistant_watching),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(start = 8.dp, bottom = 6.dp)
+                )
+            }
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -467,14 +568,14 @@ private fun ExpandedAssistantPanel(
                     color = MaterialTheme.colorScheme.onSurface,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(start = 14.dp, top = 14.dp, end = 42.dp, bottom = 14.dp)
+                        .padding(start = 14.dp, top = 14.dp, end = if (watching) 14.dp else 52.dp, bottom = 14.dp)
                         .verticalScroll(messageScrollState)
                 )
-                IconButton(
+                if (!watching) IconButton(
                     onClick = onCollapse,
                     modifier = Modifier
                         .align(Alignment.TopEnd)
-                        .size(34.dp)
+                        .size(48.dp)
                 ) {
                     Icon(
                         Icons.Rounded.KeyboardArrowUp,
@@ -484,12 +585,54 @@ private fun ExpandedAssistantPanel(
                     )
                 }
             }
-            Spacer(Modifier.height(8.dp))
-            OverlayComposer(
-                isStreaming = state.isStreaming,
-                onSend = onSend,
-                onStop = onStop
+            if (!watching) {
+                Spacer(Modifier.height(8.dp))
+                OverlayComposer(
+                    isStreaming = state.isStreaming,
+                    onSend = onSend,
+                    onStop = onStop
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun WatchingAssistantControls(
+    isStreaming: Boolean,
+    onCollapse: () -> Unit,
+    onReply: () -> Unit,
+    onStop: () -> Unit,
+    onDrag: (Float) -> Unit,
+    onDragFinished: () -> Unit
+) {
+    Surface(
+        shape = RoundedCornerShape(16.dp),
+        color = MaterialTheme.colorScheme.surface,
+        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.heightIn(min = 48.dp).draggable(
+                state = rememberDraggableState(onDrag),
+                orientation = Orientation.Vertical,
+                onDragStopped = { onDragFinished() }
             )
+        ) {
+            if (isStreaming) {
+                IconButton(onClick = onStop, modifier = Modifier.size(48.dp)) {
+                    Icon(Icons.Rounded.Stop, contentDescription = stringResource(R.string.stop), tint = MaterialTheme.colorScheme.error)
+                }
+            } else {
+                TextButton(onClick = onReply) {
+                    Icon(Icons.AutoMirrored.Rounded.Reply, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text(stringResource(R.string.floating_assistant_reply))
+                }
+            }
+            IconButton(onClick = onCollapse, modifier = Modifier.size(48.dp)) {
+                Icon(Icons.Rounded.KeyboardArrowUp, contentDescription = stringResource(R.string.collapse_floating_assistant))
+            }
         }
     }
 }
@@ -518,12 +661,12 @@ private fun OverlayComposer(
     Surface(
         modifier = Modifier
             .fillMaxWidth()
-            .height(42.dp),
+            .heightIn(min = 52.dp),
         shape = RoundedCornerShape(14.dp),
         color = MaterialTheme.colorScheme.background.copy(alpha = 0.42f),
         border = androidx.compose.foundation.BorderStroke(
             1.dp,
-            MaterialTheme.colorScheme.outline.copy(alpha = 0.38f)
+            MaterialTheme.colorScheme.outlineVariant
         )
     ) {
         Row(
@@ -547,7 +690,7 @@ private fun OverlayComposer(
                         if (text.isEmpty()) {
                             Text(
                                 text = stringResource(R.string.floating_assistant_input_hint),
-                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 style = MaterialTheme.typography.bodySmall
                             )
                         }
@@ -558,18 +701,18 @@ private fun OverlayComposer(
             if (isStreaming) {
                 IconButton(
                     onClick = onStop,
-                    modifier = Modifier.size(34.dp)
+                    modifier = Modifier.size(48.dp)
                 ) {
                     Box(
                         modifier = Modifier
                             .size(24.dp)
-                            .border(1.5.dp, StopCoral, CircleShape),
+                            .border(1.5.dp, MaterialTheme.colorScheme.error, CircleShape),
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
                             Icons.Rounded.Stop,
                             contentDescription = stringResource(R.string.stop),
-                            tint = StopCoral,
+                            tint = MaterialTheme.colorScheme.error,
                             modifier = Modifier.size(12.dp)
                         )
                     }
@@ -583,7 +726,7 @@ private fun OverlayComposer(
                         }
                     },
                     enabled = text.isNotBlank(),
-                    modifier = Modifier.size(34.dp)
+                    modifier = Modifier.size(48.dp)
                 ) {
                     Icon(
                         Icons.AutoMirrored.Rounded.Send,

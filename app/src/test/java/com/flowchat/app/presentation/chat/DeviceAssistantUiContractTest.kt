@@ -12,7 +12,7 @@ class DeviceAssistantUiContractTest {
         val state = File("src/main/java/com/flowchat/app/presentation/chat/ChatUiState.kt").readText()
         val strings = File("src/main/res/values/strings.xml").readText()
         val zhStrings = File("src/main/res/values-zh-rCN/strings.xml").readText()
-        val dialogStart = screen.indexOf("private fun DeviceAssistantDialog(")
+        val dialogStart = screen.indexOf("internal fun DeviceAssistantDialog(")
         val dialogEnd = screen.indexOf("private fun DeviceActionConfirmationDialog(", dialogStart)
         val dialog = screen.substring(dialogStart, dialogEnd)
 
@@ -30,24 +30,24 @@ class DeviceAssistantUiContractTest {
         assertFalse(dialog.contains("R.string.available_capabilities"))
         assertTrue(strings.contains("name=\"power_mode\""))
         assertTrue(zhStrings.contains("name=\"power_mode\">Power 模式</string>"))
-        assertTrue(zhStrings.contains("name=\"power_mode_description\">一键拥有最高权限！</string>"))
+        assertFalse(zhStrings.contains("一键拥有最高权限"))
     }
 
     @Test
-    fun structuredAutomationStaysAvailableWithoutAnExtraAccessibilityRow() {
+    fun structuredAutomationShowsItsOwnReadinessAndRepairAction() {
         val screen = File("src/main/java/com/flowchat/app/presentation/chat/ChatScreen.kt").readText()
         val state = File("src/main/java/com/flowchat/app/presentation/chat/ChatUiState.kt").readText()
         val viewModel = File("src/main/java/com/flowchat/app/presentation/chat/ChatViewModel.kt").readText()
         val strings = File("src/main/res/values/strings.xml").readText()
         val zhStrings = File("src/main/res/values-zh-rCN/strings.xml").readText()
-        val dialogStart = screen.indexOf("private fun DeviceAssistantDialog(")
+        val dialogStart = screen.indexOf("internal fun DeviceAssistantDialog(")
         val dialogEnd = screen.indexOf("private fun DeviceActionConfirmationDialog(", dialogStart)
         val dialog = screen.substring(dialogStart, dialogEnd)
 
         assertTrue(state.contains("val accessibilityState: AccessibilityConnectionState"))
-        assertFalse(dialog.contains("R.string.accessibility_screen_control"))
-        assertFalse(dialog.contains("R.string.enable_accessibility_service"))
-        assertFalse(dialog.contains("accessibilityState"))
+        assertTrue(dialog.contains("R.string.accessibility_screen_control"))
+        assertTrue(dialog.contains("R.string.device_accessibility_settings"))
+        assertTrue(dialog.contains("accessibilityState"))
         assertTrue(viewModel.contains("deviceAssistantGateway.accessibilityState"))
         assertTrue(viewModel.contains("fun refreshDeviceAssistantConnections()"))
         assertTrue(strings.contains("name=\"accessibility_screen_control\""))

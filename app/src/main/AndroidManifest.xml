@@ -66,5 +66,10 @@
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="User-enabled floating assistant shown while an AI task runs across apps" />
         </service>
+        <service android:name=".data.terminal.CommandExecutionService"
+            android:exported="false" android:foregroundServiceType="specialUse">
+            <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="User-started Linux and Android command execution with visible status and stop control" />
+        </service>
     </application>
 </manifest>

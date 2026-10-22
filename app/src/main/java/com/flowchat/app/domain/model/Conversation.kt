@@ -10,11 +10,12 @@ data class Conversation(
     val assistantName: String = "",
     val assistantAvatarPath: String? = null,
     val showAvatars: Boolean = false,
-    val enableThinking: Boolean = false,
+    val enableThinking: Boolean = true,
     val systemPrompt: String = "",
     val temperature: Double = 0.7,
     val topP: Double = 1.0,
     val maxTokens: Int? = null,
     val createdAt: Long = System.currentTimeMillis(),
-    val updatedAt: Long = createdAt
+    val updatedAt: Long = createdAt,
+    val thinkingEffort: ThinkingEffort = ThinkingEffort.Auto
 )

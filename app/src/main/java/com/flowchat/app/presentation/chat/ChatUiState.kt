@@ -15,9 +15,9 @@ data class ChatUiState(
     val providers: List<ProviderConfig> = emptyList(),
     val input: String = "",
     val pendingAttachment: PendingAttachment? = null,
-    val webSearchEnabled: Boolean = false,
-    val webSearchDisclosureRequired: Boolean = false,
+    val isAttachmentLoading: Boolean = false,
     val isStreaming: Boolean = false,
+    val deviceTaskPaused: Boolean = false,
     val appSettings: AppSettings = AppSettings(),
     val memories: List<MemoryRecord> = emptyList(),
     val usageAccessPermissionRequest: UsageAccessPermissionRequestUi? = null,
@@ -29,7 +29,9 @@ data class ChatUiState(
 
 data class PendingAttachment(
     val name: String,
-    val text: String
+    val text: String = "",
+    val imagePath: String? = null,
+    val mimeType: String? = null
 )
 
 data class UsageAccessPermissionRequestUi(

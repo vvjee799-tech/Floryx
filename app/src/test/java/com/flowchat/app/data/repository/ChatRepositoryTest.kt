@@ -201,7 +201,7 @@ class ChatRepositoryTest {
     @Test
     fun updatesThinkingModeWithConversationSettings() = runTest {
         val conversation = repository.createConversation(providerId = "p1", modelName = "deepseek-v4-pro")
-        assertEquals(false, conversation.enableThinking)
+        assertEquals(true, conversation.enableThinking)
 
         repository.updateConversationSettings(
             id = conversation.id,

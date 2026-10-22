@@ -62,7 +62,7 @@ class FloatingAssistantContractTest {
     }
 
     @Test
-    fun expandedPanelIsATranslucentMinimalReplyComposerThatStaysOpenAfterSend() {
+    fun expandedPanelIsAReadableMinimalReplyComposerThatStaysOpenAfterSend() {
         val service = File(
             "src/main/java/com/flowchat/app/presentation/overlay/FloatingAssistantService.kt"
         ).readText()
@@ -74,8 +74,8 @@ class FloatingAssistantContractTest {
         val sendHandler = service.substring(sendHandlerStart, sendHandlerEnd)
 
         assertTrue(panel.contains(".width(272.dp)"))
-        assertTrue(panel.contains(".shadow(10.dp, RoundedCornerShape(18.dp))"))
-        assertTrue(panel.contains("MaterialTheme.colorScheme.surface.copy(alpha = 0.84f)"))
+        assertTrue(panel.contains(".shadow(4.dp, RoundedCornerShape(20.dp))"))
+        assertTrue(panel.contains("color = MaterialTheme.colorScheme.surface,"))
         assertTrue(panel.contains("state.assistantText.ifBlank"))
         assertTrue(panel.contains("OverlayComposer("))
         assertFalse(panel.contains("AssistantAvatar("))
@@ -108,7 +108,7 @@ class FloatingAssistantContractTest {
     fun idleFloatingBubbleDoesNotRunAnInfiniteAnimation() {
         val service = File(
             "src/main/java/com/flowchat/app/presentation/overlay/FloatingAssistantService.kt"
-        ).readText()
+        ).readText().replace("\r\n", "\n")
         val bubbleStart = service.indexOf("private fun FloatingAssistantBubble(")
         val bubbleEnd = service.indexOf("private fun ExpandedAssistantPanel(", bubbleStart)
         val bubble = service.substring(bubbleStart, bubbleEnd)

@@ -1,6 +1,9 @@
 package com.flowchat.app.data.memory
 
+import com.flowchat.app.domain.memory.MemoryPolicy
+import com.flowchat.app.domain.model.MemoryDraft
 import com.flowchat.app.domain.model.MemoryRecord
+import com.flowchat.app.domain.model.MemorySnapshot
 import java.io.File
 import java.util.UUID
 import kotlinx.serialization.builtins.ListSerializer
@@ -8,113 +11,78 @@ import kotlinx.serialization.json.Json
 
 class JsonMemoryStore(
     private val file: File,
-    private val retentionLimit: Int = DefaultRetentionLimit,
-    private val json: Json = Json {
-        ignoreUnknownKeys = true
-        prettyPrint = true
-        encodeDefaults = true
-    }
+    private val retentionLimit: Int = 80,
+    private val json: Json = Json { ignoreUnknownKeys = true; prettyPrint = true; encodeDefaults = true }
 ) {
+    private var revision = 0L
+
     fun readAll(): List<MemoryRecord> {
         if (!file.exists()) return emptyList()
         val text = file.readText(Charsets.UTF_8).trim()
         if (text.isEmpty()) return emptyList()
-        return runCatching {
-            json.decodeFromString(ListSerializer(MemoryRecord.serializer()), text)
-        }.getOrDefault(emptyList())
+        val records = runCatching { json.decodeFromString(ListSerializer(MemoryRecord.serializer()), text) }.getOrDefault(emptyList())
+        if (records.all { it.formatVersion == FormatVersion }) return records
+        val migrated = records.mapNotNull { record ->
+            if (record.formatVersion == FormatVersion) record else MemoryPolicy.migrateLegacy(record.goal)?.let {
+                record.copy(goal = it.category, summary = it.summary, key = it.key,
+                    category = it.category, quality = "summary", formatVersion = FormatVersion)
+            }
+        }.distinctBy { it.summary.lowercase() }.takeLast(retentionLimit.coerceAtLeast(1))
+        writeAll(migrated)
+        return migrated
     }
 
-    fun appendTurn(userMessage: String, assistantReply: String, timestamp: Long): MemoryRecord {
-        val record = MemoryRecord(
-            id = UUID.randomUUID().toString(),
-            goal = userMessage.firstSentence(),
-            summary = buildSummary(userMessage, assistantReply),
-            quality = if (assistantReply.length > HighQualityReplyThreshold) QualityHigh else QualityLow,
-            timestamp = timestamp
-        )
-        val updated = (readAll() + record).takeLast(retentionLimit.coerceAtLeast(1))
-        writeAll(updated)
-        return record
+    fun snapshot(): MemorySnapshot {
+        val records = readAll()
+        return MemorySnapshot(records, revision)
     }
 
-    fun delete(id: String) {
-        writeAll(readAll().filterNot { it.id == id })
+    fun merge(drafts: List<MemoryDraft>, expectedRevision: Long, timestamp: Long, canWrite: () -> Boolean = { true }): Boolean {
+        val records = readAll().toMutableList()
+        if (revision != expectedRevision || !canWrite()) return false
+        val valid = drafts.filter(MemoryPolicy::valid).take(3)
+        if (valid.isEmpty()) return false
+        valid.forEach { draft ->
+            val index = records.indexOfFirst { it.key == draft.key || it.summary.equals(draft.summary, true) }
+            val previous = records.getOrNull(index)
+            val record = MemoryRecord(previous?.id ?: UUID.randomUUID().toString(), draft.category,
+                draft.summary, "summary", timestamp, draft.key, draft.category, FormatVersion)
+            if (index >= 0) records[index] = record else records += record
+        }
+        writeAll(records.sortedBy { it.timestamp }.takeLast(retentionLimit.coerceAtLeast(1)))
+        return true
     }
 
-    fun clear() {
-        if (file.exists()) file.delete()
+    fun update(id: String, summary: String) {
+        val clean = summary.trim()
+        require(MemoryPolicy.validSummary(clean))
+        writeAll(readAll().map { if (it.id == id) it.copy(summary = clean) else it })
     }
+
+    fun delete(id: String) { writeAll(readAll().filterNot { it.id == id }) }
+    fun clear() { writeAll(emptyList()) }
 
     fun retrieve(userMessage: String, topN: Int): List<MemoryRecord> {
-        val limit = topN.coerceIn(1, MaxRetrievedMemories)
-        val queryKeywords = userMessage.keywords()
-        val highQuality = readAll().filter { it.quality == QualityHigh }
-        val scored = highQuality
-            .map { record -> record to record.goal.keywords().intersect(queryKeywords).size }
-            .filter { (_, score) -> score > 0 }
-            .sortedWith(
-                compareByDescending<Pair<MemoryRecord, Int>> { it.second }
-                    .thenByDescending { it.first.timestamp }
-            )
-            .map { it.first }
-
-        return if (scored.isNotEmpty()) {
-            scored.take(limit)
-        } else {
-            highQuality.sortedByDescending { it.timestamp }.take(limit)
-        }
+        val query = userMessage.keywords()
+        return readAll().map { it to (it.summary + " " + it.key).keywords().intersect(query).size }
+            .filter { (record, score) -> score > 0 || record.category in setOf("preference", "profile") }
+            .sortedWith(compareByDescending<Pair<MemoryRecord, Int>> { it.second }.thenByDescending { it.first.timestamp })
+            .take(topN.coerceIn(1, 5)).map { it.first }
     }
-
-    private fun buildSummary(userMessage: String, assistantReply: String): String =
-        "用户：${userMessage.oneLine().limit(SummaryPartMaxLength)} / 助手：${assistantReply.oneLine().limit(SummaryPartMaxLength)}"
 
     private fun writeAll(records: List<MemoryRecord>) {
         file.parentFile?.mkdirs()
-        file.writeText(json.encodeToString(ListSerializer(MemoryRecord.serializer()), records), Charsets.UTF_8)
+        val temporary = File(file.parentFile, file.name + ".tmp")
+        temporary.writeText(json.encodeToString(ListSerializer(MemoryRecord.serializer()), records), Charsets.UTF_8)
+        java.nio.file.Files.move(temporary.toPath(), file.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING)
+        revision++
     }
 
-    private fun String.firstSentence(): String {
-        val trimmed = oneLine()
-        if (trimmed.isBlank()) return ""
-        val endIndex = trimmed.indexOfFirst { it in SentenceTerminators }
-        return if (endIndex >= 0) trimmed.take(endIndex + 1).trim() else trimmed.limit(GoalMaxLength)
-    }
+    private fun String.keywords(): Set<String> = Regex("[\\u4E00-\\u9FFFA-Za-z0-9_]+").findAll(lowercase()).flatMap { match ->
+        val value = match.value
+        if (value.any { it in '\u4E00'..'\u9FFF' } && value.length > 1) value.windowed(2).asSequence()
+        else sequenceOf(value).filter { it.length >= 2 }
+    }.toSet()
 
-    private fun String.oneLine(): String =
-        trim().replace(Regex("\\s+"), " ")
-
-    private fun String.limit(maxLength: Int): String =
-        if (length <= maxLength) this else take(maxLength).trimEnd() + "..."
-
-    private fun String.keywords(): Set<String> {
-        val tokens = mutableSetOf<String>()
-        KeywordRegex.findAll(lowercase()).forEach { match ->
-            val value = match.value
-            if (value.any { it.isCjk() }) {
-                if (value.length == 1) {
-                    tokens += value
-                } else {
-                    value.windowed(size = 2, step = 1).forEach { tokens += it }
-                }
-            } else if (value.length >= 2) {
-                tokens += value
-            }
-        }
-        return tokens
-    }
-
-    private fun Char.isCjk(): Boolean =
-        this in '\u4E00'..'\u9FFF'
-
-    companion object {
-        const val QualityHigh = "high"
-        const val QualityLow = "low"
-        private const val HighQualityReplyThreshold = 200
-        private const val MaxRetrievedMemories = 5
-        private const val DefaultRetentionLimit = 200
-        private const val GoalMaxLength = 120
-        private const val SummaryPartMaxLength = 80
-        private val SentenceTerminators = setOf('。', '！', '？', '.', '!', '?', '\n')
-        private val KeywordRegex = Regex("[\\u4E00-\\u9FFFA-Za-z0-9_]+")
-    }
+    companion object { const val FormatVersion = 2 }
 }

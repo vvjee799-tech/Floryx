@@ -14,16 +14,18 @@ import kotlinx.serialization.json.jsonPrimitive
 object OpenAiStreamParser {
     private val json = Json { ignoreUnknownKeys = true }
 
-    fun parseLine(line: String): ChatDelta? {
+    fun parseLine(line: String): ChatDelta? = parseDeltas(line).firstOrNull()
+
+    fun parseDeltas(line: String): List<ChatDelta> {
         val trimmed = line.trim()
-        if (trimmed.isBlank() || !trimmed.startsWith("data:")) return null
+        if (trimmed.isBlank() || !trimmed.startsWith("data:")) return emptyList()
         val payload = trimmed.removePrefix("data:").trim()
-        if (payload == "[DONE]") return ChatDelta.Done
+        if (payload == "[DONE]") return listOf(ChatDelta.Done)
 
         return runCatching {
             val root = json.parseToJsonElement(payload).jsonObject
-            root.extractErrorMessage()?.let { return ChatDelta.Error(it) }
-            val choice = root["choices"]?.jsonArray?.firstOrNull()?.jsonObject ?: return null
+            root.extractErrorMessage()?.let { return listOf(ChatDelta.Error(it)) }
+            val choice = root["choices"]?.jsonArray?.firstOrNull()?.jsonObject ?: return emptyList()
             val content = choice["delta"]
                 ?.jsonObject
                 ?.get("content")
@@ -33,25 +35,32 @@ object OpenAiStreamParser {
                 ?.jsonObject
                 ?.get("reasoning_content")
                 ?.jsonPrimitive
-                ?.contentOrNull
+                ?.contentOrNull ?: choice["delta"]?.jsonObject?.get("reasoning")?.jsonPrimitive?.contentOrNull
             val toolCallDeltas = choice["delta"]
                 ?.jsonObject
                 ?.extractToolCallDeltas()
                 .orEmpty()
-            when {
-                !content.isNullOrEmpty() -> ChatDelta.Content(content)
-                !reasoningContent.isNullOrEmpty() -> ChatDelta.Reasoning(reasoningContent)
-                toolCallDeltas.isNotEmpty() -> ChatDelta.ToolCallDelta(toolCallDeltas)
-                choice["finish_reason"]?.jsonPrimitive?.contentOrNull != null -> ChatDelta.Done
-                else -> null
+            buildList {
+                if (!content.isNullOrEmpty()) add(ChatDelta.Content(content))
+                if (!reasoningContent.isNullOrEmpty()) add(ChatDelta.Reasoning(reasoningContent))
+                if (toolCallDeltas.isNotEmpty()) add(ChatDelta.ToolCallDelta(toolCallDeltas))
+                when (choice["finish_reason"]?.jsonPrimitive?.contentOrNull) {
+                    null -> Unit
+                    "length" -> add(ChatDelta.Error("The response reached the model output limit and is incomplete."))
+                    "content_filter" -> add(ChatDelta.Error("The provider stopped this response because of its content policy."))
+                    else -> add(ChatDelta.Done)
+                }
             }
-        }.getOrElse { ChatDelta.Error("Malformed stream event") }
+        }.getOrElse { listOf(ChatDelta.Error("Malformed stream event")) }
     }
 
     fun parseCompletionBody(body: String): ChatDelta {
         return runCatching {
             val root = json.parseToJsonElement(body).jsonObject
             root.extractErrorMessage()?.let { return ChatDelta.Error(it) }
+            val finish = root["choices"]?.jsonArray?.firstOrNull()?.jsonObject?.get("finish_reason")?.jsonPrimitive?.contentOrNull
+            if (finish == "length") return ChatDelta.Error("The response reached the model output limit and is incomplete.")
+            if (finish == "content_filter") return ChatDelta.Error("The provider stopped this response because of its content policy.")
             val message = root["choices"]
                 ?.jsonArray
                 ?.firstOrNull()
@@ -61,6 +70,7 @@ object OpenAiStreamParser {
                 ?: return ChatDelta.Error("Malformed response")
             val content = message["content"]?.jsonPrimitive?.contentOrNull
             val reasoningContent = message["reasoning_content"]?.jsonPrimitive?.contentOrNull
+                ?: message["reasoning"]?.jsonPrimitive?.contentOrNull
             val toolCalls = message.extractToolCalls()
             when {
                 toolCalls.isNotEmpty() -> ChatDelta.ToolCalls(toolCalls)

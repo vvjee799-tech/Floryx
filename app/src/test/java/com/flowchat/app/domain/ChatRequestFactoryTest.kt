@@ -43,7 +43,7 @@ class ChatRequestFactoryTest {
             Answer concisely.
             </user_system_prompt>
             """.trimIndent(),
-            request.messages.first().content
+            request.messages.first().content.orEmpty().substringAfter("# FlowChat conversation instructions", "").let { "# FlowChat conversation instructions$it" }
         )
         assertEquals(0.4, request.temperature, 0.0)
         assertEquals(0.9, request.topP, 0.0)
@@ -72,7 +72,7 @@ class ChatRequestFactoryTest {
         )
 
         assertEquals(
-            listOf("user", "assistant", "assistant"),
+            listOf("system", "user", "assistant", "assistant"),
             request.messages.map { it.role }
         )
         assertTrue(request.messages.none { it.role == "tool" })
@@ -106,7 +106,7 @@ class ChatRequestFactoryTest {
             回答要短一点。
             </user_system_prompt>
             """.trimIndent(),
-            request.messages.first().content
+            request.messages.first().content.orEmpty().substringAfter("# FlowChat conversation instructions", "").let { "# FlowChat conversation instructions$it" }
         )
     }
 
@@ -125,7 +125,7 @@ class ChatRequestFactoryTest {
             )
         )
 
-        assertEquals(listOf("user"), request.messages.map { it.role })
+        assertEquals(listOf("system", "user"), request.messages.map { it.role })
     }
 
     @Test
@@ -144,11 +144,11 @@ class ChatRequestFactoryTest {
             )
         )
 
-        assertEquals(listOf("user"), request.messages.map { it.role })
+        assertEquals(listOf("system", "user"), request.messages.map { it.role })
     }
 
     @Test
-    fun enablesThinkingByDefaultForOutgoingRequests() {
+    fun respectsTheConversationThinkingSwitchForOutgoingRequests() {
         val request = ChatRequestFactory.create(
             conversation = Conversation(
                 id = "c1",
@@ -159,7 +159,7 @@ class ChatRequestFactoryTest {
             messages = listOf(Message(conversationId = "c1", role = MessageRole.User, content = "Hello"))
         )
 
-        assertEquals(true, request.enableThinking)
+        assertEquals(false, request.enableThinking)
     }
 
     @Test
@@ -228,7 +228,7 @@ class ChatRequestFactoryTest {
             thinkingFormat = "   "
         )
 
-        assertEquals(listOf("user"), request.messages.map { it.role })
+        assertEquals(listOf("system", "user"), request.messages.map { it.role })
         assertTrue(request.messages.none { it.content.orEmpty().contains("<thinking-format>") })
     }
 
@@ -245,8 +245,8 @@ class ChatRequestFactoryTest {
             thinkingFormat = "思考格式"
         )
 
-        assertEquals(listOf("user", "assistant", "system", "user"), request.messages.map { it.role })
-        assertTrue(request.messages[2].content.orEmpty().contains("<temporary_context>"))
+        assertEquals(listOf("system", "user", "assistant", "system", "user"), request.messages.map { it.role })
+        assertTrue(request.messages[3].content.orEmpty().contains("<temporary_context>"))
         assertEquals(
             """
             <thinking-format>
@@ -257,7 +257,7 @@ class ChatRequestFactoryTest {
             新问题
             </user-message>
             """.trimIndent(),
-            request.messages[3].content
+            request.messages[4].content
         )
     }
 
@@ -275,7 +275,7 @@ class ChatRequestFactoryTest {
             thinkingFormat = "先检查人设。"
         )
 
-        assertEquals(listOf("user"), request.messages.map { it.role })
+        assertEquals(listOf("system", "user"), request.messages.map { it.role })
         assertEquals(
             """
             <relevant-memories>
@@ -291,7 +291,7 @@ class ChatRequestFactoryTest {
             现在继续写
             </user-message>
             """.trimIndent(),
-            request.messages.single().content
+            request.messages.last().content
         )
     }
 
@@ -347,7 +347,7 @@ class ChatRequestFactoryTest {
         )
 
         assertEquals(listOf("system", "user", "assistant", "system", "user"), request.messages.map { it.role })
-        assertEquals(expectedSystemPrompt("Stay concise."), request.messages[0].content)
+        assertEquals(com.flowchat.app.domain.chat.ReplyPolicy.instructions + "\n\n" + expectedSystemPrompt("Stay concise."), request.messages[0].content)
         assertEquals("Can you browse?", request.messages[1].content)
         assertEquals("I cannot browse.", request.messages[2].content)
         assertEquals(expectedTemporaryContext("Search context for this request only."), request.messages[3].content)
@@ -378,8 +378,20 @@ class ChatRequestFactoryTest {
             第二行
             </attached-file>
             """.trimIndent(),
-            request.messages.single().content
+            request.messages.last().content
         )
+    }
+
+
+    @Test fun defaultPolicyAlsoAppliesWithoutACustomPromptAndThinkingOffOmitsThinkingFormat() {
+        val request = ChatRequestFactory.create(
+            Conversation(id = "c", providerId = "p", modelName = "test", enableThinking = false),
+            listOf(Message(conversationId = "c", role = MessageRole.User, content = "你好")),
+            thinkingFormat = "Do not inject this when thinking is off")
+        assertEquals("system", request.messages.first().role)
+        assertTrue(request.messages.first().content.orEmpty().contains("verified result"))
+        assertEquals("你好", request.messages.last().content)
+        assertTrue(request.messages.none { it.content.orEmpty().contains("<thinking-format>") })
     }
 
     private fun expectedSystemPrompt(prompt: String): String = buildString {

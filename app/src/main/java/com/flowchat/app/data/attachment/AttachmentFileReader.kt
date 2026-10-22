@@ -32,11 +32,12 @@ object AttachmentFileReader {
             }
             val name = metadata?.name?.takeIf { it.isNotBlank() } ?: "attachment"
             val mimeType = resolver.getType(uri).orEmpty()
-            if (!AttachmentDocumentParser.isSupported(name, mimeType)) {
+            if (!ImageAttachmentStore.isImage(name, mimeType) && !AttachmentDocumentParser.isSupported(name, mimeType)) {
                 throw AttachmentReadException(AttachmentReadFailure.UnsupportedType)
             }
             val bytes = resolver.openInputStream(uri)?.use(::readLimited)
                 ?: throw AttachmentReadException(AttachmentReadFailure.ReadFailed)
+            if (ImageAttachmentStore.isImage(name, mimeType)) return ImageAttachmentStore.save(context, name, bytes)
             val text = AttachmentDocumentParser.extract(name, mimeType, bytes) { pdfBytes ->
                 extractPdfText(context, pdfBytes)
             }

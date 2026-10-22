@@ -4,6 +4,8 @@ import androidx.room.Entity
 import androidx.room.Index
 import androidx.room.PrimaryKey
 import com.flowchat.app.domain.model.Conversation
+import com.flowchat.app.domain.model.ThinkingEffort
+import androidx.room.ColumnInfo
 
 @Entity(
     tableName = "conversations",
@@ -23,7 +25,8 @@ data class ConversationEntity(
     val topP: Double,
     val maxTokens: Int?,
     val createdAt: Long,
-    val updatedAt: Long
+    val updatedAt: Long,
+    @ColumnInfo(defaultValue = "'auto'") val thinkingEffort: String = "auto"
 )
 
 fun ConversationEntity.toDomain(): Conversation = Conversation(
@@ -40,7 +43,8 @@ fun ConversationEntity.toDomain(): Conversation = Conversation(
     topP = topP,
     maxTokens = maxTokens,
     createdAt = createdAt,
-    updatedAt = updatedAt
+    updatedAt = updatedAt,
+    thinkingEffort = ThinkingEffort.fromStored(thinkingEffort)
 )
 
 fun Conversation.toEntity(): ConversationEntity = ConversationEntity(
@@ -57,5 +61,6 @@ fun Conversation.toEntity(): ConversationEntity = ConversationEntity(
     topP = topP,
     maxTokens = maxTokens,
     createdAt = createdAt,
-    updatedAt = updatedAt
+    updatedAt = updatedAt,
+    thinkingEffort = thinkingEffort.wireValue
 )

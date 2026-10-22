@@ -21,8 +21,10 @@ interface ChatRepository {
         systemPrompt: String,
         temperature: Double,
         topP: Double,
-        maxTokens: Int?
+        maxTokens: Int?,
+        thinkingEffort: com.flowchat.app.domain.model.ThinkingEffort = com.flowchat.app.domain.model.ThinkingEffort.Auto
     )
+    suspend fun updateThinkingSettings(id: String, enabled: Boolean, effort: com.flowchat.app.domain.model.ThinkingEffort)
     suspend fun updateConversationModel(id: String, providerId: String, modelName: String)
     suspend fun updateConversationTitle(id: String, title: String)
     suspend fun appendMessage(
@@ -32,14 +34,17 @@ interface ChatRepository {
         status: MessageStatus,
         modelName: String?,
         attachmentName: String? = null,
-        attachmentText: String? = null
+        attachmentText: String? = null,
+        attachmentImagePath: String? = null,
+        attachmentMimeType: String? = null
     ): Message
     suspend fun updateMessage(
         id: String,
         content: String,
         status: MessageStatus,
         reasoningContent: String = "",
-        reasoningDurationMillis: Long? = null
+        reasoningDurationMillis: Long? = null,
+        replyPhase: com.flowchat.app.domain.model.ReplyPhase? = null
     )
     suspend fun markMessageFailed(id: String, error: String)
     suspend fun deleteConversation(id: String)

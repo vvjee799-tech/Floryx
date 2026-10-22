@@ -4,6 +4,7 @@ import com.flowchat.app.data.db.ConversationDao
 import com.flowchat.app.data.db.MessageDao
 import com.flowchat.app.data.db.toDomain
 import com.flowchat.app.data.db.toEntity
+import com.flowchat.app.data.attachment.ImageAttachmentStore
 import com.flowchat.app.domain.model.Conversation
 import com.flowchat.app.domain.model.Message
 import com.flowchat.app.domain.model.MessageRole
@@ -17,7 +18,8 @@ import kotlinx.coroutines.flow.map
 @Singleton
 class RoomChatRepository @Inject constructor(
     private val conversationDao: ConversationDao,
-    private val messageDao: MessageDao
+    private val messageDao: MessageDao,
+    private val imageAttachmentStore: ImageAttachmentStore? = null
 ) : ChatRepository {
     override fun observeConversations(): Flow<List<Conversation>> =
         conversationDao.observeConversations().map { rows -> rows.map { it.toDomain() } }
@@ -53,7 +55,8 @@ class RoomChatRepository @Inject constructor(
         systemPrompt: String,
         temperature: Double,
         topP: Double,
-        maxTokens: Int?
+        maxTokens: Int?,
+        thinkingEffort: com.flowchat.app.domain.model.ThinkingEffort
     ) {
         conversationDao.updateSettings(
             id,
@@ -65,8 +68,13 @@ class RoomChatRepository @Inject constructor(
             temperature,
             topP,
             maxTokens,
-            System.currentTimeMillis()
+            System.currentTimeMillis(),
+            thinkingEffort.wireValue
         )
+    }
+
+    override suspend fun updateThinkingSettings(id: String, enabled: Boolean, effort: com.flowchat.app.domain.model.ThinkingEffort) {
+        conversationDao.updateThinkingSettings(id, enabled, effort.wireValue, System.currentTimeMillis())
     }
 
     override suspend fun updateConversationModel(id: String, providerId: String, modelName: String) {
@@ -84,7 +92,9 @@ class RoomChatRepository @Inject constructor(
         status: MessageStatus,
         modelName: String?,
         attachmentName: String?,
-        attachmentText: String?
+        attachmentText: String?,
+        attachmentImagePath: String?,
+        attachmentMimeType: String?
     ): Message {
         val now = System.currentTimeMillis()
         val message = Message(
@@ -93,6 +103,8 @@ class RoomChatRepository @Inject constructor(
             content = content,
             attachmentName = attachmentName,
             attachmentText = attachmentText,
+            attachmentImagePath = attachmentImagePath,
+            attachmentMimeType = attachmentMimeType,
             status = status,
             modelName = modelName,
             createdAt = now,
@@ -108,7 +120,8 @@ class RoomChatRepository @Inject constructor(
         content: String,
         status: MessageStatus,
         reasoningContent: String,
-        reasoningDurationMillis: Long?
+        reasoningDurationMillis: Long?,
+        replyPhase: com.flowchat.app.domain.model.ReplyPhase?
     ) {
         messageDao.updateContentReasoningAndStatus(
             id,
@@ -116,7 +129,8 @@ class RoomChatRepository @Inject constructor(
             reasoningContent,
             reasoningDurationMillis,
             status.name,
-            System.currentTimeMillis()
+            System.currentTimeMillis(),
+            replyPhase?.name
         )
     }
 
@@ -125,6 +139,8 @@ class RoomChatRepository @Inject constructor(
     }
 
     override suspend fun deleteConversation(id: String) {
+        val paths = messageDao.getMessages(id).mapNotNull { it.attachmentImagePath }
         conversationDao.delete(id)
+        paths.forEach { imageAttachmentStore?.discard(it) }
     }
 }

@@ -11,6 +11,9 @@ import com.flowchat.app.data.db.MIGRATION_2_3
 import com.flowchat.app.data.db.MIGRATION_3_4
 import com.flowchat.app.data.db.MIGRATION_4_5
 import com.flowchat.app.data.db.MIGRATION_5_6
+import com.flowchat.app.data.db.MIGRATION_6_7
+import com.flowchat.app.data.db.MIGRATION_8_9
+import com.flowchat.app.data.db.MIGRATION_7_8
 import com.flowchat.app.data.db.MessageDao
 import com.flowchat.app.data.db.ProviderDao
 import com.flowchat.app.data.device.ShizukuDeviceAssistantGateway
@@ -77,7 +80,7 @@ object AppModule {
     @Singleton
     fun provideDatabase(@ApplicationContext context: Context): FlowChatDatabase =
         Room.databaseBuilder(context, FlowChatDatabase::class.java, "flowchat.db")
-            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
+            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9)
             .build()
 
     @Provides fun provideProviderDao(database: FlowChatDatabase): ProviderDao = database.providerDao()

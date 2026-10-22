@@ -11,7 +11,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         ConversationEntity::class,
         MessageEntity::class
     ],
-    version = 6,
+    version = 9,
     exportSchema = false
 )
 abstract class FlowChatDatabase : RoomDatabase() {
@@ -50,5 +50,26 @@ val MIGRATION_5_6 = object : Migration(5, 6) {
     override fun migrate(db: SupportSQLiteDatabase) {
         db.execSQL("ALTER TABLE messages ADD COLUMN attachmentName TEXT")
         db.execSQL("ALTER TABLE messages ADD COLUMN attachmentText TEXT")
+    }
+}
+
+val MIGRATION_6_7 = object : Migration(6, 7) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE conversations ADD COLUMN thinkingEffort TEXT NOT NULL DEFAULT 'auto'")
+        // Previous builds always enabled thinking on outgoing requests, regardless of this dormant flag.
+        db.execSQL("UPDATE conversations SET enableThinking = 1")
+    }
+}
+
+val MIGRATION_7_8 = object : Migration(7, 8) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE messages ADD COLUMN attachmentImagePath TEXT")
+        db.execSQL("ALTER TABLE messages ADD COLUMN attachmentMimeType TEXT")
+    }
+}
+
+val MIGRATION_8_9 = object : Migration(8, 9) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE messages ADD COLUMN replyPhase TEXT NOT NULL DEFAULT 'Answer'")
     }
 }

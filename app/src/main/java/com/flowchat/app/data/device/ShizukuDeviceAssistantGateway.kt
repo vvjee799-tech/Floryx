@@ -9,23 +9,31 @@ import android.os.Build
 import android.os.IBinder
 import android.provider.Settings
 import com.flowchat.app.BuildConfig
+import com.flowchat.app.data.preferences.AppSettingsStore
 import com.flowchat.app.domain.device.AccessibilityConnectionState
 import com.flowchat.app.domain.device.AccessibilityConnectionStatus
 import com.flowchat.app.domain.device.DeviceAssistantGateway
 import com.flowchat.app.domain.device.DeviceActionPolicy
 import com.flowchat.app.domain.device.DeviceCapability
+import com.flowchat.app.domain.terminal.CommandSnapshot
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.decodeFromString
 import com.flowchat.app.domain.device.DeviceScreenSnapshot
 import com.flowchat.app.domain.device.DeviceSwipeDirection
 import com.flowchat.app.domain.device.DeviceToolResult
+import com.flowchat.app.domain.device.DeviceTaskControl
+import com.flowchat.app.domain.device.PowerConnectionMode
 import com.flowchat.app.domain.device.ShizukuConnectionState
 import com.flowchat.app.domain.device.ShizukuConnectionStatus
 import com.flowchat.app.shizuku.IFlowChatShizukuService
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.util.Locale
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
@@ -34,15 +42,25 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import org.json.JSONObject
 import rikka.shizuku.Shizuku
 
 @Singleton
 class ShizukuDeviceAssistantGateway @Inject constructor(
-    @ApplicationContext private val context: Context
+    @ApplicationContext private val context: Context,
+    private val appSettingsStore: AppSettingsStore,
+    private val rootConnection: RootDeviceConnection,
+    private val taskControl: DeviceTaskControl = DeviceTaskControl()
 ) : DeviceAssistantGateway {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val mutableConnectionState = MutableStateFlow(ShizukuConnectionState())
@@ -52,6 +70,7 @@ class ShizukuDeviceAssistantGateway @Inject constructor(
         mutableAccessibilityState.asStateFlow()
     private val binding = AtomicBoolean(false)
     @Volatile private var service: IFlowChatShizukuService? = null
+    private val commandServices = ConcurrentHashMap<String, IFlowChatShizukuService>()
 
     private val userServiceArgs = Shizuku.UserServiceArgs(
         ComponentName(context.packageName, FlowChatShizukuService::class.java.name)
@@ -69,6 +88,7 @@ class ShizukuDeviceAssistantGateway @Inject constructor(
     }
     private val permissionResultListener = Shizuku.OnRequestPermissionResultListener { requestCode, grantResult ->
         if (requestCode != PermissionRequestCode) return@OnRequestPermissionResultListener
+        if (isRootMode) return@OnRequestPermissionResultListener
         if (grantResult == PackageManager.PERMISSION_GRANTED) {
             bindService()
         } else {
@@ -98,10 +118,51 @@ class ShizukuDeviceAssistantGateway @Inject constructor(
         Shizuku.addRequestPermissionResultListener(permissionResultListener)
         refreshAccessibilityConnection()
         refreshConnection()
+        scope.launch {
+            FlowChatAccessibilityService.connected.collect { refreshAccessibilityConnection() }
+        }
+        scope.launch {
+            rootConnection.state.collect { state ->
+                if (isRootMode) publishRootState(state)
+            }
+        }
+        scope.launch {
+            appSettingsStore.state.map { it.powerConnectionMode }.distinctUntilChanged().collect { mode ->
+                if (mode == PowerConnectionMode.Root) {
+                    publishRootState(rootConnection.state.value)
+                    scope.launch {
+                        if (isRootMode) {
+                            rootConnection.refresh(requestPermission = appSettingsStore.state.value.powerModeEnabled)
+                        }
+                    }
+                } else {
+                    mutableConnectionState.value = ShizukuConnectionState()
+                    refreshConnection()
+                }
+            }
+        }
+    }
+
+    private val isRootMode: Boolean
+        get() = appSettingsStore.state.value.powerConnectionMode == PowerConnectionMode.Root
+
+    private fun publishRootState(state: ShizukuConnectionState) {
+        mutableConnectionState.value = state.copy(
+            capabilities = state.capabilities + if (FlowChatAccessibilityService.current() != null) {
+                AccessibilityCapabilities
+            } else {
+                emptySet()
+            }
+        )
     }
 
     override fun refreshConnection() {
         scope.launch {
+            if (isRootMode) {
+                rootConnection.refresh()
+                if (isRootMode) publishRootState(rootConnection.state.value)
+                return@launch
+            }
             if (hasLiveUserService()) {
                 probeConnectedService()
                 return@launch
@@ -112,6 +173,7 @@ class ShizukuDeviceAssistantGateway @Inject constructor(
                 probeConnectedService()
                 return@launch
             }
+            if (isRootMode) return@launch
             mutableConnectionState.value = inspectedState
             if (inspectedState.status == ShizukuConnectionStatus.Connecting) {
                 bindService()
@@ -120,6 +182,10 @@ class ShizukuDeviceAssistantGateway @Inject constructor(
     }
 
     override fun requestPermission() {
+        if (isRootMode) {
+            scope.launch { if (isRootMode) rootConnection.refresh(requestPermission = true) }
+            return
+        }
         if (!runCatching { Shizuku.pingBinder() }.getOrDefault(false)) {
             refreshConnection()
             return
@@ -158,10 +224,9 @@ class ShizukuDeviceAssistantGateway @Inject constructor(
         } else {
             emptySet()
         }
-        mutableConnectionState.value = mutableConnectionState.value.copy(
-            capabilities = (mutableConnectionState.value.capabilities - AccessibilityCapabilities) +
-                accessibilityCapabilities
-        )
+        mutableConnectionState.update { state ->
+            state.copy(capabilities = (state.capabilities - AccessibilityCapabilities) + accessibilityCapabilities)
+        }
     }
 
     override fun openAccessibilitySettings() {
@@ -174,6 +239,16 @@ class ShizukuDeviceAssistantGateway @Inject constructor(
     override suspend fun getDeviceStatus(): DeviceToolResult = callService { it.getDeviceStatus() }
 
     override suspend fun getForegroundApp(): DeviceToolResult = callService { it.getForegroundApp() }
+
+    override suspend fun launchApp(packageName: String, activityName: String): DeviceToolResult {
+        currentCoroutineContext().ensureActive()
+        val task = taskControl.currentTask
+        taskControl.checkCanAct(task)
+        return callService {
+            taskControl.checkCanAct(task)
+            it.launchApp(packageName, activityName)
+        }
+    }
 
     override suspend fun setScreenBrightness(percent: Int): DeviceToolResult =
         callService { it.setScreenBrightness(percent.coerceIn(1, 100)) }
@@ -205,14 +280,23 @@ class ShizukuDeviceAssistantGateway @Inject constructor(
         return result
     }
 
-    override suspend fun observeScreen(): DeviceToolResult {
+    private val uiActionMutex = Mutex()
+    private val snapshotGuard = com.flowchat.app.domain.device.DeviceSnapshotGuard()
+
+    override suspend fun observeScreen(): DeviceToolResult = uiActionMutex.withLock {
+        observeScreenLocked()
+    }
+
+    private suspend fun observeScreenLocked(): DeviceToolResult {
+        snapshotGuard.remember(null)
         val accessibility = requireAccessibilityService() ?: return accessibilityUnavailable()
-        val screen = accessibility.observeScreen(forceRefresh = true)
+        val screen = accessibility.observeSettledScreen()
             ?: return DeviceToolResult(
                 success = false,
                 summary = "The current screen could not be read.",
                 errorCode = "screen_unavailable"
             )
+        snapshotGuard.remember(screen)
         return DeviceToolResult(
             success = !screen.sensitive,
             summary = if (screen.sensitive) {
@@ -225,10 +309,13 @@ class ShizukuDeviceAssistantGateway @Inject constructor(
         )
     }
 
-    override suspend fun tapUiElement(index: Int, longPress: Boolean): DeviceToolResult =
+    override suspend fun tapUiElement(index: Int, longPress: Boolean, screenId: String?): DeviceToolResult =
         performScreenAction(
             toolName = com.flowchat.app.domain.tools.AgentToolDefinitions.TapUiElementToolName,
-            summary = if (longPress) "Long pressed UI element [$index]." else "Tapped UI element [$index]."
+            summary = if (longPress) "Long pressed UI element [$index]." else "Tapped UI element [$index].",
+            expectedScreenId = screenId,
+            requiresSnapshot = true,
+            targetIndex = index
         ) { accessibility, screen ->
             if (screen.elements.none { it.index == index && it.enabled }) false
             else accessibility.tapUiElement(index, longPress)
@@ -237,10 +324,14 @@ class ShizukuDeviceAssistantGateway @Inject constructor(
     override suspend fun inputText(
         index: Int,
         text: String,
-        clearExisting: Boolean
+        clearExisting: Boolean,
+        screenId: String?
     ): DeviceToolResult = performScreenAction(
         toolName = com.flowchat.app.domain.tools.AgentToolDefinitions.InputTextToolName,
-        summary = "Entered text into UI element [$index]."
+        summary = "Entered text into UI element [$index].",
+        expectedScreenId = screenId,
+        requiresSnapshot = true,
+        targetIndex = index
     ) { accessibility, screen ->
         val target = screen.elements.firstOrNull { it.index == index }
         if (target?.editable != true || target.password) false
@@ -273,12 +364,34 @@ class ShizukuDeviceAssistantGateway @Inject constructor(
         toolName: String,
         summary: String,
         allowFlowChat: Boolean = false,
+        expectedScreenId: String? = null,
+        requiresSnapshot: Boolean = false,
+        targetIndex: Int? = null,
+        action: suspend (FlowChatAccessibilityService, DeviceScreenSnapshot) -> Boolean
+    ): DeviceToolResult = uiActionMutex.withLock {
+        val task = taskControl.currentTask
+        taskControl.checkCanAct(task)
+        performScreenActionLocked(toolName, summary, allowFlowChat, expectedScreenId, requiresSnapshot, targetIndex) { service, screen ->
+            currentCoroutineContext().ensureActive()
+            taskControl.checkCanAct(task)
+            action(service, screen)
+        }
+    }
+
+    private suspend fun performScreenActionLocked(
+        toolName: String,
+        summary: String,
+        allowFlowChat: Boolean,
+        expectedScreenId: String?,
+        requiresSnapshot: Boolean,
+        targetIndex: Int?,
         action: suspend (FlowChatAccessibilityService, DeviceScreenSnapshot) -> Boolean
     ): DeviceToolResult {
         val accessibility = requireAccessibilityService() ?: return accessibilityUnavailable()
         val before = accessibility.observeScreen(forceRefresh = true)
             ?: return DeviceToolResult(false, "The current screen could not be read.", errorCode = "screen_unavailable")
         if (!DeviceActionPolicy.allowsOnScreen(toolName, before)) {
+            snapshotGuard.remember(null)
             return DeviceToolResult(
                 success = false,
                 summary = "Device actions are blocked on sensitive screens.",
@@ -287,25 +400,58 @@ class ShizukuDeviceAssistantGateway @Inject constructor(
             )
         }
         if (!allowFlowChat && before.packageName == context.packageName) {
+            snapshotGuard.remember(null)
             return DeviceToolResult(
                 success = false,
                 summary = "FlowChat will not automate its own interface.",
                 errorCode = "self_automation_blocked"
             )
         }
-        val accepted = runCatching { action(accessibility, before) }.getOrDefault(false)
-        if (!accepted) {
+        if (requiresSnapshot && !snapshotGuard.matches(expectedScreenId, before, targetIndex)) {
+            snapshotGuard.remember(before)
             return DeviceToolResult(
-                success = false,
-                summary = "The requested UI action could not be performed.",
-                errorCode = "ui_action_failed"
+                false,
+                "The screen changed or the screen_id is missing/expired. No action was taken. Choose a target from this fresh screen and use its screen_id.",
+                errorCode = "stale_screen",
+                screen = before
             )
         }
-        delay(PostActionObservationDelayMillis)
-        val after = accessibility.observeScreen(forceRefresh = true)
+        snapshotGuard.remember(null)
+        val accepted = try {
+            action(accessibility, before)
+        } catch (error: CancellationException) {
+            throw error
+        } catch (_: Exception) {
+            false
+        }
+        if (!accepted) {
+            val refreshed = accessibility.observeSettledScreen()
+            snapshotGuard.remember(refreshed)
+            return DeviceToolResult(
+                success = false,
+                summary = "The UI action failed or was cancelled. Inspect the refreshed screen before retrying; use another target or approach.",
+                errorCode = "ui_action_failed",
+                screen = refreshed
+            )
+        }
+        val after = accessibility.observeSettledScreen()
+        snapshotGuard.remember(after)
+        if (toolName == com.flowchat.app.domain.tools.AgentToolDefinitions.SwipeScreenToolName &&
+            after != null && before.progressKey() == after.progressKey()) {
+            return DeviceToolResult(
+                success = false,
+                summary = "The swipe gesture completed, but no new page content was observed. Do not count this as a video change or repeat blindly.",
+                errorCode = "ui_no_change",
+                screen = after
+            )
+        }
         return DeviceToolResult(
             success = true,
-            summary = summary,
+            summary = summary + when {
+                after == null -> " Resulting screen unavailable; observe again before continuing."
+                before.hasSameUi(after) -> " Screen unchanged. Verify the intended result; do not repeat blindly."
+                else -> " Inspect the resulting screen to verify progress."
+            },
             before = before.packageName,
             after = after?.packageName,
             reversible = false,
@@ -348,6 +494,7 @@ class ShizukuDeviceAssistantGateway @Inject constructor(
     }
 
     private fun bindService() {
+        if (isRootMode) return
         if (hasLiveUserService()) {
             scope.launch { probeConnectedService() }
             return
@@ -364,6 +511,7 @@ class ShizukuDeviceAssistantGateway @Inject constructor(
     }
 
     private suspend fun probeConnectedService() {
+        if (isRootMode) return
         val connectedService = service ?: return
         runCatching {
             val capabilities = connectedService.probeCapabilities()
@@ -371,6 +519,7 @@ class ShizukuDeviceAssistantGateway @Inject constructor(
                 .mapNotNull { name -> DeviceCapability.entries.firstOrNull { it.name == name } }
                 .toSet()
             val uid = Shizuku.getUid()
+            if (isRootMode) return
             mutableConnectionState.value = ShizukuConnectionState(
                 status = if (uid == 0) {
                     ShizukuConnectionStatus.ConnectedRoot
@@ -385,25 +534,52 @@ class ShizukuDeviceAssistantGateway @Inject constructor(
             )
         }.onFailure { error ->
             service = null
-            mutableConnectionState.value = errorState(error)
+            if (!isRootMode) mutableConnectionState.value = errorState(error)
         }
     }
 
     private fun hasLiveUserService(): Boolean =
         service?.asBinder()?.isBinderAlive == true
 
+    override suspend fun startShellCommand(command: String, workingDirectory: String, timeoutSeconds: Int): CommandSnapshot =
+        callCommandService(null) { it.startShellCommand(command, workingDirectory, timeoutSeconds) }
+
+    override suspend fun readShellCommand(commandId: String): CommandSnapshot =
+        callCommandService(commandId) { it.readShellCommand(commandId) }
+
+    override suspend fun cancelShellCommand(commandId: String): CommandSnapshot =
+        callCommandService(commandId) { it.cancelShellCommand(commandId) }
+
+    private suspend fun callCommandService(commandId: String?, operation: (IFlowChatShizukuService) -> String): CommandSnapshot = withContext(Dispatchers.IO) {
+        val useRoot = commandId?.startsWith("root-") ?: isRootMode
+        val connected = commandId?.let(commandServices::get) ?: if (useRoot) rootConnection.requireService() else awaitService()
+        currentCoroutineContext().ensureActive()
+        try {
+            commandJson.decodeFromString<CommandSnapshot>(operation(connected)).also { snapshot ->
+                if (snapshot.isRunning) commandServices[snapshot.id] = connected else commandServices.remove(snapshot.id)
+            }
+        } catch (error: Exception) {
+            commandId?.let(commandServices::remove)
+            throw error
+        }
+    }
+
     private suspend fun callService(
         operation: (IFlowChatShizukuService) -> String
     ): DeviceToolResult = withContext(Dispatchers.IO) {
+        val root = isRootMode
         runCatching {
-            val connectedService = awaitService()
+            val connectedService = if (root) rootConnection.requireService() else awaitService()
+            currentCoroutineContext().ensureActive()
+            check(isRootMode == root) { "Power connection changed. Retry the operation." }
             parseResult(operation(connectedService))
         }.getOrElse { error ->
+            if (error is CancellationException) throw error
             refreshConnection()
             DeviceToolResult(
                 success = false,
-                summary = error.message ?: "Shizuku operation failed.",
-                errorCode = "shizuku_operation_failed"
+                summary = error.message ?: "Device operation failed.",
+                errorCode = if (root) "root_operation_failed" else "shizuku_operation_failed"
             )
         }
     }
@@ -497,10 +673,10 @@ class ShizukuDeviceAssistantGateway @Inject constructor(
     private data class ResolvedDeviceApp(val label: String, val packageName: String)
 
     private companion object {
+        val commandJson = Json { ignoreUnknownKeys = true }
         const val ShizukuPackageName = "moe.shizuku.privileged.api"
         const val PermissionRequestCode = 6201
         const val ServiceConnectionTimeoutMillis = 5_000L
-        const val PostActionObservationDelayMillis = 400L
         const val PowerModeRefreshDelayMillis = 350L
         val AccessibilityCapabilities = setOf(
             DeviceCapability.ScreenObservation,

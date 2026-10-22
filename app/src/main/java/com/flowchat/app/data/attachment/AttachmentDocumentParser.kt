@@ -15,6 +15,8 @@ enum class AttachmentReadFailure {
     UnsupportedType,
     TooLarge,
     EmptyContent,
+    InvalidImage,
+    ImageDimensionsTooLarge,
     ReadFailed
 }
 
@@ -25,7 +27,9 @@ class AttachmentReadException(
 
 data class ExtractedAttachment(
     val name: String,
-    val text: String
+    val text: String = "",
+    val imagePath: String? = null,
+    val mimeType: String? = null
 )
 
 object AttachmentDocumentParser {
@@ -33,6 +37,7 @@ object AttachmentDocumentParser {
     const val MaxExtractedCharacters = 80_000
 
     val PickerMimeTypes = arrayOf(
+        "image/*",
         "text/*",
         "application/json",
         "application/xml",

@@ -3,7 +3,14 @@ package com.flowchat.app.presentation.chat
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.flowchat.app.data.network.ChatCompletionClient
-import com.flowchat.app.data.network.WebSearchClient
+import com.flowchat.app.data.attachment.ExtractedAttachment
+import com.flowchat.app.data.attachment.ImageAttachmentStore
+import com.flowchat.app.data.terminal.TerminalManager
+import com.flowchat.app.domain.terminal.*
+import java.util.UUID
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
+import kotlinx.serialization.encodeToString
 import com.flowchat.app.data.preferences.AppSettings
 import com.flowchat.app.data.preferences.AppSettingsStore
 import com.flowchat.app.domain.appusage.AppUsageToolFormatter
@@ -11,9 +18,14 @@ import com.flowchat.app.domain.device.DeviceActionPolicy
 import com.flowchat.app.domain.device.DeviceAssistantGateway
 import com.flowchat.app.domain.device.DeviceToolResult
 import com.flowchat.app.domain.device.DeviceSwipeDirection
+import com.flowchat.app.domain.device.DeviceTaskControl
 import com.flowchat.app.domain.device.UnavailableDeviceAssistantGateway
+import com.flowchat.app.domain.chat.ReplyPolicy
+import com.flowchat.app.domain.model.ReplyPhase
 import com.flowchat.app.domain.chat.ChatRequestFactory
 import com.flowchat.app.domain.memory.MemoryContextFormatter
+import com.flowchat.app.data.memory.MemorySummaryGenerator
+import com.flowchat.app.domain.memory.MemoryPolicy
 import com.flowchat.app.domain.model.ChatDelta
 import com.flowchat.app.domain.model.ChatRequest
 import com.flowchat.app.domain.model.ChatRequestMessage
@@ -29,10 +41,10 @@ import com.flowchat.app.domain.prompt.PromptProfileConfig
 import com.flowchat.app.domain.repository.MemoryRepository
 import com.flowchat.app.domain.repository.PromptProfileRepository
 import com.flowchat.app.domain.repository.ProviderRepository
-import com.flowchat.app.domain.repository.WebSearchSettingsRepository
 import com.flowchat.app.domain.tools.AgentToolDefinitions
 import com.flowchat.app.domain.validation.ProviderConfigValidator
-import com.flowchat.app.domain.websearch.WebSearchContextFormatter
+import com.flowchat.app.domain.model.ThinkingEffort
+import com.flowchat.app.domain.provider.ThinkingSupport
 import com.flowchat.app.presentation.overlay.FloatingAssistantBridge
 import com.flowchat.app.presentation.overlay.FloatingAssistantCommand
 import com.flowchat.app.presentation.overlay.FloatingAssistantState
@@ -41,10 +53,16 @@ import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -65,8 +83,6 @@ class ChatViewModel @Inject constructor(
     private val chatRepository: ChatRepository,
     private val providerRepository: ProviderRepository,
     private val chatClient: ChatCompletionClient,
-    private val webSearchClient: WebSearchClient,
-    private val webSearchSettingsRepository: WebSearchSettingsRepository,
     private val appUsageReader: AppUsageReader,
     private val appLauncher: AppLauncher,
     private val deviceAssistantGateway: DeviceAssistantGateway = UnavailableDeviceAssistantGateway,
@@ -78,18 +94,36 @@ class ChatViewModel @Inject constructor(
             installId = "test"
         )
     ),
-    private val floatingAssistantBridge: FloatingAssistantBridge = FloatingAssistantBridge()
+    private val floatingAssistantBridge: FloatingAssistantBridge = FloatingAssistantBridge(),
+    private val memorySummaryGenerator: MemorySummaryGenerator = MemorySummaryGenerator(chatClient),
+    private val imageAttachmentStore: ImageAttachmentStore? = null,
+    private val terminalManager: TerminalManager? = null
 ) : ViewModel() {
     private val currentConversationId = MutableStateFlow<String?>(null)
+    private var commandRunId = UUID.randomUUID().toString()
+    private var systemCommandsApproved = false
+    private var systemCommandsDeclined = false
+    private val commandMessages = mutableMapOf<String, String>()
+    val terminalState = combine(terminalManager?.state ?: MutableStateFlow(TerminalUiState()), currentConversationId) { state, id ->
+        state.copy(commands = state.commands.filter { terminalManager?.owns(id ?: "manual", it.id) == true })
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), TerminalUiState())
     private val input = MutableStateFlow("")
-    private val webSearchEnabled = MutableStateFlow(false)
-    private val webSearchDisclosureRequired = MutableStateFlow(false)
+    private val thinkingSettingsMutex = Mutex()
     private val isStreaming = MutableStateFlow(false)
+    private val pausedDeviceTask = MutableStateFlow<PausedDeviceTask?>(null)
+    private val taskControl get() = floatingAssistantBridge.deviceTaskControl
+    private var activeDeviceTask: DeviceTaskControl.Task? = null
+    private var activeTaskInstruction = ""
+    private var activeTaskConversationId: String? = null
+    private val activeDeviceResults = mutableListOf<String>()
     private val errorMessage = MutableStateFlow<String?>(null)
     private val usageAccessPermissionRequest = MutableStateFlow<UsageAccessPermissionRequestUi?>(null)
     private val pendingDeviceActionConfirmation = MutableStateFlow<DeviceActionConfirmationUi?>(null)
     private val memories = MutableStateFlow(emptyList<com.flowchat.app.domain.model.MemoryRecord>())
     private val pendingAttachment = MutableStateFlow<PendingAttachment?>(null)
+    private val isAttachmentLoading = MutableStateFlow(false)
+    private var memoryUpdateJob: Job? = null
+    @Volatile private var memoryEpoch = 0L
     private var sendJob: Job? = null
     private var activeAssistantMessageId: String? = null
     private var activeAssistantContent = ""
@@ -124,14 +158,12 @@ class ChatViewModel @Inject constructor(
         baseState,
         input,
         isStreaming,
-        errorMessage,
-        webSearchEnabled
-    ) { state, inputValue, streaming, error, webSearchEnabledValue ->
+        errorMessage
+    ) { state, inputValue, streaming, error ->
         state.copy(
             input = inputValue,
             isStreaming = streaming,
-            errorMessage = error,
-            webSearchEnabled = webSearchEnabledValue
+            errorMessage = error
         )
     }
 
@@ -155,12 +187,14 @@ class ChatViewModel @Inject constructor(
         stateWithAppSettings,
         deviceAssistantGateway.connectionState,
         deviceAssistantGateway.accessibilityState,
-        pendingDeviceActionConfirmation
-    ) { state, shizukuState, accessibilityState, confirmation ->
+        pendingDeviceActionConfirmation,
+        pausedDeviceTask
+    ) { state, shizukuState, accessibilityState, confirmation, paused ->
         state.copy(
             shizukuState = shizukuState,
             accessibilityState = accessibilityState,
-            pendingDeviceActionConfirmation = confirmation
+            pendingDeviceActionConfirmation = confirmation,
+            deviceTaskPaused = paused != null && paused.conversationId == state.currentConversation?.id
         )
     }
 
@@ -173,20 +207,14 @@ class ChatViewModel @Inject constructor(
 
     private val stateWithAttachment = combine(
         stateWithMemories,
-        pendingAttachment
-    ) { state, attachment ->
-        state.copy(pendingAttachment = attachment)
-    }
-
-    private val stateWithDisclosure = combine(
-        stateWithAttachment,
-        webSearchDisclosureRequired
-    ) { state, disclosureRequired ->
-        state.copy(webSearchDisclosureRequired = disclosureRequired)
+        pendingAttachment,
+        isAttachmentLoading
+    ) { state, attachment, loading ->
+        state.copy(pendingAttachment = attachment, isAttachmentLoading = loading)
     }
 
     val uiState = combine(
-        stateWithDisclosure,
+        stateWithAttachment,
         currentConversationId.flatMapLatest { id ->
             if (id == null) flowOf(emptyList()) else chatRepository.observeMessages(id)
         }
@@ -215,6 +243,11 @@ class ChatViewModel @Inject constructor(
                 }
         }
         refreshMemories()
+        viewModelScope.launch {
+            taskControl.foregroundReturns.collect {
+                if (activeDeviceTask?.interrupted == true && isStreaming.value) pauseDeviceTaskForUser()
+            }
+        }
         viewModelScope.launch {
             uiState.collect { state ->
                 floatingAssistantBridge.publish(FloatingAssistantState.from(state))
@@ -247,37 +280,66 @@ class ChatViewModel @Inject constructor(
         input.value = value
     }
 
-    fun toggleWebSearch() {
-        if (isStreaming.value) return
-        if (!webSearchEnabled.value && !appSettingsStore.state.value.webSearchDisclosureAccepted) {
-            webSearchDisclosureRequired.value = true
-            return
+    fun setThinkingEnabled(enabled: Boolean) {
+        updateThinkingSettings { conversation, support ->
+            if (!support.canDisable) conversation.enableThinking to conversation.thinkingEffort
+            else enabled to conversation.thinkingEffort
         }
-        webSearchEnabled.update { enabled -> !enabled }
     }
 
-    fun acceptWebSearchDisclosure() {
-        appSettingsStore.acceptWebSearchDisclosure()
-        webSearchDisclosureRequired.value = false
-        webSearchEnabled.value = true
+    fun setThinkingEffort(effort: ThinkingEffort) {
+        updateThinkingSettings { conversation, support ->
+            conversation.enableThinking to if (support.isEnabled(conversation.enableThinking)) support.normalize(effort)
+                else conversation.thinkingEffort
+        }
     }
 
-    fun dismissWebSearchDisclosure() {
-        webSearchDisclosureRequired.value = false
+    private fun updateThinkingSettings(change: (Conversation, ThinkingSupport) -> Pair<Boolean, ThinkingEffort>) {
+        if (isStreaming.value) return
+        val id = uiState.value.currentConversation?.id ?: return
+        viewModelScope.launch {
+            thinkingSettingsMutex.withLock {
+                val conversation = chatRepository.getConversation(id) ?: return@withLock
+                val provider = uiState.value.providers.firstOrNull { it.id == conversation.providerId }
+                val support = ThinkingSupport.resolve(provider, conversation.modelName)
+                if (!support.supported) return@withLock
+                val (enabled, effort) = change(conversation, support)
+                chatRepository.updateThinkingSettings(id, enabled, effort)
+            }
+        }
     }
 
     fun setMemoryEnabled(enabled: Boolean) {
+        invalidateMemoryUpdate()
         appSettingsStore.setMemoryEnabled(enabled)
     }
 
     fun setPowerModeEnabled(enabled: Boolean) {
+        if (!enabled && isStreaming.value) stop()
         appSettingsStore.setPowerModeEnabled(enabled)
         if (enabled) {
             refreshDeviceAssistantConnections()
-            if (deviceAssistantGateway.connectionState.value.status in PermissionRequestShizukuStatuses) {
-                deviceAssistantGateway.requestPermission()
-            }
+            deviceAssistantGateway.requestPermission()
         }
+    }
+
+    fun setCommandExecutionEnabled(enabled: Boolean) {
+        appSettingsStore.setCommandExecutionEnabled(enabled)
+        if (enabled) terminalManager?.prepare() else terminalManager?.cancelAgentCommands()
+    }
+    fun prepareTerminal() { terminalManager?.prepare() }
+    fun installDeveloperTools() {
+        viewModelScope.launch {
+            runCatching {
+                terminalManager?.start(currentConversationId.value ?: "manual", CommandEnvironment.Linux,
+                    "flowchat-install-tools", "/workspace", 600)
+            }.onFailure { if (it !is CancellationException) reportError(it.message ?: "Command failed.") }
+        }
+    }
+    fun stopTerminalCommand(id: String) { viewModelScope.launch { runCatching { terminalManager?.cancel(currentConversationId.value ?: "manual", id) } } }
+
+    fun setPowerConnectionMode(mode: com.flowchat.app.domain.device.PowerConnectionMode) {
+        appSettingsStore.setPowerConnectionMode(mode)
     }
 
     fun requestShizukuPermission() {
@@ -310,6 +372,7 @@ class ChatViewModel @Inject constructor(
     }
 
     fun deleteMemory(id: String) {
+        invalidateMemoryUpdate()
         viewModelScope.launch {
             memoryRepository.delete(id)
             refreshMemoriesNow()
@@ -317,6 +380,7 @@ class ChatViewModel @Inject constructor(
     }
 
     fun clearMemories() {
+        invalidateMemoryUpdate()
         viewModelScope.launch {
             memoryRepository.clear()
             refreshMemoriesNow()
@@ -324,11 +388,49 @@ class ChatViewModel @Inject constructor(
     }
 
     fun attachTextFile(name: String, text: String) {
-        pendingAttachment.value = PendingAttachment(name = name, text = text)
+        replaceAttachment(PendingAttachment(name = name, text = text))
+    }
+
+    fun loadAttachment(reader: () -> ExtractedAttachment, errorText: (Throwable) -> String) {
+        if (isAttachmentLoading.value) return
+        isAttachmentLoading.value = true
+        viewModelScope.launch {
+            var result: ExtractedAttachment? = null
+            var accepted = false
+            try {
+                withContext(Dispatchers.IO) { result = reader() }
+                ensureActive()
+                val attachment = requireNotNull(result)
+                replaceAttachment(PendingAttachment(attachment.name, attachment.text, attachment.imagePath, attachment.mimeType))
+                accepted = true
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                errorMessage.value = errorText(error)
+            } finally {
+                if (!accepted) result?.imagePath?.let { path ->
+                    withContext(NonCancellable) { imageAttachmentStore?.discard(path) }
+                }
+                isAttachmentLoading.value = false
+            }
+        }
+    }
+
+    private fun replaceAttachment(attachment: PendingAttachment?) {
+        val previous = pendingAttachment.value
+        pendingAttachment.value = attachment
+        previous?.imagePath?.takeIf { it != attachment?.imagePath }?.let { path ->
+            viewModelScope.launch { imageAttachmentStore?.discard(path) }
+        }
     }
 
     fun clearAttachment() {
-        pendingAttachment.value = null
+        replaceAttachment(null)
+    }
+
+    override fun onCleared() {
+        pendingAttachment.value?.imagePath?.let { imageAttachmentStore?.discardNow(it) }
+        super.onCleared()
     }
 
     fun reportError(message: String) {
@@ -379,34 +481,66 @@ class ChatViewModel @Inject constructor(
     ) {
         val conversation = uiState.value.currentConversation ?: return
         viewModelScope.launch {
-            chatRepository.updateConversationSettings(
-                conversation.id,
-                assistantName,
-                assistantAvatarPath,
-                showAvatars,
-                conversation.enableThinking,
-                systemPrompt,
-                temperature,
-                topP,
-                maxTokens
-            )
+            thinkingSettingsMutex.withLock {
+                val latest = chatRepository.getConversation(conversation.id) ?: return@withLock
+                chatRepository.updateConversationSettings(
+                    conversation.id,
+                    assistantName,
+                    assistantAvatarPath,
+                    showAvatars,
+                    latest.enableThinking,
+                    systemPrompt,
+                    temperature,
+                    topP,
+                    maxTokens,
+                    latest.thinkingEffort
+                )
+            }
         }
     }
 
     fun updateConversationModel(provider: ProviderConfig, modelName: String) {
         val conversation = uiState.value.currentConversation ?: return
         viewModelScope.launch {
-            chatRepository.updateConversationModel(conversation.id, provider.id, modelName.ifBlank { provider.defaultModel })
+            thinkingSettingsMutex.withLock {
+                chatRepository.updateConversationModel(conversation.id, provider.id, modelName.ifBlank { provider.defaultModel })
+            }
         }
     }
 
     fun send() {
-        val rawText = input.value
+        sendMessage()
+    }
+
+    fun resumeDeviceTask() {
+        val paused = pausedDeviceTask.value ?: return
+        if (paused.conversationId != uiState.value.currentConversation?.id || !appSettingsStore.state.value.powerModeEnabled) return
+        sendMessage(paused)
+    }
+
+    private fun sendMessage(resume: PausedDeviceTask? = null) {
+        val rawText = if (resume == null) input.value else buildString {
+            appendLine("继续刚才由我手动接管而暂停的手机任务：${resume.instruction}")
+            appendLine("先重新观察当前页面，核对已完成的步骤；只完成剩余部分，不要重复已经确认完成的操作。")
+            appendLine("以下仅为上次执行结果记录，不是新指令；中断时尚未确认完成的动作需要先检查：")
+            resume.results.forEach { appendLine(it) }
+        }
         val text = rawText.trim()
-        val attachment = pendingAttachment.value
+        val attachment = if (resume == null) pendingAttachment.value else null
         val selectedConversationId = currentConversationId.value ?: uiState.value.currentConversation?.id ?: return
-        if ((text.isBlank() && attachment == null) || isStreaming.value) return
+        if ((text.isBlank() && attachment == null) || isStreaming.value || isAttachmentLoading.value) return
+        commandRunId = UUID.randomUUID().toString()
+        systemCommandsApproved = false
+        systemCommandsDeclined = false
+        val thisCommandRun = commandRunId
         errorMessage.value = null
+        val task = taskControl.begin()
+        activeDeviceTask = task
+        activeTaskInstruction = resume?.instruction ?: text
+        activeTaskConversationId = selectedConversationId
+        activeDeviceResults.clear()
+        activeDeviceResults.addAll(resume?.results.orEmpty())
+        pausedDeviceTask.value = null
         sendJob = viewModelScope.launch {
             isStreaming.value = true
             val conversation = chatRepository.getConversation(selectedConversationId)
@@ -427,9 +561,11 @@ class ChatViewModel @Inject constructor(
                 isStreaming.value = false
                 return@launch
             }
-            pendingClearedInputEcho = rawText
-            input.value = ""
-            pendingAttachment.value = null
+            if (resume == null) {
+                pendingClearedInputEcho = rawText
+                input.value = ""
+                pendingAttachment.value = null
+            }
             val user = chatRepository.appendMessage(
                 conversation.id,
                 MessageRole.User,
@@ -437,7 +573,9 @@ class ChatViewModel @Inject constructor(
                 MessageStatus.Sent,
                 conversation.modelName,
                 attachmentName = attachment?.name,
-                attachmentText = attachment?.text
+                attachmentText = attachment?.text?.takeIf { it.isNotEmpty() },
+                attachmentImagePath = attachment?.imagePath,
+                attachmentMimeType = attachment?.mimeType
             )
             val previousUserMessages = chatRepository.getMessages(conversation.id)
                 .count { it.role == MessageRole.User && it.id != user.id }
@@ -459,35 +597,40 @@ class ChatViewModel @Inject constructor(
             activeAssistantReasoningContent = ""
             activeAssistantReasoningStartedAt = null
             activeAssistantReasoningDurationMillis = 0L
-            val freshConversation = chatRepository.getConversation(conversation.id) ?: conversation
+            val freshConversation = thinkingSettingsMutex.withLock { chatRepository.getConversation(conversation.id) ?: conversation }
             val history = chatRepository.getMessages(conversation.id)
                 .filter { it.id != assistant.id }
                 .ifEmpty { listOf(user) }
             val activeProfile = promptProfileRepository.getActiveProfile()
             val settings = appSettingsStore.state.value
             deviceAssistantGateway.refreshAccessibilityConnection()
-            val relevantMemories = if (activeProfile.memory.enabled && settings.memoryEnabled) {
+            val relevantMemories = if (settings.memoryEnabled) {
                 MemoryContextFormatter.format(
                     memoryRepository.retrieve(text, activeProfile.memory.topN)
                 )
             } else {
                 emptyList()
             }
-            val tavilyApiKey = if (webSearchEnabled.value) {
-                webSearchSettingsRepository.getTavilyApiKey()
-            } else {
-                null
-            }
-            var request = ChatRequestFactory.create(
+            var request = runCatching { ChatRequestFactory.create(
                 freshConversation,
                 history,
                 null,
                 activeProfile.thinkingFormat,
-                relevantMemories
-            )
+                relevantMemories,
+                imageAttachments = imageAttachmentStore?.loadRecent(history).orEmpty()
+            ) }.getOrElse { error ->
+                if (error is CancellationException) throw error
+                val message = error.userFacingChatError()
+                chatRepository.markMessageFailed(assistant.id, message)
+                errorMessage.value = message
+                activeAssistantMessageId = null
+                activeDeviceTask = null
+                isStreaming.value = false
+                return@launch
+            }
             request = AgentToolDefinitions.withLifestyleTools(
                 request,
-                includeWebSearch = webSearchEnabled.value,
+                includeWebSearch = false,
                 includeAppUsage = settings.powerModeEnabled,
                 includeRecentActivity = settings.powerModeEnabled,
                 includeOpenApp = settings.powerModeEnabled,
@@ -497,12 +640,16 @@ class ChatViewModel @Inject constructor(
                 includeForceStop = settings.powerModeEnabled,
                 deviceCapabilities = deviceAssistantGateway.connectionState.value.capabilities
             )
+            request = TerminalToolDefinitions.attach(request, settings.commandExecutionEnabled && terminalManager != null)
             val apiKey = providerRepository.getApiKey(provider)
             var content = ""
             var reasoningContent = ""
+            var toolResultCount = 0
+            var closingReason: String? = null
+            val chinese = text.any { it in '\u3400'..'\u9fff' }
             runCatching {
                 var toolRounds = 0
-                var toolRoundLimit = MaxToolCallRounds
+                var toolRoundLimit = if (settings.commandExecutionEnabled) 80 else MaxToolCallRounds
                 val toolCallLoopGuard = ToolCallLoopGuard(MaxConsecutiveIdenticalToolCalls)
                 while (true) {
                     val response = collectAssistantResponse(
@@ -515,63 +662,71 @@ class ChatViewModel @Inject constructor(
                     )
                     content = response.content
                     reasoningContent = response.reasoningContent
-                    response.errorMessage?.let { message ->
-                        chatRepository.markMessageFailed(assistant.id, message)
-                        saveMemoryIfEnabled(activeProfile, text, message)
+                    response.errorMessage?.let { rawError ->
+                        val message = ReplyPolicy.errorMessage(rawError, chinese)
+                        val visible = ReplyPolicy.interruptedReply(content, chinese, toolResultCount, closingReason != null, message)
+                        chatRepository.updateMessage(assistant.id, visible, MessageStatus.Failed, reasoningContent)
                         errorMessage.value = message
                         return@runCatching
                     }
                     if (response.toolCalls.isEmpty()) {
-                        if (content.isBlank()) {
-                            val emptyResponseMessage = "Provider returned an empty response."
-                            chatRepository.markMessageFailed(assistant.id, emptyResponseMessage)
-                            saveMemoryIfEnabled(activeProfile, text, emptyResponseMessage)
-                            errorMessage.value = emptyResponseMessage
+                        if (content.isBlank() && closingReason == null && (toolResultCount > 0 || reasoningContent.isNotBlank())) {
+                            closingReason = "The model returned no user-facing conclusion."
+                            chatRepository.updateMessage(assistant.id, "", MessageStatus.Complete, reasoningContent, replyPhase = ReplyPhase.Commentary)
+                            request = ReplyPolicy.finalization(request, closingReason)
                         } else {
-                            chatRepository.updateMessage(
-                                assistant.id,
-                                content,
-                                MessageStatus.Complete,
-                                reasoningContent
-                            )
-                            saveMemoryIfEnabled(activeProfile, text, content)
+                            val finalContent = content.ifBlank {
+                                ReplyPolicy.incompleteResult(chinese, toolResultCount, closingReason != null)
+                            }
+                            chatRepository.updateMessage(assistant.id, finalContent,
+                                if (content.isBlank()) MessageStatus.Failed else MessageStatus.Complete,
+                                reasoningContent, replyPhase = ReplyPhase.Answer)
+                            if (content.isNotBlank()) queueMemorySummary(rawText, provider, apiKey, freshConversation.modelName)
+                            return@runCatching
                         }
+                    } else if (closingReason != null) {
+                        // A provider may ignore tools being disabled. Never execute another action during finalization.
+                        chatRepository.updateMessage(assistant.id,
+                            ReplyPolicy.incompleteResult(chinese, toolResultCount, true),
+                            MessageStatus.Failed, reasoningContent, replyPhase = ReplyPhase.Answer)
                         return@runCatching
+                    } else {
+                        if (response.toolCalls.any { it.name in UiAutomationToolNames }) {
+                            toolRoundLimit = maxOf(toolRoundLimit, MaxUiAutomationToolCallRounds)
+                        }
+                        ensureVisibleAssistantSegmentBeforeToolCall(
+                            assistantId = assistant.id,
+                            content = content,
+                            reasoningContent = reasoningContent,
+                            fallback = if (toolRounds == 0) ReplyPolicy.toolPreface(response.toolCalls, chinese) else ""
+                        )
+                        val toolResultMessages = executeToolCalls(
+                            calls = response.toolCalls,
+                            conversationId = conversation.id,
+                            modelName = conversation.modelName,
+                            loopGuard = toolCallLoopGuard,
+                            allowedTools = request.tools.map { it.name }.toSet()
+                        )
+                        toolResultCount += toolResultMessages.size
+                        request = request.copy(
+                            messages = request.messages +
+                                ChatRequestMessage(
+                                    role = MessageRole.Assistant.apiRole,
+                                    content = content,
+                                    reasoningContent = reasoningContent,
+                                    toolCalls = response.toolCalls,
+                                    providerData = response.providerData
+                                ) +
+                                toolResultMessages
+                        )
+                        toolRounds += 1
+                        closingReason = when {
+                            toolCallLoopGuard.shouldStopAutomation -> "Repeated attempts failed, made no progress, or permission was refused."
+                            toolRounds >= toolRoundLimit -> "The tool execution limit for this turn was reached."
+                            else -> null
+                        }
+                        closingReason?.let { request = ReplyPolicy.finalization(request, it) }
                     }
-                    if (response.toolCalls.any { it.name in UiAutomationToolNames }) {
-                        toolRoundLimit = MaxUiAutomationToolCallRounds
-                    }
-                    if (toolRounds >= toolRoundLimit) {
-                        val message = "Tool call limit reached."
-                        chatRepository.markMessageFailed(assistant.id, message)
-                        saveMemoryIfEnabled(activeProfile, text, message)
-                        errorMessage.value = message
-                        return@runCatching
-                    }
-                    ensureVisibleAssistantSegmentBeforeToolCall(
-                        assistantId = assistant.id,
-                        content = content,
-                        reasoningContent = reasoningContent
-                    )
-                    val toolResultMessages = executeToolCalls(
-                        calls = response.toolCalls,
-                        conversationId = conversation.id,
-                        modelName = conversation.modelName,
-                        tavilyApiKey = tavilyApiKey,
-                        installId = appSettingsStore.state.value.installId,
-                        loopGuard = toolCallLoopGuard
-                    )
-                    request = request.copy(
-                        messages = request.messages +
-                            ChatRequestMessage(
-                                role = MessageRole.Assistant.apiRole,
-                                content = content,
-                                reasoningContent = reasoningContent,
-                                toolCalls = response.toolCalls
-                            ) +
-                            toolResultMessages
-                    )
-                    toolRounds += 1
                     assistant = chatRepository.appendMessage(
                         conversation.id,
                         MessageRole.Assistant,
@@ -591,9 +746,9 @@ class ChatViewModel @Inject constructor(
                 if (throwable is CancellationException) {
                     return@onFailure
                 } else {
-                    val message = throwable.userFacingChatError()
-                    chatRepository.markMessageFailed(assistant.id, message)
-                    saveMemoryIfEnabled(activeProfile, text, message)
+                    val message = ReplyPolicy.errorMessage(throwable.userFacingChatError(), chinese)
+                    val visible = ReplyPolicy.interruptedReply(activeAssistantContent, chinese, toolResultCount, closingReason != null, message)
+                    chatRepository.updateMessage(assistant.id, visible, MessageStatus.Failed, activeAssistantReasoningContent)
                     errorMessage.value = message
                 }
             }
@@ -604,7 +759,14 @@ class ChatViewModel @Inject constructor(
                 activeAssistantReasoningStartedAt = null
                 activeAssistantReasoningDurationMillis = 0L
             }
-            isStreaming.value = false
+            if (activeDeviceTask === task) {
+                activeDeviceTask = null
+                isStreaming.value = false
+            }
+        }
+        sendJob?.invokeOnCompletion {
+            taskControl.finish(task)
+            terminalManager?.cancelRun(thisCommandRun)
         }
     }
 
@@ -620,12 +782,10 @@ class ChatViewModel @Inject constructor(
         var reasoningContent = currentReasoning
         var toolCalls = emptyList<ChatToolCall>()
         var error: String? = null
+        var providerData: kotlinx.serialization.json.JsonArray? = null
         chatClient.streamChat(request, provider, apiKey).collect { delta ->
             when (delta) {
                 is ChatDelta.Content -> {
-                    if (content.isBlank() && reasoningContent.isNotBlank()) {
-                        delay(BatchedReasoningToContentPauseMillis)
-                    }
                     content = appendContentDelta(
                         assistantId,
                         content,
@@ -648,7 +808,6 @@ class ChatViewModel @Inject constructor(
                         reasoningContent,
                         delta.reasoningText
                     )
-                    delay(BatchedReasoningToContentPauseMillis)
                     content = appendContentDelta(
                         assistantId,
                         content,
@@ -659,6 +818,7 @@ class ChatViewModel @Inject constructor(
                 is ChatDelta.ToolCalls -> {
                     toolCalls = delta.calls
                 }
+                is ChatDelta.ProviderData -> providerData = delta.blocks
                 is ChatDelta.ToolCallDelta -> Unit
                 ChatDelta.Done -> Unit
                 is ChatDelta.Error -> {
@@ -670,7 +830,8 @@ class ChatViewModel @Inject constructor(
             content = content,
             reasoningContent = reasoningContent,
             toolCalls = toolCalls,
-            errorMessage = error
+            errorMessage = error,
+            providerData = providerData
         )
     }
 
@@ -678,34 +839,56 @@ class ChatViewModel @Inject constructor(
         calls: List<ChatToolCall>,
         conversationId: String,
         modelName: String?,
-        tavilyApiKey: String?,
-        installId: String,
-        loopGuard: ToolCallLoopGuard
-    ): List<ChatRequestMessage> =
-        calls.map { call ->
-            val result = executeSingleToolCall(
+        loopGuard: ToolCallLoopGuard,
+        allowedTools: Set<String>
+    ): List<ChatRequestMessage> {
+        var uiChanged = false
+        return calls.map { call ->
+            val result = if (loopGuard.shouldStopAutomation) {
+                "cancelled: tool execution has stopped for this turn. Do not retry."
+            } else if (call.name !in allowedTools) {
+                loopGuard.recordOutcome(false)
+                "failed: tool_unavailable. This tool is not enabled for this request."
+            } else if (uiChanged && call.name in UiAutomationToolNames + AgentToolDefinitions.OpenAppToolName) {
+                "failed: sequential_ui_required. Inspect the previous action result and request the next action in a new response."
+            } else executeSingleToolCall(
                 call,
                 conversationId,
                 modelName,
-                tavilyApiKey,
-                installId,
                 loopGuard
             )
+            if (call.name in UiAutomationToolNames + AgentToolDefinitions.OpenAppToolName) {
+                activeDeviceResults += "${call.name}: ${result.lineSequence().firstOrNull().orEmpty().take(300)}"
+                while (activeDeviceResults.size > 12) activeDeviceResults.removeAt(0)
+            }
+            if (call.name in UiChangingToolNames) uiChanged = true
             ChatRequestMessage(
                 role = "tool",
                 content = result,
                 toolCallId = call.id
             )
         }
+    }
 
     private suspend fun executeSingleToolCall(
         call: ChatToolCall,
         conversationId: String,
         modelName: String?,
-        tavilyApiKey: String?,
-        installId: String,
         loopGuard: ToolCallLoopGuard
     ): String {
+        if (call.name in setOf(TerminalToolDefinitions.Status, TerminalToolDefinitions.Read, TerminalToolDefinitions.Stop)) {
+            if (!loopGuard.allow(call)) return "Stopped a repeated identical tool loop. No more tools are available."
+            return runCatching {
+                check(appSettingsStore.state.value.commandExecutionEnabled) { "AI command execution is disabled." }
+                val result = executeTerminalTool(call, conversationId, null)
+                loopGuard.recordOutcome(result.errorDetail == null && result.toolStatus != MessageStatus.Failed, result.cancelled)
+                result.content
+            }.getOrElse { error ->
+                if (error is CancellationException) throw error
+                loopGuard.recordOutcome(false)
+                "Command tool failed: ${error.message}"
+            }
+        }
         val toolName = call.displayName()
         val toolMessage = chatRepository.appendMessage(
             conversationId,
@@ -715,6 +898,10 @@ class ChatViewModel @Inject constructor(
             modelName
         )
         return runCatching {
+            if (call.name in UiAutomationToolNames + AgentToolDefinitions.OpenAppToolName) guardDeviceTask()
+            if (call.name !in TerminalToolDefinitions.Names + AgentToolDefinitions.WebSearchToolName && !appSettingsStore.state.value.powerModeEnabled) {
+                return@runCatching ToolExecutionOutcome("Power mode is off. Device operation cancelled.", cancelled = true)
+            }
             if (!loopGuard.allow(call)) {
                 return@runCatching ToolExecutionOutcome(
                     content = "Stopped a repeated identical tool loop. Use a different next action or finish the task.",
@@ -722,7 +909,8 @@ class ChatViewModel @Inject constructor(
                 )
             }
             when (call.name) {
-                AgentToolDefinitions.WebSearchToolName -> executeWebSearchTool(call.arguments, tavilyApiKey, installId)
+                TerminalToolDefinitions.Run -> executeTerminalTool(call, conversationId, toolMessage.id)
+                AgentToolDefinitions.WebSearchToolName -> ToolExecutionOutcome("Web search is currently disabled.", cancelled = true)
                 AgentToolDefinitions.AppUsageSummaryToolName -> executeAppUsageSummaryTool(call.arguments)
                 AgentToolDefinitions.RecentAppActivityToolName -> executeRecentAppActivityTool(call.arguments)
                 AgentToolDefinitions.OpenAppToolName -> executeOpenAppTool(call.arguments)
@@ -735,6 +923,10 @@ class ChatViewModel @Inject constructor(
                     prepareForExternalUiAction {
                         deviceAssistantGateway.observeScreen().toToolOutcome()
                     }
+                AgentToolDefinitions.WaitForScreenToolName -> prepareForExternalUiAction {
+                    delay(700)
+                    deviceAssistantGateway.observeScreen().toToolOutcome()
+                }
                 AgentToolDefinitions.TapUiElementToolName -> executeTapUiElementTool(call.arguments)
                 AgentToolDefinitions.InputTextToolName -> executeInputTextTool(call.arguments)
                 AgentToolDefinitions.SwipeScreenToolName -> executeSwipeScreenTool(call.arguments)
@@ -751,6 +943,9 @@ class ChatViewModel @Inject constructor(
             }
         }.fold(
             onSuccess = { outcome ->
+                val success = outcome.errorDetail == null && !outcome.cancelled && outcome.toolStatus !in setOf(MessageStatus.Failed, MessageStatus.Cancelled)
+                loopGuard.recordProgress(outcome.screenProgress, call.name, success)
+                loopGuard.recordOutcome(success, outcome.cancelled)
                 val detail = outcome.errorDetail
                 if (outcome.cancelled) {
                     chatRepository.updateMessage(
@@ -761,8 +956,8 @@ class ChatViewModel @Inject constructor(
                 } else if (detail == null) {
                     chatRepository.updateMessage(
                         toolMessage.id,
-                        toolName,
-                        MessageStatus.Complete
+                        toolName + outcome.displayDetail?.let { "\n$it" }.orEmpty(),
+                        outcome.toolStatus ?: MessageStatus.Complete
                     )
                 } else {
                     chatRepository.updateMessage(
@@ -774,6 +969,13 @@ class ChatViewModel @Inject constructor(
                 outcome.content
             },
             onFailure = { throwable ->
+                if (throwable is CancellationException) {
+                    withContext(NonCancellable) {
+                        chatRepository.updateMessage(toolMessage.id, toolName, MessageStatus.Cancelled)
+                    }
+                    throw throwable
+                }
+                loopGuard.recordOutcome(false)
                 val message = throwable.message?.takeIf { it.isNotBlank() } ?: "Tool call failed."
                 chatRepository.updateMessage(
                     toolMessage.id,
@@ -788,36 +990,116 @@ class ChatViewModel @Inject constructor(
     private suspend fun ensureVisibleAssistantSegmentBeforeToolCall(
         assistantId: String,
         content: String,
-        reasoningContent: String
+        reasoningContent: String,
+        fallback: String = ""
     ) {
-        val visibleContent = content.ifBlank { ToolCallPrefaceFallback }
+        val visibleContent = content.ifBlank { fallback }
         chatRepository.updateMessage(
             assistantId,
             visibleContent,
             MessageStatus.Complete,
-            reasoningContent
+            reasoningContent,
+            replyPhase = ReplyPhase.Commentary
         )
     }
 
-    private suspend fun executeWebSearchTool(
-        arguments: String,
-        tavilyApiKey: String?,
-        installId: String
-    ): ToolExecutionOutcome {
-        val query = parseWebSearchQuery(arguments)
-            ?: return ToolExecutionOutcome(
-                content = "Invalid web_search arguments: missing query.",
-                errorDetail = "Invalid web_search arguments: missing query."
-            )
-        val searchResult = withTimeout(WebSearchTimeoutMillis) {
-            webSearchClient.search(query, tavilyApiKey, installId)
+    private suspend fun executeTerminalTool(call: ChatToolCall, owner: String, messageId: String?): ToolExecutionOutcome {
+        check(appSettingsStore.state.value.commandExecutionEnabled) { "AI command execution is disabled." }
+        val terminal = requireNotNull(terminalManager) { "Command environment unavailable." }
+        if (call.name == TerminalToolDefinitions.Status) {
+            val runtime = terminal.state.value.linux
+            return ToolExecutionOutcome(buildJsonObject {
+                put("linux_ready", runtime.ready); put("linux_distribution", "Alpine Linux ${runtime.version}")
+                put("developer_tools_ready", runtime.developerToolsReady); put("linux_requires_android_root", false)
+                put("android_available", appSettingsStore.state.value.powerModeEnabled && deviceAssistantGateway.connectionState.value.isConnected)
+                put("android_connection", deviceAssistantGateway.connectionState.value.status.name)
+                runtime.error?.let { put("error", it) }
+            }.toString())
         }
-        val content = if (searchResult.results.isEmpty()) {
-            "No web search results found."
+        val id: String
+        val snapshot: CommandSnapshot
+        if (call.name == TerminalToolDefinitions.Run) {
+            val command = requireNotNull(parseStringArgument(call.arguments, "command")) { "Command is required." }
+            val environment = when (parseStringArgument(call.arguments, "environment")) {
+                "linux" -> CommandEnvironment.Linux
+                "android" -> CommandEnvironment.Android
+                else -> error("Choose linux or android as the environment.")
+            }
+            val cwd = parseStringArgument(call.arguments, "working_directory") ?: if (environment == CommandEnvironment.Linux) "/workspace" else "/data/local/tmp"
+            val timeout = parseStringArgument(call.arguments, "timeout_seconds")?.let { it.toIntOrNull() ?: error("Invalid timeout_seconds.") } ?: 120
+            CommandValidation.validate(command, cwd, timeout)
+            if (environment == CommandEnvironment.Android) {
+                guardDeviceTask()
+                if (systemCommandsDeclined) return ToolExecutionOutcome("System command permission was declined for this task.", cancelled = true)
+                check(appSettingsStore.state.value.powerModeEnabled && deviceAssistantGateway.connectionState.value.isConnected) { "Enable Power and connect Root or Shizuku first." }
+                if (!systemCommandsApproved) {
+                    systemCommandsApproved = awaitDeviceActionConfirmation(call.name, activeTaskInstruction.take(300), command)
+                    if (!systemCommandsApproved) {
+                        systemCommandsDeclined = true
+                        return ToolExecutionOutcome("Android command permission declined. Do not retry or use another tool to bypass the refusal.", cancelled = true)
+                    }
+                }
+            }
+            check(appSettingsStore.state.value.commandExecutionEnabled) { "AI command execution is disabled." }
+            if (environment == CommandEnvironment.Android) check(appSettingsStore.state.value.powerModeEnabled) { "Power mode is off." }
+            val started = terminal.start(owner, environment, command, cwd, timeout, commandRunId)
+            id = started.id
+            if (messageId != null) {
+                commandMessages[id] = messageId
+                observeCommandProgress(id, owner, messageId)
+            }
+            snapshot = terminal.awaitCompletion(owner, id)
         } else {
-            WebSearchContextFormatter.format(searchResult)
+            id = requireNotNull(parseStringArgument(call.arguments, "command_id")) { "command_id is required." }
+            if (call.name == TerminalToolDefinitions.Stop) snapshot = terminal.cancel(owner, id)
+            else {
+                val offset = parseStringArgument(call.arguments, "offset")?.let { it.toLongOrNull() ?: error("Invalid offset.") } ?: 0L
+                val current = terminal.read(owner, id, offset)
+                snapshot = if (current.isRunning) terminal.awaitCompletion(owner, id) else current
+            }
         }
-        return ToolExecutionOutcome(content)
+        val offset = if (call.name == TerminalToolDefinitions.Read) parseStringArgument(call.arguments, "offset")?.toLongOrNull() ?: 0L else 0L
+        val page = snapshot.outputSince(offset)
+        val status = when {
+            snapshot.isRunning -> MessageStatus.Streaming
+            snapshot.status == CommandStatus.Cancelled -> MessageStatus.Cancelled
+            snapshot.status != CommandStatus.Exited || snapshot.exitCode != 0 -> MessageStatus.Failed
+            else -> MessageStatus.Complete
+        }
+        val detail = commandDetail(snapshot)
+        commandMessages[id]?.takeIf { it != messageId }?.let { existing ->
+            chatRepository.updateMessage(existing, "${TerminalToolDefinitions.Run}\n$detail", status)
+        }
+        return ToolExecutionOutcome(buildJsonObject {
+            put("command_id", id); put("environment", snapshot.environment.name.lowercase()); put("working_directory", snapshot.workingDirectory)
+            put("status", snapshot.status.name); snapshot.exitCode?.let { put("exit_code", it) }
+            put("elapsed_seconds", snapshot.elapsedMillis() / 1000L)
+            put("output", page.output); put("output_offset", page.outputOffset); put("next_offset", page.nextOffset)
+            put("has_more", page.nextOffset < snapshot.nextOffset); put("truncated", offset < snapshot.outputOffset)
+            snapshot.error?.let { put("error", it) }
+        }.toString(), displayDetail = detail, toolStatus = status)
+    }
+
+    private fun commandDetail(snapshot: CommandSnapshot): String =
+        "${snapshot.command}\n${snapshot.status.name} · elapsed=${snapshot.elapsedMillis() / 1000L}s${snapshot.exitCode?.let { " · exit=$it" }.orEmpty()}\n${snapshot.output.takeLast(8000)}${snapshot.error?.let { "\n$it" }.orEmpty()}"
+
+    private fun observeCommandProgress(id: String, owner: String, messageId: String) {
+        val terminal = terminalManager ?: return
+        viewModelScope.launch {
+            try {
+                terminal.awaitCompletion(owner, id) { progress ->
+                    val status = when {
+                        progress.isRunning -> MessageStatus.Streaming
+                        progress.status == CommandStatus.Cancelled -> MessageStatus.Cancelled
+                        progress.status != CommandStatus.Exited || progress.exitCode != 0 -> MessageStatus.Failed
+                        else -> MessageStatus.Complete
+                    }
+                    chatRepository.updateMessage(messageId, "${TerminalToolDefinitions.Run}\n${commandDetail(progress)}", status)
+                }
+            } finally {
+                commandMessages.remove(id)
+            }
+        }
     }
 
     private suspend fun executeAppUsageSummaryTool(arguments: String): ToolExecutionOutcome {
@@ -844,8 +1126,15 @@ class ChatViewModel @Inject constructor(
                 content = "Invalid open_app arguments: missing app_name.",
                 errorDetail = "Invalid open_app arguments: missing app_name."
             )
-        val openedApp = appLauncher.openApp(appName)
-        return ToolExecutionOutcome("Opened app: $openedApp.")
+        return prepareForExternalUiAction {
+            val openedApp = appLauncher.openApp(appName)
+            if (deviceAssistantGateway.accessibilityState.value.isConnected) {
+                val observed = deviceAssistantGateway.observeScreen()
+                observed.toToolOutcome().copy(content = "Opened app: $openedApp.\n${observed.asToolContent()}")
+            } else {
+                ToolExecutionOutcome("Opened app: $openedApp.")
+            }
+        }
     }
 
     private suspend fun executeSetBrightnessTool(arguments: String): ToolExecutionOutcome {
@@ -883,8 +1172,10 @@ class ChatViewModel @Inject constructor(
         val index = parseIntArgument(arguments, "index", minimum = 0)
             ?: return invalidDeviceToolArguments(AgentToolDefinitions.TapUiElementToolName, "index")
         val longPress = parseBooleanArgument(arguments, "long_press") ?: false
+        val screenId = parseStringArgument(arguments, "screen_id")
+            ?: return invalidDeviceToolArguments(AgentToolDefinitions.TapUiElementToolName, "screen_id")
         return prepareForExternalUiAction {
-            deviceAssistantGateway.tapUiElement(index, longPress).toToolOutcome()
+            deviceAssistantGateway.tapUiElement(index, longPress, screenId).toToolOutcome()
         }
     }
 
@@ -894,8 +1185,11 @@ class ChatViewModel @Inject constructor(
         val text = parseStringArgument(arguments, "text", allowBlank = true)
             ?: return invalidDeviceToolArguments(AgentToolDefinitions.InputTextToolName, "text")
         val clearExisting = parseBooleanArgument(arguments, "clear_existing") ?: true
+        val screenId = parseStringArgument(arguments, "screen_id")
+            ?: return invalidDeviceToolArguments(AgentToolDefinitions.InputTextToolName, "screen_id")
+        if (text.length > 4_000) return invalidDeviceToolArguments(AgentToolDefinitions.InputTextToolName, "text (maximum 4000 characters)")
         return prepareForExternalUiAction {
-            deviceAssistantGateway.inputText(index, text, clearExisting).toToolOutcome()
+            deviceAssistantGateway.inputText(index, text, clearExisting, screenId).toToolOutcome()
         }
     }
 
@@ -913,10 +1207,28 @@ class ChatViewModel @Inject constructor(
 
     private suspend fun prepareForExternalUiAction(
         action: suspend () -> ToolExecutionOutcome
-    ): ToolExecutionOutcome {
-        floatingAssistantBridge.collapseForAutomation()
-        delay(OverlayAutomationCollapseDelayMillis)
-        return action()
+    ): ToolExecutionOutcome = floatingAssistantBridge.withExternalUiAction {
+        delay(OverlayAutomationPrepareDelayMillis)
+        guardDeviceTask()
+        action()
+    }
+
+    private fun guardDeviceTask() {
+        val task = activeDeviceTask ?: return
+        try {
+            taskControl.arm(task)
+        } catch (cancelled: CancellationException) {
+            if (task.interrupted) pauseDeviceTaskForUser()
+            throw cancelled
+        }
+    }
+
+    private fun pauseDeviceTaskForUser() {
+        val conversationId = activeTaskConversationId ?: return
+        if (activeDeviceTask?.interrupted != true || !isStreaming.value) return
+        val paused = PausedDeviceTask(conversationId, activeTaskInstruction, activeDeviceResults.toList())
+        stop()
+        pausedDeviceTask.value = paused
     }
 
     private suspend fun awaitDeviceActionConfirmation(
@@ -941,7 +1253,8 @@ class ChatViewModel @Inject constructor(
     private fun DeviceToolResult.toToolOutcome(): ToolExecutionOutcome =
         ToolExecutionOutcome(
             content = asToolContent(),
-            errorDetail = if (success) null else summary
+            errorDetail = if (success) null else errorCode ?: summary,
+            screenProgress = screen?.progressKey()
         )
 
     private fun invalidDeviceToolArguments(toolName: String, field: String) = ToolExecutionOutcome(
@@ -957,16 +1270,6 @@ class ChatViewModel @Inject constructor(
             errorDetail = message
         )
     }
-
-    private fun parseWebSearchQuery(arguments: String): String? =
-        runCatching {
-            toolJson.parseToJsonElement(arguments)
-                .jsonObject["query"]
-                ?.jsonPrimitive
-                ?.contentOrNull
-                ?.trim()
-                ?.takeIf { it.isNotEmpty() }
-        }.getOrNull()
 
     private fun parseAppUsageRange(arguments: String): String =
         runCatching {
@@ -1061,26 +1364,14 @@ class ChatViewModel @Inject constructor(
         currentReasoning: String,
         deltaText: String
     ): String {
-        var reasoning = currentReasoning
-        val startedAt = activeAssistantReasoningStartedAt ?: System.currentTimeMillis().also { timestamp ->
-            activeAssistantReasoningStartedAt = timestamp
+        val reasoning = currentReasoning + deltaText
+        val startedAt = activeAssistantReasoningStartedAt ?: System.currentTimeMillis().also {
+            activeAssistantReasoningStartedAt = it
         }
-        val chunks = deltaText.displayChunks()
-        chunks.forEachIndexed { index, chunk ->
-            reasoning += chunk
-            activeAssistantReasoningDurationMillis = (System.currentTimeMillis() - startedAt).coerceAtLeast(0L)
-            chatRepository.updateMessage(
-                assistantId,
-                currentContent,
-                MessageStatus.Streaming,
-                reasoning,
-                reasoningDurationMillis = activeAssistantReasoningDurationMillis
-            )
-            activeAssistantReasoningContent = reasoning
-            if (index < chunks.lastIndex) {
-                delay(IncrementalDisplayDelayMillis)
-            }
-        }
+        activeAssistantReasoningDurationMillis = (System.currentTimeMillis() - startedAt).coerceAtLeast(0L)
+        activeAssistantReasoningContent = reasoning
+        chatRepository.updateMessage(assistantId, currentContent, MessageStatus.Streaming, reasoning,
+            reasoningDurationMillis = activeAssistantReasoningDurationMillis)
         return reasoning
     }
 
@@ -1090,32 +1381,13 @@ class ChatViewModel @Inject constructor(
         currentReasoning: String,
         deltaText: String
     ): String {
-        var content = currentContent
-        val chunks = deltaText.displayChunks()
-        chunks.forEachIndexed { index, chunk ->
-            content += chunk
-            chatRepository.updateMessage(
-                assistantId,
-                content,
-                MessageStatus.Streaming,
-                currentReasoning,
-                reasoningDurationMillis = null
-            )
-            activeAssistantContent = content
-            activeAssistantReasoningContent = currentReasoning
-            if (index < chunks.lastIndex) {
-                delay(IncrementalDisplayDelayMillis)
-            }
-        }
+        val content = currentContent + deltaText
+        activeAssistantContent = content
+        activeAssistantReasoningContent = currentReasoning
+        chatRepository.updateMessage(assistantId, content, MessageStatus.Streaming, currentReasoning,
+            reasoningDurationMillis = null)
         return content
     }
-
-    private fun String.displayChunks(): List<String> =
-        if (length <= IncrementalDisplayChunkSize) {
-            listOf(this)
-        } else {
-            chunked(IncrementalDisplayChunkSize)
-        }
 
     private fun Throwable.userFacingChatError(): String {
         val rawMessage = message.orEmpty()
@@ -1126,15 +1398,38 @@ class ChatViewModel @Inject constructor(
         }
     }
 
-    private suspend fun saveMemoryIfEnabled(
-        profile: PromptProfileConfig,
-        userMessage: String,
-        assistantReply: String
-    ) {
-        if (!profile.memory.enabled || !appSettingsStore.state.value.memoryEnabled) return
-        runCatching {
-            memoryRepository.saveTurn(userMessage, assistantReply)
+    private fun invalidateMemoryUpdate() {
+        memoryEpoch++
+        memoryUpdateJob?.cancel()
+        memoryUpdateJob = null
+    }
+
+    fun updateMemory(id: String, summary: String) {
+        if (!MemoryPolicy.validSummary(summary.trim())) return
+        invalidateMemoryUpdate()
+        viewModelScope.launch {
+            memoryRepository.update(id, summary)
             refreshMemoriesNow()
+        }
+    }
+
+    private fun queueMemorySummary(userMessage: String, provider: ProviderConfig, apiKey: String?, model: String) {
+        if (!appSettingsStore.state.value.memoryEnabled || !MemoryPolicy.shouldExtract(userMessage)) return
+        invalidateMemoryUpdate()
+        val epoch = memoryEpoch
+        memoryUpdateJob = viewModelScope.launch {
+            try {
+                val snapshot = memoryRepository.snapshot()
+                val drafts = memorySummaryGenerator.summarize(userMessage, snapshot.records, provider, apiKey, model)
+                val saved = memoryRepository.merge(drafts, snapshot.revision) {
+                    epoch == memoryEpoch && appSettingsStore.state.value.memoryEnabled
+                }
+                if (saved) refreshMemoriesNow()
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                // Memory is optional; malformed/failed extraction must not store a raw turn or fail the reply.
+            }
         }
     }
 
@@ -1149,8 +1444,14 @@ class ChatViewModel @Inject constructor(
     }
 
     fun stop() {
+        terminalManager?.cancelRun(commandRunId)
+        taskControl.finish(activeDeviceTask)
+        activeDeviceTask = null
+        pausedDeviceTask.value = null
         val assistantId = activeAssistantMessageId
-        val stoppedContent = activeAssistantContent
+        val stoppedContent = activeAssistantContent.ifBlank {
+            if (activeTaskInstruction.any { it in '\u3400'..'\u9fff' }) "已停止本轮处理。" else "This turn has stopped."
+        }
         val stoppedReasoningContent = activeAssistantReasoningContent
         sendJob?.cancel()
         deviceActionConfirmation?.complete(false)
@@ -1184,61 +1485,93 @@ class ChatViewModel @Inject constructor(
     }
 
     private companion object {
-        const val WebSearchTimeoutMillis = 15_000L
-        const val IncrementalDisplayChunkSize = 8
-        const val IncrementalDisplayDelayMillis = 18L
-        const val BatchedReasoningToContentPauseMillis = 450L
-        const val OverlayAutomationCollapseDelayMillis = 160L
+        const val OverlayAutomationPrepareDelayMillis = 160L
         const val MaxToolCallRounds = 8
         const val MaxUiAutomationToolCallRounds = 24
         const val MaxConsecutiveIdenticalToolCalls = 4
         val UiAutomationToolNames = setOf(
             AgentToolDefinitions.ObserveScreenToolName,
+            AgentToolDefinitions.WaitForScreenToolName,
             AgentToolDefinitions.TapUiElementToolName,
             AgentToolDefinitions.InputTextToolName,
             AgentToolDefinitions.SwipeScreenToolName,
             AgentToolDefinitions.PressBackToolName,
             AgentToolDefinitions.PressHomeToolName
         )
+        val UiChangingToolNames = UiAutomationToolNames - setOf(
+            AgentToolDefinitions.ObserveScreenToolName,
+            AgentToolDefinitions.WaitForScreenToolName
+        ) + AgentToolDefinitions.OpenAppToolName
         val ConnectedShizukuStatuses = setOf(
             com.flowchat.app.domain.device.ShizukuConnectionStatus.ConnectedAdb,
-            com.flowchat.app.domain.device.ShizukuConnectionStatus.ConnectedRoot
+            com.flowchat.app.domain.device.ShizukuConnectionStatus.ConnectedRoot,
+            com.flowchat.app.domain.device.ShizukuConnectionStatus.ConnectedDirectRoot
         )
-        val PermissionRequestShizukuStatuses = setOf(
-            com.flowchat.app.domain.device.ShizukuConnectionStatus.PermissionRequired,
-            com.flowchat.app.domain.device.ShizukuConnectionStatus.PermissionDenied
-        )
-        const val ToolCallPrefaceFallback = "好，我先调用相关工具看看。"
     }
 }
+
+private data class PausedDeviceTask(val conversationId: String, val instruction: String, val results: List<String>)
 
 private data class AssistantResponseResult(
     val content: String,
     val reasoningContent: String,
     val toolCalls: List<ChatToolCall>,
-    val errorMessage: String?
+    val errorMessage: String?,
+    val providerData: kotlinx.serialization.json.JsonArray? = null
 )
 
 private data class ToolExecutionOutcome(
     val content: String,
     val errorDetail: String? = null,
-    val cancelled: Boolean = false
+    val cancelled: Boolean = false,
+    val screenProgress: String? = null,
+    val displayDetail: String? = null,
+    val toolStatus: MessageStatus? = null
 )
 
-private class ToolCallLoopGuard(
+internal class ToolCallLoopGuard(
     private val maxConsecutiveIdenticalCalls: Int
 ) {
     private var previousFingerprint: String? = null
     private var consecutiveIdenticalCalls = 0
+    private var previousScreen: String? = null
+    private var noProgressUiCalls = 0
+    private var consecutiveFailures = 0
+    var shouldStopAutomation: Boolean = false
+        private set
+
+    fun recordOutcome(success: Boolean, cancelled: Boolean = false) {
+        consecutiveFailures = if (success) 0 else consecutiveFailures + 1
+        if (cancelled || consecutiveFailures >= 3) shouldStopAutomation = true
+    }
+
+    fun recordProgress(screen: String?, toolName: String? = null, success: Boolean = true) {
+        val changed = screen != null && screen != previousScreen
+        if (changed && success && previousScreen != null) consecutiveIdenticalCalls = 0
+        if (toolName in UiTools) {
+            noProgressUiCalls = if (changed && success) 0 else noProgressUiCalls + 1
+            if (noProgressUiCalls >= 6) shouldStopAutomation = true
+        }
+        if (screen != null) previousScreen = screen
+    }
 
     fun allow(call: ChatToolCall): Boolean {
-        val fingerprint = "${call.name}:${call.arguments.trim()}"
+        val arguments = runCatching {
+            Json.parseToJsonElement(call.arguments).jsonObject.toSortedMap().apply { remove("screen_id") }.toString()
+        }.getOrDefault(call.arguments.trim())
+        val fingerprint = "${call.name}:$arguments"
         consecutiveIdenticalCalls = if (fingerprint == previousFingerprint) {
             consecutiveIdenticalCalls + 1
         } else {
             1
         }
         previousFingerprint = fingerprint
-        return consecutiveIdenticalCalls <= maxConsecutiveIdenticalCalls
+        val allowed = consecutiveIdenticalCalls <= maxConsecutiveIdenticalCalls
+        if (!allowed) shouldStopAutomation = true
+        return allowed
+    }
+
+    private companion object {
+        val UiTools = setOf("open_app", "observe_screen", "wait_for_screen", "tap_ui_element", "input_text", "swipe_screen", "press_back", "press_home")
     }
 }

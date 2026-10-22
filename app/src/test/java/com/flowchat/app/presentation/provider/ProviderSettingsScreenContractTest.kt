@@ -15,14 +15,12 @@ class ProviderSettingsScreenContractTest {
 
         assertTrue(source.contains("TopAppBar("))
         assertFalse(source.contains("CenterAlignedTopAppBar("))
-        assertTrue(preset.contains(".height(64.dp)"))
+        assertTrue(preset.contains(".heightIn(min = 64.dp)"))
         assertTrue(preset.contains("Row("))
-        assertTrue(preset.contains("ProviderLogo(providerName = preset.displayName, modifier = Modifier.size(24.dp))"))
+        assertTrue(preset.contains("ProviderLogo(providerName = preset.displayName, modifier = Modifier.size(28.dp))"))
         assertTrue(source.contains("singleLine = true"))
         assertTrue(source.contains("var customConfigurationExpanded by rememberSaveable"))
-        assertTrue(source.contains("var searchFallbackExpanded by rememberSaveable"))
         assertTrue(source.contains("expanded = customConfigurationExpanded"))
-        assertTrue(source.contains("expanded = searchFallbackExpanded"))
         assertTrue(source.contains("if (expanded)"))
         assertTrue(source.contains("Modifier.rotate(if (expanded) 180f else 0f)"))
     }
@@ -58,7 +56,7 @@ class ProviderSettingsScreenContractTest {
         assertFalse(screenSource.contains("stringResource(R.string.provider_presets)"))
         assertTrue(screenSource.contains("R.string.custom_api_configuration"))
         assertTrue(screenSource.indexOf("ProviderPresetSection(") < screenSource.indexOf("R.string.custom_api_configuration"))
-        assertTrue(screenSource.contains("state.providerPresets.forEach"))
+        assertTrue(screenSource.contains("state.providerPresets.chunked(columns)"))
         assertTrue(screenSource.contains("onApplyPreset(preset)"))
         assertTrue(screenSource.contains("PresetApiKeyDialog("))
         assertTrue(strings.contains("<string name=\"custom_api_configuration\">Custom API configuration</string>"))
@@ -92,7 +90,7 @@ class ProviderSettingsScreenContractTest {
         assertFalse(presetBlock.contains("Text(stringResource(R.string.provider_presets)"))
         assertTrue(dialogBlock.contains("AlertDialog("))
         assertTrue(dialogBlock.contains("value = apiKey"))
-        assertFalse(dialogBlock.contains("title ="))
+        assertTrue(dialogBlock.contains("R.string.provider_preset_title"))
         assertFalse(dialogBlock.contains("R.string.preset_api_key_title"))
         assertTrue(dialogBlock.contains("label = { Text(stringResource(R.string.preset_api_key_placeholder)) }"))
         assertFalse(dialogBlock.contains("R.string.provider_name"))
@@ -142,38 +140,6 @@ class ProviderSettingsScreenContractTest {
     }
 
     @Test
-    fun providerScreenIncludesTavilyApiKeyConfigurationWithoutPlaintextReveal() {
-        val screenSource = File("src/main/java/com/flowchat/app/presentation/provider/ProviderSettingsScreen.kt").readText()
-        val stateSource = File("src/main/java/com/flowchat/app/presentation/provider/ProviderSettingsUiState.kt").readText()
-        val viewModelSource = File("src/main/java/com/flowchat/app/presentation/provider/ProviderSettingsViewModel.kt").readText()
-        val strings = File("src/main/res/values/strings.xml").readText()
-        val zhStrings = File("src/main/res/values-zh-rCN/strings.xml").readText()
-
-        assertTrue(stateSource.contains("val tavilyApiKey: String = \"\""))
-        assertTrue(stateSource.contains("val hasTavilyApiKey: Boolean = false"))
-        assertTrue(viewModelSource.contains("WebSearchSettingsRepository"))
-        assertTrue(viewModelSource.contains("private val tavilyApiKey = MutableStateFlow(\"\")"))
-        assertTrue(viewModelSource.contains("private val hasTavilyApiKey = MutableStateFlow(false)"))
-        assertTrue(viewModelSource.contains("fun updateTavilyApiKey(value: String)"))
-        assertTrue(viewModelSource.contains("webSearchSettingsRepository.saveTavilyApiKey"))
-        assertTrue(viewModelSource.contains("webSearchSettingsRepository.hasTavilyApiKey()"))
-        assertTrue(screenSource.contains("R.string.web_search_configuration"))
-        assertTrue(screenSource.contains("R.string.tavily_api_key"))
-        assertTrue(screenSource.contains("val tavilySavedMaskVisible = state.hasTavilyApiKey && state.tavilyApiKey.isBlank()"))
-        assertTrue(screenSource.contains("val displayedTavilyApiKey = if (tavilySavedMaskVisible) SavedApiKeyDisplayValue else state.tavilyApiKey"))
-        assertTrue(screenSource.contains("onTavilyApiKey"))
-        assertTrue(screenSource.contains("R.string.api_key_saved_hint"))
-        assertTrue(strings.contains("<string name=\"web_search_configuration\">Optional search fallback</string>"))
-        assertTrue(strings.contains("<string name=\"tavily_api_key\">Tavily API key (optional)</string>"))
-        assertTrue(strings.contains("<string name=\"web_search_on\">Web search on</string>"))
-        assertTrue(strings.contains("<string name=\"web_search_off\">Web search off</string>"))
-        assertTrue(zhStrings.contains("name=\"web_search_configuration\""))
-        assertTrue(zhStrings.contains("name=\"tavily_api_key\""))
-        assertTrue(zhStrings.contains("name=\"web_search_on\""))
-        assertTrue(zhStrings.contains("name=\"web_search_off\""))
-    }
-
-    @Test
     fun providerModelFieldCanLoadAndSelectRemoteModelOptions() {
         val screenSource = File("src/main/java/com/flowchat/app/presentation/provider/ProviderSettingsScreen.kt").readText()
         val stateSource = File("src/main/java/com/flowchat/app/presentation/provider/ProviderSettingsUiState.kt").readText()
@@ -208,9 +174,9 @@ class ProviderSettingsScreenContractTest {
     }
 
     @Test
-    fun providerScreenMatchesOptionTwoPresetCurrentAndApiConfigurationCards() {
+    fun providerScreenKeepsPresetsCurrentConnectionAndCustomFormInPaperLayout() {
         val screenSource = File("src/main/java/com/flowchat/app/presentation/provider/ProviderSettingsScreen.kt").readText()
-        val editorStart = screenSource.indexOf("private fun ProviderEditor(")
+        val editorStart = screenSource.indexOf("internal fun ProviderEditor(")
         val editorEnd = screenSource.indexOf("private fun ProviderPresetSection(", editorStart)
         val editorBlock = screenSource.substring(editorStart, editorEnd)
         val presetStart = screenSource.indexOf("private fun ProviderPresetSection(")
@@ -221,7 +187,7 @@ class ProviderSettingsScreenContractTest {
 
         assertFalse(screenSource.contains("import androidx.compose.foundation.Canvas"))
         assertTrue(screenSource.contains("import androidx.compose.material3.ButtonDefaults"))
-        assertTrue(screenSource.contains("ButtonDefaults.outlinedButtonColors("))
+        assertTrue(screenSource.contains("Surface(onClick ="))
         assertTrue(screenSource.contains("private fun ProviderSection("))
         assertTrue(screenSource.contains("private fun CurrentProviderCard("))
         assertTrue(screenSource.contains("private fun ProviderLogo("))
@@ -233,13 +199,13 @@ class ProviderSettingsScreenContractTest {
         assertTrue(screenSource.contains("ButtonDefaults.buttonColors("))
         assertTrue(screenSource.contains("containerColor = MaterialTheme.colorScheme.primary"))
         assertTrue(screenSource.contains("shape = RoundedCornerShape(12.dp)"))
-        assertTrue(presetBlock.contains("ButtonDefaults.outlinedButtonColors("))
+        assertTrue(presetBlock.contains("Surface(onClick ="))
         assertTrue(presetBlock.contains("ProviderLogo(providerName = preset.displayName"))
-        assertTrue(presetBlock.contains("containerColor = MaterialTheme.colorScheme.surface"))
-        assertTrue(presetBlock.contains("BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)"))
+        assertTrue(presetBlock.contains("color = MaterialTheme.colorScheme.surface"))
+        assertTrue(presetBlock.contains("border = null"))
         assertTrue(screenSource.contains("shape = RoundedCornerShape(18.dp)"))
-        assertTrue(screenSource.contains("focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant"))
-        assertTrue(screenSource.contains("focusedBorderColor = MaterialTheme.colorScheme.primary"))
+        assertTrue(screenSource.contains("providerTextFieldColors() = flowFieldColors()"))
+        assertTrue(screenSource.contains("colors = providerTextFieldColors()"))
         assertTrue(strings.contains("<string name=\"current_configuration\">Current configuration</string>"))
         assertTrue(strings.contains("<string name=\"none\">None</string>"))
         assertTrue(strings.contains("<string name=\"custom_api_configuration\">Custom API configuration</string>"))

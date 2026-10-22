@@ -22,7 +22,7 @@ interface ConversationDao {
 
     @Query(
         "UPDATE conversations SET assistantName = :assistantName, assistantAvatarPath = :assistantAvatarPath, " +
-            "showAvatars = :showAvatars, enableThinking = :enableThinking, " +
+            "showAvatars = :showAvatars, enableThinking = :enableThinking, thinkingEffort = :thinkingEffort, " +
             "systemPrompt = :systemPrompt, temperature = :temperature, " +
             "topP = :topP, maxTokens = :maxTokens, updatedAt = :updatedAt WHERE id = :id"
     )
@@ -36,8 +36,12 @@ interface ConversationDao {
         temperature: Double,
         topP: Double,
         maxTokens: Int?,
-        updatedAt: Long
+        updatedAt: Long,
+        thinkingEffort: String
     )
+
+    @Query("UPDATE conversations SET enableThinking = :enabled, thinkingEffort = :effort, updatedAt = :updatedAt WHERE id = :id")
+    suspend fun updateThinkingSettings(id: String, enabled: Boolean, effort: String, updatedAt: Long)
 
     @Query("UPDATE conversations SET providerId = :providerId, modelName = :modelName, updatedAt = :updatedAt WHERE id = :id")
     suspend fun updateModel(id: String, providerId: String, modelName: String, updatedAt: Long)

@@ -9,7 +9,13 @@ import android.view.accessibility.AccessibilityNodeInfo
 import com.flowchat.app.domain.device.DeviceScreenSnapshot
 import com.flowchat.app.domain.device.DeviceSwipeDirection
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlin.coroutines.resume
 
 class FlowChatAccessibilityService : AccessibilityService() {
     private val indexedNodes = linkedMapOf<Int, AccessibilityNodeInfo>()
@@ -18,6 +24,7 @@ class FlowChatAccessibilityService : AccessibilityService() {
 
     override fun onServiceConnected() {
         instance = this
+        mutableConnected.value = true
         snapshotInvalidated = true
     }
 
@@ -25,7 +32,9 @@ class FlowChatAccessibilityService : AccessibilityService() {
         when (event?.eventType) {
             AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED,
             AccessibilityEvent.TYPE_WINDOWS_CHANGED,
-            AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED -> snapshotInvalidated = true
+            AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED,
+            AccessibilityEvent.TYPE_VIEW_SCROLLED,
+            AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED -> snapshotInvalidated = true
         }
     }
 
@@ -33,14 +42,21 @@ class FlowChatAccessibilityService : AccessibilityService() {
 
     override fun onDestroy() {
         clearNodeCache()
-        if (instance === this) instance = null
+        if (instance === this) {
+            instance = null
+            mutableConnected.value = false
+        }
         super.onDestroy()
     }
 
     suspend fun observeScreen(forceRefresh: Boolean = true): DeviceScreenSnapshot? =
         withContext(Dispatchers.Main.immediate) {
             if (!forceRefresh && !snapshotInvalidated) return@withContext cachedSnapshot
-            val root = rootInActiveWindow ?: return@withContext null
+            val root = rootInActiveWindow ?: run {
+                clearNodeCache()
+                cachedSnapshot = null
+                return@withContext null
+            }
             try {
                 val activityName = windows.firstOrNull { it.isActive }?.title?.toString().orEmpty()
                 val readResult = AccessibilityScreenReader.read(root, activityName)
@@ -55,10 +71,22 @@ class FlowChatAccessibilityService : AccessibilityService() {
             }
         }
 
+    // Two matching observations avoid returning a transient animation frame. Always bounded.
+    suspend fun observeSettledScreen(): DeviceScreenSnapshot? {
+        var previous = observeScreen()
+        repeat(6) {
+            delay(200)
+            val current = observeScreen()
+            if (current != null && (current.sensitive || previous?.hasSameUi(current) == true)) return current
+            previous = current
+        }
+        return previous
+    }
+
     suspend fun tapUiElement(index: Int, longPress: Boolean): Boolean =
         withContext(Dispatchers.Main.immediate) {
             val node = indexedNodes[index] ?: return@withContext false
-            if (!node.isEnabled || !node.refresh()) return@withContext false
+            if (!node.refresh() || !node.isEnabled || !node.isVisibleToUser) return@withContext false
             val action = if (longPress) {
                 AccessibilityNodeInfo.ACTION_LONG_CLICK
             } else {
@@ -68,6 +96,27 @@ class FlowChatAccessibilityService : AccessibilityService() {
                 snapshotInvalidated = true
                 return@withContext true
             }
+            // Labels often delegate their click to a containing row.
+            var parent = node.parent
+            var depth = 0
+            while (parent != null && depth++ < 5) {
+                val candidate = parent
+                parent = null
+                try {
+                    if (candidate.isEnabled && candidate.isVisibleToUser &&
+                        (if (longPress) candidate.isLongClickable else candidate.isClickable) &&
+                        candidate.performAction(action)) {
+                        snapshotInvalidated = true
+                        return@withContext true
+                    }
+                    parent = candidate.parent
+                } finally {
+                    @Suppress("DEPRECATION")
+                    candidate.recycle()
+                }
+            }
+            @Suppress("DEPRECATION")
+            parent?.recycle()
             val bounds = android.graphics.Rect().also(node::getBoundsInScreen)
             if (bounds.width() <= 0 || bounds.height() <= 0) return@withContext false
             dispatchPointGesture(
@@ -80,11 +129,11 @@ class FlowChatAccessibilityService : AccessibilityService() {
     suspend fun inputText(index: Int, text: String, clearExisting: Boolean): Boolean =
         withContext(Dispatchers.Main.immediate) {
             val node = indexedNodes[index] ?: return@withContext false
-            if (!node.isEnabled || !node.isEditable || node.isPassword || !node.refresh()) {
+            if (!node.refresh() || !node.isEnabled || !node.isVisibleToUser || !node.isEditable || node.isPassword) {
                 return@withContext false
             }
-            val normalizedText = text.take(MaxInputTextLength)
-            val value = if (clearExisting) normalizedText else node.text?.toString().orEmpty() + normalizedText
+            val value = if (clearExisting) text else node.text?.toString().orEmpty() + text
+            if (value.length > MaxInputTextLength) return@withContext false
             val arguments = Bundle().apply {
                 putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, value)
             }
@@ -96,6 +145,8 @@ class FlowChatAccessibilityService : AccessibilityService() {
 
     suspend fun swipeScreen(direction: DeviceSwipeDirection, distancePercent: Int): Boolean =
         withContext(Dispatchers.Main.immediate) {
+            // Video pagers can return true for ACTION_SCROLL_DOWN without moving. The swipe tool
+            // promises finger motion, so dispatch a real gesture and await its completion.
             val width = resources.displayMetrics.widthPixels.toFloat()
             val height = resources.displayMetrics.heightPixels.toFloat()
             val distance = distancePercent.coerceIn(MinSwipePercent, MaxSwipePercent) / 100f
@@ -113,12 +164,10 @@ class FlowChatAccessibilityService : AccessibilityService() {
                 moveTo(coordinates[0], coordinates[1])
                 lineTo(coordinates[2], coordinates[3])
             }
-            dispatchGesture(
+            awaitGesture(
                 GestureDescription.Builder()
                     .addStroke(GestureDescription.StrokeDescription(path, 0, SwipeDurationMillis))
-                    .build(),
-                null,
-                null
+                    .build()
             ).also { accepted -> if (accepted) snapshotInvalidated = true }
         }
 
@@ -130,19 +179,32 @@ class FlowChatAccessibilityService : AccessibilityService() {
         performGlobalAction(GLOBAL_ACTION_HOME).also { accepted -> if (accepted) snapshotInvalidated = true }
     }
 
-    private fun dispatchPointGesture(x: Float, y: Float, durationMillis: Long): Boolean {
+    private suspend fun dispatchPointGesture(x: Float, y: Float, durationMillis: Long): Boolean {
         val path = Path().apply {
             moveTo(x, y)
             lineTo(x, y)
         }
-        return dispatchGesture(
+        return awaitGesture(
             GestureDescription.Builder()
                 .addStroke(GestureDescription.StrokeDescription(path, 0, durationMillis))
-                .build(),
-            null,
-            null
+                .build()
         )
     }
+
+    private suspend fun awaitGesture(gesture: GestureDescription): Boolean =
+        withTimeoutOrNull(2_000) {
+            suspendCancellableCoroutine { continuation ->
+                val callback = object : GestureResultCallback() {
+                    override fun onCompleted(gestureDescription: GestureDescription?) {
+                        if (continuation.isActive) continuation.resume(true)
+                    }
+                    override fun onCancelled(gestureDescription: GestureDescription?) {
+                        if (continuation.isActive) continuation.resume(false)
+                    }
+                }
+                if (!dispatchGesture(gesture, callback, null) && continuation.isActive) continuation.resume(false)
+            }
+        } ?: false
 
     private fun clearNodeCache() {
         indexedNodes.values.forEach { node ->
@@ -153,6 +215,8 @@ class FlowChatAccessibilityService : AccessibilityService() {
     }
 
     companion object {
+        private val mutableConnected = MutableStateFlow(false)
+        val connected = mutableConnected.asStateFlow()
         @Volatile
         private var instance: FlowChatAccessibilityService? = null
 

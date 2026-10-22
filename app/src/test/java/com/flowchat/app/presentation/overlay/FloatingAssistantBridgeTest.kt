@@ -6,6 +6,8 @@ import com.flowchat.app.domain.model.MessageRole
 import com.flowchat.app.domain.model.MessageStatus
 import com.flowchat.app.presentation.chat.ChatUiState
 import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
@@ -14,6 +16,18 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class FloatingAssistantBridgeTest {
+
+    @Test fun aNewTurnDoesNotShowThePreviousAnswerOrFinishedToolAsActive() {
+        val state = ChatUiState(isStreaming = true, messages = listOf(
+            Message(conversationId = "c", role = MessageRole.Tool, content = "observe_screen"),
+            Message(conversationId = "c", role = MessageRole.Assistant, content = "Previous answer"),
+            Message(conversationId = "c", role = MessageRole.User, content = "New task"),
+            Message(conversationId = "c", role = MessageRole.Assistant, content = "", status = MessageStatus.Streaming)))
+        val output = FloatingAssistantState.from(state)
+        assertEquals("", output.assistantText)
+        assertEquals(null, output.activeToolName)
+    }
+
     @Test
     fun mapsTheActiveConversationAndLatestAssistantSegment() {
         val conversation = Conversation(
@@ -59,7 +73,7 @@ class FloatingAssistantBridgeTest {
     }
 
     @Test
-    fun emitsSendStopAndAutomationCollapseCommands() = runTest {
+    fun emitsSendAndStopCommands() = runTest {
         val bridge = FloatingAssistantBridge()
         val send = async(start = CoroutineStart.UNDISPATCHED) { bridge.commands.first() }
         bridge.send("继续看看")
@@ -69,8 +83,39 @@ class FloatingAssistantBridgeTest {
         bridge.stop()
         assertEquals(FloatingAssistantCommand.Stop, stop.await())
 
-        val collapse = async(start = CoroutineStart.UNDISPATCHED) { bridge.events.first() }
-        bridge.collapseForAutomation()
-        assertEquals(FloatingAssistantEvent.CollapseForAutomation, collapse.await())
+    }
+
+    @Test
+    fun overlappingDeviceActionsKeepControlsYieldingUntilBothHaveFinishedOrCancelled() = runTest {
+        val bridge = FloatingAssistantBridge()
+        val firstGate = CompletableDeferred<Unit>()
+        val secondGate = CompletableDeferred<Unit>()
+        val first = async(start = CoroutineStart.UNDISPATCHED) {
+            bridge.withExternalUiAction { firstGate.await() }
+        }
+        val second = async(start = CoroutineStart.UNDISPATCHED) {
+            bridge.withExternalUiAction { secondGate.await() }
+        }
+        assertEquals(2, bridge.uiInteractionCount.value)
+        bridge.publish(FloatingAssistantState(assistantText = "Still reporting progress", isStreaming = true))
+        assertEquals("Still reporting progress", bridge.state.value.assistantText)
+        firstGate.complete(Unit)
+        first.await()
+        assertEquals(1, bridge.uiInteractionCount.value)
+        second.cancelAndJoin()
+        assertEquals(0, bridge.uiInteractionCount.value)
+    }
+
+    @Test
+    fun aFailedDeviceActionRestoresControls() = runTest {
+        val bridge = FloatingAssistantBridge()
+        val result = runCatching {
+            bridge.withExternalUiAction {
+                assertEquals(1, bridge.uiInteractionCount.value)
+                error("Device disconnected")
+            }
+        }
+        assertTrue(result.isFailure)
+        assertEquals(0, bridge.uiInteractionCount.value)
     }
 }

@@ -2,6 +2,7 @@ package com.flowchat.app.domain.chat
 
 import com.flowchat.app.domain.model.ChatRequest
 import com.flowchat.app.domain.model.ChatRequestMessage
+import com.flowchat.app.domain.model.ChatImage
 import com.flowchat.app.domain.model.Conversation
 import com.flowchat.app.domain.model.Message
 import com.flowchat.app.domain.model.MessageRole
@@ -13,29 +14,40 @@ object ChatRequestFactory {
         messages: List<Message>,
         transientSystemContext: String? = null,
         thinkingFormat: String? = null,
-        relevantMemories: List<String> = emptyList()
+        relevantMemories: List<String> = emptyList(),
+        imageAttachments: Map<String, ChatImage> = emptyMap()
     ): ChatRequest {
         val context = transientSystemContext?.trim()
             ?.takeIf { it.isNotEmpty() }
             ?.asTemporaryContext()
             .orEmpty()
         val conversationMessages = messages
+            .filter { it.replyPhase != com.flowchat.app.domain.model.ReplyPhase.Commentary }
             .filter { it.status != MessageStatus.Failed }
             .filter { it.status != MessageStatus.Stopped }
             .filter { it.role == MessageRole.User || it.role == MessageRole.Assistant }
-            .filter { it.content.isNotBlank() || !it.attachmentText.isNullOrBlank() }
+            .filter { it.content.isNotBlank() || !it.attachmentText.isNullOrBlank() || it.attachmentImagePath != null }
+            .takeRecentMessageTurns(MaxHistoryUserTurns)
             .map { message ->
-                ChatRequestMessage(role = message.role.apiRole, content = message.content.withAttachment(message))
+                ChatRequestMessage(
+                    role = message.role.apiRole,
+                    content = message.content.withAttachment(message),
+                    reasoningContent = message.reasoningContent.takeIf { message.role == MessageRole.Assistant && it.isNotBlank() },
+                    images = message.attachmentImagePath?.let { path ->
+                        listOf(requireNotNull(imageAttachments[path]) { "Image attachment unavailable. Please attach the image again." })
+                    }.orEmpty()
+                )
             }
             .takeRecentUserTurns(MaxHistoryUserTurns)
         val contextInsertIndex = conversationMessages.indexOfLast { it.role == MessageRole.User.apiRole }
-        val latestUserPrefix = buildLatestUserPrefix(relevantMemories, thinkingFormat)
+        val latestUserPrefix = buildLatestUserPrefix(relevantMemories, thinkingFormat.takeIf { conversation.enableThinking })
 
         val apiMessages = buildList {
             val prompt = conversation.systemPrompt.trim()
-            if (prompt.isNotEmpty()) {
-                add(ChatRequestMessage(role = MessageRole.System.apiRole, content = prompt.asConversationSystemPrompt()))
-            }
+            add(ChatRequestMessage(role = MessageRole.System.apiRole, content = buildString {
+                append(ReplyPolicy.instructions)
+                if (prompt.isNotEmpty()) append("\n\n").append(prompt.asConversationSystemPrompt())
+            }))
             if (context.isNotEmpty() && contextInsertIndex < 0) {
                 add(ChatRequestMessage(role = MessageRole.System.apiRole, content = context))
             }
@@ -56,7 +68,8 @@ object ChatRequestFactory {
             temperature = conversation.temperature,
             topP = conversation.topP,
             maxTokens = conversation.maxTokens,
-            enableThinking = true
+            enableThinking = conversation.enableThinking,
+            thinkingEffort = conversation.thinkingEffort
         )
     }
 
@@ -139,6 +152,11 @@ object ChatRequestFactory {
         if (userIndexes.size <= maxTurns) return this
         val firstKeptIndex = userIndexes[userIndexes.size - maxTurns]
         return drop(firstKeptIndex)
+    }
+
+    private fun List<Message>.takeRecentMessageTurns(maxTurns: Int): List<Message> {
+        val indexes = mapIndexedNotNull { index, message -> index.takeIf { message.role == MessageRole.User } }
+        return if (indexes.size <= maxTurns) this else drop(indexes[indexes.size - maxTurns])
     }
 
     private const val MaxHistoryUserTurns = 5

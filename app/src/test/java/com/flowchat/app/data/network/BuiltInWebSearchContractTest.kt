@@ -17,7 +17,7 @@ class BuiltInWebSearchContractTest {
         assertTrue(client.contains("X-FlowChat-Install-ID"))
         assertTrue(client.contains("searchBuiltInProxy"))
         assertTrue(client.contains("searchDirectTavily"))
-        assertTrue(viewModel.contains("appSettingsStore.state.value.installId"))
+        assertFalse(viewModel.contains("webSearchClient.search("))
         assertFalse(viewModel.contains("Tavily API key is not configured."))
     }
 }

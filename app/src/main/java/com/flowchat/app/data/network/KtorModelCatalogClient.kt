@@ -1,6 +1,7 @@
 package com.flowchat.app.data.network
 
 import com.flowchat.app.domain.model.ProviderConfig
+import com.flowchat.app.domain.provider.apiHost
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.request.get
@@ -12,6 +13,8 @@ import io.ktor.http.isSuccess
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 
 @Singleton
 class KtorModelCatalogClient @Inject constructor(
@@ -20,7 +23,7 @@ class KtorModelCatalogClient @Inject constructor(
 ) : ModelCatalogClient {
     override suspend fun listModels(provider: ProviderConfig, apiKey: String?): List<String> {
         val primaryResult = runCatching {
-            requestOpenAiCompatibleModels(provider.modelsEndpoint(), apiKey)
+            requestOpenAiCompatibleModels(provider, apiKey)
         }
         primaryResult.getOrNull()?.takeIf { it.isNotEmpty() }?.let { return it }
 
@@ -38,11 +41,18 @@ class KtorModelCatalogClient @Inject constructor(
         return emptyList()
     }
 
-    private suspend fun requestOpenAiCompatibleModels(url: String, apiKey: String?): List<String> {
-        val response = httpClient.get(url) {
+    private suspend fun requestOpenAiCompatibleModels(provider: ProviderConfig, apiKey: String?): List<String> {
+        val response = httpClient.get(provider.modelsEndpoint()) {
             header(HttpHeaders.Accept, "application/json")
-            if (!apiKey.isNullOrBlank()) {
+            if (provider.apiHost() == "api.anthropic.com") {
+                header("anthropic-version", "2023-06-01")
+                if (!apiKey.isNullOrBlank()) header("x-api-key", apiKey)
+            } else if (!apiKey.isNullOrBlank()) {
                 header(HttpHeaders.Authorization, "Bearer $apiKey")
+            }
+            if (provider.customHeadersJson.isNotBlank()) {
+                runCatching { json.parseToJsonElement(provider.customHeadersJson).jsonObject }.getOrNull()
+                    ?.forEach { (key, value) -> header(key, value.jsonPrimitive.content) }
             }
         }
         if (response.status == HttpStatusCode.Unauthorized || response.status == HttpStatusCode.Forbidden) {

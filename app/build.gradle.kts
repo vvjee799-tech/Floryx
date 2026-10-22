@@ -30,8 +30,8 @@ android {
         applicationId = "com.flowchat.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 6
-        versionName = "1.4.0"
+        versionCode = 18
+        versionName = "1.5.4"
 
         buildConfigField("String", "SEARCH_PROXY_URL", "\"${searchProxyUrl.replace("\"", "\\\"")}\"")
 
@@ -51,6 +51,9 @@ android {
     }
 
     buildTypes {
+        debug {
+            applicationIdSuffix = ".debug"
+        }
         release {
             isMinifyEnabled = true
             if (hasReleaseSigning) {
@@ -89,6 +92,10 @@ android {
     }
 
     packaging {
+        jniLibs {
+            useLegacyPackaging = true
+            keepDebugSymbols += setOf("**/libflowchat_*.so", "**/libandroid-shmem.so")
+        }
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
             excludes += "META-INF/INDEX.LIST"
@@ -98,6 +105,8 @@ android {
 }
 
 dependencies {
+    implementation("org.apache.commons:commons-compress:1.28.0")
+    testImplementation(libs.ktor.client.mock)
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.lifecycle.runtime.compose)
@@ -141,4 +150,5 @@ dependencies {
     testImplementation(libs.robolectric)
     androidTestImplementation(platform(libs.androidx.compose.bom))
     androidTestImplementation(libs.androidx.compose.ui.test.junit4)
+    androidTestImplementation("androidx.test:runner:1.6.2")
 }

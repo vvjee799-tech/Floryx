@@ -1,0 +1,129 @@
+{
+  "schema": 1,
+  "linux": {
+    "arm64-v8a": {
+      "name": "Alpine Linux",
+      "version": "3.24.2",
+      "architecture": "aarch64",
+      "asset": "alpine-minirootfs-3.24.2-aarch64.rootfs",
+      "url": "https://dl-cdn.alpinelinux.org/alpine/v3.24/releases/aarch64/alpine-minirootfs-3.24.2-aarch64.tar.gz",
+      "sha256": "9bf70a7f18ea44094cbb5f70c58f9af129c8214745743db0e68e5502cc2ce773",
+      "repositoryBranch": "v3.24"
+    },
+    "x86_64": {
+      "name": "Alpine Linux",
+      "version": "3.24.2",
+      "architecture": "x86_64",
+      "asset": "alpine-minirootfs-3.24.2-x86_64.rootfs",
+      "url": "https://dl-cdn.alpinelinux.org/alpine/v3.24/releases/x86_64/alpine-minirootfs-3.24.2-x86_64.tar.gz",
+      "sha256": "c5ca053cfe1d85c5b96dff8b9bc57045f7f184a30ffb6b65776409ca90388677",
+      "repositoryBranch": "v3.24"
+    }
+  },
+  "packages": [
+    {
+      "name": "proot",
+      "architecture": "aarch64",
+      "version": "5.1.107.98",
+      "url": "https://packages.termux.dev/apt/termux-main/pool/main/p/proot/proot_5.1.107.98_aarch64.deb",
+      "sha256": "29de40efea4daa2a6168b617915206511c63e8d46bf5f4b07d48723441ef7f3b"
+    },
+    {
+      "name": "libtalloc",
+      "architecture": "aarch64",
+      "version": "2.5.0",
+      "url": "https://packages.termux.dev/apt/termux-main/pool/main/libt/libtalloc/libtalloc_2.5.0_aarch64.deb",
+      "sha256": "556591f43bb773ad8777e1a29522640866a55f95dab71914418b94a8c58ad5a7"
+    },
+    {
+      "name": "libandroid-shmem",
+      "architecture": "aarch64",
+      "version": "0.7",
+      "url": "https://packages.termux.dev/apt/termux-main/pool/main/liba/libandroid-shmem/libandroid-shmem_0.7_aarch64.deb",
+      "sha256": "0da3a24d558b93c92bcf8d611e0826a99ff96e396b148e6cdf33b47c47c57ff6"
+    },
+    {
+      "name": "proot",
+      "architecture": "x86_64",
+      "version": "5.1.107.98",
+      "url": "https://packages.termux.dev/apt/termux-main/pool/main/p/proot/proot_5.1.107.98_x86_64.deb",
+      "sha256": "1c31ad7e1046f4d418fef19b6dfaa9a14801d2047ade6ad0375b3f5501e3e227"
+    },
+    {
+      "name": "libtalloc",
+      "architecture": "x86_64",
+      "version": "2.5.0",
+      "url": "https://packages.termux.dev/apt/termux-main/pool/main/libt/libtalloc/libtalloc_2.5.0_x86_64.deb",
+      "sha256": "b8c6d95f20075dc1f9ec6573575b2444e8d526e48e0d8d6d5cf4e071e6e06530"
+    },
+    {
+      "name": "libandroid-shmem",
+      "architecture": "x86_64",
+      "version": "0.7",
+      "url": "https://packages.termux.dev/apt/termux-main/pool/main/liba/libandroid-shmem/libandroid-shmem_0.7_x86_64.deb",
+      "sha256": "ffa9e4c87467b158b148d0ff92dda796aa038276c2075af3269cdcdb06f25797"
+    },
+    {
+      "name": "proot",
+      "architecture": "arm",
+      "version": "5.1.107.98",
+      "url": "https://packages.termux.dev/apt/termux-main/pool/main/p/proot/proot_5.1.107.98_arm.deb",
+      "sha256": "23d505c57c5d9fdbe4d6ac669bcb8a25610912c62acddd9a5575f01e56015879"
+    },
+    {
+      "name": "libtalloc",
+      "architecture": "arm",
+      "version": "2.5.0",
+      "url": "https://packages.termux.dev/apt/termux-main/pool/main/libt/libtalloc/libtalloc_2.5.0_arm.deb",
+      "sha256": "98ace4f1fcbb04b75e859a12b689a9ae4ac91ff8fd34ab221e5359c95ba47f52"
+    },
+    {
+      "name": "libandroid-shmem",
+      "architecture": "arm",
+      "version": "0.7",
+      "url": "https://packages.termux.dev/apt/termux-main/pool/main/liba/libandroid-shmem/libandroid-shmem_0.7_arm.deb",
+      "sha256": "5832fd11dca9be2a288dd8fbc2b2799b289c812c7a8764f1f8234c425aa64ce5"
+    },
+    {
+      "name": "proot",
+      "architecture": "i686",
+      "version": "5.1.107.98",
+      "url": "https://packages.termux.dev/apt/termux-main/pool/main/p/proot/proot_5.1.107.98_i686.deb",
+      "sha256": "819ce5904a3e851c6675bdea87e4df43745cca08c8a798fa890269682ad4a85c"
+    },
+    {
+      "name": "libtalloc",
+      "architecture": "i686",
+      "version": "2.5.0",
+      "url": "https://packages.termux.dev/apt/termux-main/pool/main/libt/libtalloc/libtalloc_2.5.0_i686.deb",
+      "sha256": "7994c6c6ec74a117630f5e8e88273bd701c4e475e638b69826879a32916f5e64"
+    },
+    {
+      "name": "libandroid-shmem",
+      "architecture": "i686",
+      "version": "0.7",
+      "url": "https://packages.termux.dev/apt/termux-main/pool/main/liba/libandroid-shmem/libandroid-shmem_0.7_i686.deb",
+      "sha256": "e9ccecee1aeed7dd70ac93bf44a6ba1bf6d4cb9559aabeb086acdc89accb4ba4"
+    }
+  ],
+  "nativeSources": {
+    "bundle": "native-sources.zip",
+    "sha256": "b3bf9fec25b69c8afc982e89fccafcca9e2ce42ee0930e6067ea87cfced5ea1d",
+    "termuxPackagesCommit": "3383e9f8a5566e4445eae6eeeaded8873a0c5f98",
+    "termuxBuildSystem": "https://codeload.github.com/termux/termux-packages/tar.gz/3383e9f8a5566e4445eae6eeeaded8873a0c5f98",
+    "sources": [
+      {
+        "name": "proot-5.1.107.98.zip",
+        "sha256": "9de61bddd6f5016d065e2755b72ff4747290e5f992562f031785b107b51d02ba"
+      },
+      {
+        "name": "talloc-2.5.0.tar.gz",
+        "sha256": "912afa237510ae542a7733998eb18a12bcda35ab6729c8e2ddb43e8d0ebab007"
+      },
+      {
+        "name": "libandroid-shmem-0.7.tar.gz",
+        "sha256": "1e5ff8459bc0a8c229dd8a94b27d119987e09ef3414331c2b5ebfff20b98e867"
+      }
+    ]
+  }
+}

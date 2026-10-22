@@ -38,7 +38,11 @@ internal object AccessibilityScreenReader {
                     editable = node.isEditable,
                     scrollable = node.isScrollable,
                     enabled = node.isEnabled,
-                    password = node.isPassword
+                    password = node.isPassword,
+                    checked = node.isChecked.takeIf { node.isCheckable },
+                    selected = node.isSelected,
+                    focused = node.isFocused,
+                    hint = node.hintText?.toString()
                 )
                 @Suppress("DEPRECATION")
                 indexedNodes[index] = AccessibilityNodeInfo.obtain(node)

@@ -1,93 +1,84 @@
 package com.flowchat.app.data.memory
 
+import com.flowchat.app.domain.model.MemoryDraft
 import java.io.File
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertTrue
+import org.junit.Assert.*
 import org.junit.Test
 
 class JsonMemoryStoreTest {
-    @Test
-    fun appendsTurnMemoryRecordToJsonFile() {
-        val file = File.createTempFile("flowchat-memory", ".json").apply { deleteOnExit() }
-        val store = JsonMemoryStore(file)
+    private fun store(limit: Int = 80) = JsonMemoryStore(File.createTempFile("flowchat-memory", ".json").apply { deleteOnExit() }, limit)
+    private fun preference(summary: String = "用户希望默认用中文交流。") = MemoryDraft("preference.response_language", "preference", summary)
 
-        val record = store.appendTurn(
-            userMessage = "写一段猫娘回复。第二句不应该进入 goal。",
-            assistantReply = "短回复",
-            timestamp = 1000L
-        )
-
-        assertEquals("写一段猫娘回复。", record.goal)
-        assertEquals("low", record.quality)
-        assertEquals(1000L, record.timestamp)
-        assertTrue(record.summary.contains("用户：写一段猫娘回复。"))
-        assertTrue(record.summary.contains("助手：短回复"))
-
-        val stored = store.readAll()
-        assertEquals(1, stored.size)
-        assertEquals(record.id, stored.single().id)
+    @Test fun savesSummaryAndUpdatesExistingFactWithoutAnotherRow() {
+        val store = store()
+        assertTrue(store.merge(listOf(preference()), store.snapshot().revision, 100))
+        val id = store.readAll().single().id
+        assertTrue(store.merge(listOf(preference("用户希望默认用英文交流。")), store.snapshot().revision, 200))
+        assertEquals(1, store.readAll().size)
+        assertEquals(id, store.readAll().single().id)
+        assertEquals("用户希望默认用英文交流。", store.readAll().single().summary)
     }
 
-    @Test
-    fun marksAssistantRepliesLongerThanTwoHundredCharsAsHighQuality() {
-        val file = File.createTempFile("flowchat-memory", ".json").apply { deleteOnExit() }
-        val store = JsonMemoryStore(file)
-
-        val record = store.appendTurn(
-            userMessage = "总结我的角色偏好。",
-            assistantReply = "a".repeat(201),
-            timestamp = 1000L
-        )
-
-        assertEquals("high", record.quality)
+    @Test fun staleExtractionCannotResurrectClearedOrDeletedMemories() {
+        val store = store()
+        store.merge(listOf(preference()), store.snapshot().revision, 100)
+        val pending = store.snapshot()
+        store.clear()
+        assertFalse(store.merge(listOf(preference()), pending.revision, 200))
+        assertTrue(store.readAll().isEmpty())
+        store.merge(listOf(preference()), store.snapshot().revision, 300)
+        val beforeDelete = store.snapshot()
+        store.delete(beforeDelete.records.single().id)
+        assertFalse(store.merge(listOf(preference()), beforeDelete.revision, 400))
+        assertTrue(store.readAll().isEmpty())
     }
 
-    @Test
-    fun retrievesHighQualityMemoriesByKeywordOverlapScore() {
-        val file = File.createTempFile("flowchat-memory", ".json").apply { deleteOnExit() }
-        val store = JsonMemoryStore(file)
-        store.appendTurn("猫娘语气要轻松。", "a".repeat(220), 1000L)
-        store.appendTurn("联网搜索新闻摘要。", "b".repeat(220), 2000L)
-        store.appendTurn("猫娘称呼用户 Captain。", "c".repeat(220), 3000L)
-        store.appendTurn("猫娘短回复。", "low", 4000L)
-
-        val results = store.retrieve(userMessage = "继续猫娘语气，记得叫我 Captain", topN = 5)
-
-        assertEquals(2, results.size)
-        assertEquals("猫娘语气要轻松。", results[0].goal)
-        assertEquals("猫娘称呼用户 Captain。", results[1].goal)
-        assertTrue(results.none { it.quality == "low" })
+    @Test fun toggleGuardPreventsPendingWriteAndEditingWinsOverLateExtraction() {
+        val store = store()
+        assertFalse(store.merge(listOf(preference()), store.snapshot().revision, 100) { false })
+        assertTrue(store.readAll().isEmpty())
+        store.merge(listOf(preference()), store.snapshot().revision, 200)
+        val snapshot = store.snapshot()
+        store.update(snapshot.records.single().id, "用户希望默认用中英双语交流。")
+        assertFalse(store.merge(listOf(preference()), snapshot.revision, 300))
+        assertEquals("用户希望默认用中英双语交流。", store.readAll().single().summary)
     }
 
-    @Test
-    fun fallsBackToMostRecentHighQualityMemoriesWhenNoKeywordMatches() {
-        val file = File.createTempFile("flowchat-memory", ".json").apply { deleteOnExit() }
-        val store = JsonMemoryStore(file)
-        store.appendTurn("旧偏好。", "a".repeat(220), 1000L)
-        store.appendTurn("中间偏好。", "b".repeat(220), 2000L)
-        store.appendTurn("最新偏好。", "c".repeat(220), 3000L)
-
-        val results = store.retrieve(userMessage = "完全无关的英文 request", topN = 2)
-
-        assertEquals(listOf("最新偏好。", "中间偏好。"), results.map { it.goal })
+    @Test fun retrievalUsesSummaryTextAndSkipsUnrelatedProjects() {
+        val store = store()
+        store.merge(listOf(preference(), MemoryDraft("project.flowchat", "project", "用户正在开发 FlowChat 安卓应用。")), store.snapshot().revision, 100)
+        assertEquals(1, store.retrieve("推荐一本书", 5).size)
+        assertEquals(2, store.retrieve("FlowChat 界面开发", 5).size)
     }
 
-    @Test
-    fun capsStoredMemoriesAndSupportsDeleteAndClear() {
-        val file = File.createTempFile("flowchat-memory", ".json").apply { deleteOnExit() }
-        val store = JsonMemoryStore(file, retentionLimit = 3)
-        val first = store.appendTurn("第一条。", "a".repeat(220), 1000L)
-        store.appendTurn("第二条。", "b".repeat(220), 2000L)
-        val third = store.appendTurn("第三条。", "c".repeat(220), 3000L)
-        store.appendTurn("第四条。", "d".repeat(220), 4000L)
+    @Test fun rejectsCredentialsRawDialogAndInvalidCategories() {
+        val store = store()
+        assertFalse(store.merge(listOf(preference("我的密码是 secret-password"), preference("用户：你好 / 助手：你好"),
+            MemoryDraft("action.swipe", "action", "打开抖音刷几个视频。")), store.snapshot().revision, 100))
+        assertTrue(store.readAll().isEmpty())
+    }
 
-        assertEquals(listOf("第二条。", "第三条。", "第四条。"), store.readAll().map { it.goal })
-        assertTrue(store.readAll().none { it.id == first.id })
-
-        store.delete(third.id)
-        assertEquals(listOf("第二条。", "第四条。"), store.readAll().map { it.goal })
-
+    @Test fun retentionDeleteAndClearOperateOnSummaries() {
+        val store = store(2)
+        (1..3).forEach { i -> store.merge(listOf(MemoryDraft("project.item$i", "project", "用户持续维护项目 item$i。")), store.snapshot().revision, i.toLong()) }
+        assertEquals(2, store.readAll().size)
+        store.delete(store.readAll().first().id)
+        assertEquals(1, store.readAll().size)
         store.clear()
         assertTrue(store.readAll().isEmpty())
+    }
+
+    @Test fun migratesOnlyDurableUserFactsAndDiscardsAssistantCopies() {
+        val file = File.createTempFile("flowchat-legacy", ".json").apply { deleteOnExit() }
+        file.writeText("""[
+            {"id":"one","goal":"以后默认用中文回复。","summary":"用户：以后默认用中文回复 / 助手：一个冗长的回答","quality":"high","timestamp":100},
+            {"id":"two","goal":"打开抖音刷三个视频。","summary":"用户：打开抖音 / 助手：已完成","quality":"high","timestamp":200}
+        ]""")
+        val records = JsonMemoryStore(file).readAll()
+        assertEquals(1, records.size)
+        assertEquals("以后默认用中文回复。", records.single().summary)
+        assertEquals(2, records.single().formatVersion)
+        assertFalse(file.readText().contains("助手："))
+        assertEquals(records, JsonMemoryStore(file).readAll())
     }
 }

@@ -1,0 +1,2 @@
+TXT_ATTACHMENT_MARKER
+你好，文件发送测试。

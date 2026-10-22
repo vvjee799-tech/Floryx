@@ -2,30 +2,57 @@ package com.flowchat.app.data.device
 
 import android.content.Context
 import androidx.annotation.Keep
+import com.flowchat.app.BuildConfig
 import com.flowchat.app.domain.device.DeviceCapability
 import com.flowchat.app.shizuku.IFlowChatShizukuService
-import java.util.concurrent.TimeUnit
 import kotlin.math.roundToInt
 import org.json.JSONObject
+import com.flowchat.app.data.terminal.ManagedCommandRegistry
+import com.flowchat.app.data.terminal.CommandProcessSpec
+import com.flowchat.app.domain.terminal.CommandEnvironment
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
 
 @Keep
 class FlowChatShizukuService : IFlowChatShizukuService.Stub {
-    constructor() : super()
+    private val commandExecutor: DeviceCommandExecutor
+    private var rootCommands = false
+    private val shellCommands by lazy { ManagedCommandRegistry(if (rootCommands) "root-" else "shizuku-") }
+    private val shellJson = Json { encodeDefaults = true }
+
+    constructor() : super() {
+        commandExecutor = ProcessDeviceCommandExecutor()
+    }
 
     @Keep
-    constructor(@Suppress("UNUSED_PARAMETER") context: Context) : super()
+    constructor(@Suppress("UNUSED_PARAMETER") context: Context) : this()
+
+    internal constructor(commandExecutor: DeviceCommandExecutor) : this(commandExecutor, false)
+
+    internal constructor(commandExecutor: DeviceCommandExecutor, rootCommands: Boolean) : super() {
+        this.commandExecutor = commandExecutor
+        this.rootCommands = rootCommands
+    }
 
     override fun destroy() {
         System.exit(0)
     }
 
     override fun probeCapabilities(): String = buildSet {
+        add(DeviceCapability.ShellCommands.name)
         if (runCommand("dumpsys", "battery").success) add(DeviceCapability.DeviceStatus.name)
         if (foregroundPackage() != null) add(DeviceCapability.ForegroundApp.name)
         if (currentBrightness() != null) add(DeviceCapability.ScreenBrightness.name)
         if (currentMediaVolume() != null) add(DeviceCapability.MediaVolume.name)
         if (runCommand("am", "get-current-user").success) add(DeviceCapability.ForceStopApp.name)
     }.joinToString(",")
+
+    override fun startShellCommand(command: String, workingDirectory: String, timeoutSeconds: Int): String =
+        shellJson.encodeToString(shellCommands.start(command, CommandEnvironment.Android, workingDirectory, timeoutSeconds,
+            CommandProcessSpec(listOf("/system/bin/sh", "-c", "cd ${ManagedCommandRegistry.shellQuote(workingDirectory)} || exit; $command"), root = rootCommands)))
+
+    override fun readShellCommand(commandId: String): String = shellJson.encodeToString(shellCommands.read(commandId))
+    override fun cancelShellCommand(commandId: String): String = shellJson.encodeToString(shellCommands.cancel(commandId))
 
     override fun getDeviceStatus(): String {
         val batteryDump = runCommand("dumpsys", "battery").output
@@ -44,19 +71,40 @@ class FlowChatShizukuService : IFlowChatShizukuService.Stub {
         val volume = currentMediaVolume()?.let { current ->
             (current.value * 100f / current.max.coerceAtLeast(1)).roundToInt().coerceIn(0, 100)
         }
-        val summary = buildList {
+        val readings = buildList {
             batteryPercent?.let { add("battery=$it%") }
             freeStorageKb?.let { add("free_storage_mb=${it / 1024}") }
             brightness?.let { add("brightness=$it%") }
             volume?.let { add("media_volume=$it%") }
-        }.joinToString(", ").ifBlank { "Device status could not be read." }
-        return response(summary.isNotBlank(), summary, errorCode = "device_status_unavailable".takeIf { summary.isBlank() })
+        }
+        return response(
+            readings.isNotEmpty(),
+            readings.joinToString(", ").ifBlank { "Device status could not be read." },
+            errorCode = "device_status_unavailable".takeIf { readings.isEmpty() }
+        )
     }
 
     override fun getForegroundApp(): String {
         val packageName = foregroundPackage()
             ?: return response(false, "The foreground app could not be determined.", errorCode = "foreground_unavailable")
         return response(true, "foreground_package=$packageName")
+    }
+
+    override fun launchApp(packageName: String, activityName: String): String {
+        if (!PackageNamePattern.matches(packageName) || !Regex("[A-Za-z0-9_.$]+").matches(activityName)) {
+            return response(false, "Invalid app component.", errorCode = "invalid_app_component")
+        }
+        val started = runCommand("am", "start", "-W", "-n", "$packageName/$activityName")
+        if (!started.success || started.output.lineSequence().any {
+            it.trim().startsWith("Error", ignoreCase = true) || it.contains("Permission Denial", ignoreCase = true)
+        }) {
+            return response(false, "Android could not launch the app.", errorCode = "app_launch_failed")
+        }
+        val foreground = foregroundPackage()
+        return response(foreground == packageName,
+            if (foreground == packageName) "App is in the foreground: $packageName."
+            else "Launch was requested but the target app is not in the foreground. Current app: ${foreground ?: "unknown"}.",
+            after = foreground, errorCode = "app_not_foreground".takeIf { foreground != packageName })
     }
 
     override fun setScreenBrightness(percent: Int): String {
@@ -127,9 +175,13 @@ class FlowChatShizukuService : IFlowChatShizukuService.Stub {
         val overlayAccess = runCommand(
             "cmd", "appops", "set", FlowChatPackageName, "SYSTEM_ALERT_WINDOW", "allow"
         )
-        val enabledServices = runCommand(
+        val existingServices = runCommand(
             "settings", "get", "secure", "enabled_accessibility_services"
-        ).output
+        )
+        if (!existingServices.success) {
+            return response(false, "Accessibility settings could not be read.", errorCode = "power_mode_partial_failure")
+        }
+        val enabledServices = existingServices.output
             .takeUnless { it == "null" }
             .orEmpty()
             .split(':')
@@ -191,20 +243,8 @@ class FlowChatShizukuService : IFlowChatShizukuService.Stub {
             }
     }
 
-    private fun runCommand(vararg command: String): CommandResult = runCatching {
-        val process = ProcessBuilder(command.toList())
-            .redirectErrorStream(true)
-            .start()
-        val output = process.inputStream.bufferedReader().use { it.readText() }.trim()
-        if (!process.waitFor(CommandTimeoutSeconds, TimeUnit.SECONDS)) {
-            process.destroyForcibly()
-            CommandResult(false, "Command timed out.")
-        } else {
-            CommandResult(process.exitValue() == 0, output)
-        }
-    }.getOrElse { error ->
-        CommandResult(false, error.message ?: "Command failed.")
-    }
+    private fun runCommand(vararg command: String): DeviceCommandResult =
+        commandExecutor.execute(command.toList())
 
     private fun response(
         success: Boolean,
@@ -222,14 +262,12 @@ class FlowChatShizukuService : IFlowChatShizukuService.Stub {
         errorCode?.let { put("errorCode", it) }
     }.toString()
 
-    private data class CommandResult(val success: Boolean, val output: String)
     private data class MediaVolume(val value: Int, val max: Int)
 
     private companion object {
-        const val FlowChatPackageName = "com.flowchat.app"
+        const val FlowChatPackageName = BuildConfig.APPLICATION_ID
         const val FlowChatAccessibilityServiceName =
             "$FlowChatPackageName/com.flowchat.app.data.device.FlowChatAccessibilityService"
-        const val CommandTimeoutSeconds = 5L
         val PackageNamePattern = Regex("[A-Za-z0-9_]+(?:\\.[A-Za-z0-9_]+)+")
     }
 }

@@ -2,6 +2,7 @@ package com.flowchat.app.data.preferences
 
 import android.content.Context
 import android.content.SharedPreferences
+import com.flowchat.app.domain.device.PowerConnectionMode
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.util.UUID
 import javax.inject.Inject
@@ -13,8 +14,10 @@ import kotlinx.coroutines.flow.asStateFlow
 data class AppSettings(
     val memoryEnabled: Boolean = true,
     val powerModeEnabled: Boolean = false,
+    val powerConnectionMode: PowerConnectionMode = PowerConnectionMode.Shizuku,
     val webSearchDisclosureAccepted: Boolean = false,
-    val installId: String = ""
+    val installId: String = "",
+    val commandExecutionEnabled: Boolean = false
 )
 
 @Singleton
@@ -33,10 +36,17 @@ class AppSettingsStore private constructor(
     private val mutableState = MutableStateFlow(initial)
     val state: StateFlow<AppSettings> = mutableState.asStateFlow()
 
+    fun setCommandExecutionEnabled(enabled: Boolean) = update(CommandExecutionKey, enabled) { copy(commandExecutionEnabled = enabled) }
+
     fun setMemoryEnabled(enabled: Boolean) = update(MemoryEnabledKey, enabled) { copy(memoryEnabled = enabled) }
 
     fun setPowerModeEnabled(enabled: Boolean) =
         update(PowerModeEnabledKey, enabled) { copy(powerModeEnabled = enabled) }
+
+    fun setPowerConnectionMode(mode: PowerConnectionMode) {
+        mutableState.value = mutableState.value.copy(powerConnectionMode = mode)
+        preferences?.edit()?.putString(PowerConnectionModeKey, mode.name)?.apply()
+    }
 
     fun acceptWebSearchDisclosure() =
         update(WebSearchDisclosureKey, true) { copy(webSearchDisclosureAccepted = true) }
@@ -48,8 +58,10 @@ class AppSettingsStore private constructor(
 
     private companion object {
         const val PreferencesName = "app_controls"
+        const val CommandExecutionKey = "command_execution_enabled"
         const val MemoryEnabledKey = "memory_enabled"
         const val PowerModeEnabledKey = "power_mode_enabled"
+        const val PowerConnectionModeKey = "power_connection_mode"
         const val AppUsageEnabledKey = "app_usage_tool_enabled"
         const val RecentActivityEnabledKey = "recent_activity_tool_enabled"
         const val OpenAppEnabledKey = "open_app_tool_enabled"
@@ -76,8 +88,12 @@ class AppSettingsStore private constructor(
             return AppSettings(
                 memoryEnabled = getBoolean(MemoryEnabledKey, true),
                 powerModeEnabled = powerModeEnabled,
+                powerConnectionMode = PowerConnectionMode.entries.firstOrNull {
+                    it.name == getString(PowerConnectionModeKey, null)
+                } ?: PowerConnectionMode.Shizuku,
                 webSearchDisclosureAccepted = getBoolean(WebSearchDisclosureKey, false),
-                installId = installId
+                installId = installId,
+                commandExecutionEnabled = getBoolean(CommandExecutionKey, false)
             )
         }
     }

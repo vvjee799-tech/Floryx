@@ -23,7 +23,7 @@ interface MessageDao {
     @Query(
         "UPDATE messages SET content = :content, reasoningContent = :reasoningContent, " +
             "reasoningDurationMillis = COALESCE(:reasoningDurationMillis, reasoningDurationMillis), " +
-            "status = :status, updatedAt = :updatedAt WHERE id = :id"
+            "status = :status, updatedAt = :updatedAt, replyPhase = COALESCE(:replyPhase, replyPhase) WHERE id = :id"
     )
     suspend fun updateContentReasoningAndStatus(
         id: String,
@@ -31,7 +31,8 @@ interface MessageDao {
         reasoningContent: String,
         reasoningDurationMillis: Long?,
         status: String,
-        updatedAt: Long
+        updatedAt: Long,
+        replyPhase: String?
     )
 
     @Query("DELETE FROM messages WHERE conversationId = :conversationId")

@@ -37,7 +37,7 @@ class ChatViewModelContractTest {
         val reasoningStart = source.indexOf("private suspend fun appendReasoningDelta(")
         val reasoningEnd = source.indexOf("private suspend fun appendContentDelta(", reasoningStart)
         val reasoningBlock = source.substring(reasoningStart, reasoningEnd)
-        val contentEnd = source.indexOf("private fun String.displayChunks()", reasoningEnd)
+        val contentEnd = source.indexOf("private fun Throwable.userFacingChatError()", reasoningEnd)
         val contentBlock = source.substring(reasoningEnd, contentEnd)
 
         assertTrue(source.contains("private var activeAssistantReasoningStartedAt: Long? = null"))
@@ -54,7 +54,7 @@ class ChatViewModelContractTest {
     fun sendClearsInputAndDropsStaleTextFieldEcho() {
         val source = File("src/main/java/com/flowchat/app/presentation/chat/ChatViewModel.kt").readText()
         val updateInputStart = source.indexOf("fun updateInput(value: String)")
-        val updateInputEnd = source.indexOf("fun toggleWebSearch()", updateInputStart)
+        val updateInputEnd = source.indexOf("fun setThinkingEnabled(", updateInputStart)
         val updateInputBlock = source.substring(updateInputStart, updateInputEnd)
         val sendStart = source.indexOf("fun send()")
         val sendEnd = source.indexOf("private suspend fun appendReasoningDelta", sendStart)
@@ -65,30 +65,10 @@ class ChatViewModelContractTest {
         assertTrue(updateInputBlock.contains("if (pendingEcho != null && pendingEcho == value)"))
         assertTrue(updateInputBlock.contains("if (pendingEcho != null && value.isBlank() && input.value.isBlank())"))
         assertTrue(updateInputBlock.contains("pendingClearedInputEcho = null"))
-        assertTrue(sendBlock.contains("val rawText = input.value"))
+        assertTrue(sendBlock.contains("val rawText = if (resume == null) input.value"))
         assertTrue(sendBlock.contains("val text = rawText.trim()"))
         assertTrue(sendBlock.contains("pendingClearedInputEcho = rawText"))
         assertTrue(sendBlock.contains("input.value = \"\""))
-    }
-
-    @Test
-    fun webSearchToggleExposesAutonomousToolCallingInsteadOfPreSearchOnly() {
-        val source = File("src/main/java/com/flowchat/app/presentation/chat/ChatViewModel.kt").readText()
-        val sendStart = source.indexOf("fun send()")
-        val sendEnd = source.indexOf("private suspend fun collectAssistantResponse", sendStart)
-        val sendBlock = source.substring(sendStart, sendEnd)
-
-        assertTrue(source.contains("import com.flowchat.app.domain.tools.AgentToolDefinitions"))
-        assertTrue(sendBlock.contains("AgentToolDefinitions.withLifestyleTools("))
-        assertTrue(sendBlock.contains("webSearchSettingsRepository.getTavilyApiKey()"))
-        assertTrue(source.contains("private suspend fun collectAssistantResponse("))
-        assertTrue(source.contains("is ChatDelta.ToolCalls ->"))
-        assertTrue(source.contains("private suspend fun executeToolCalls("))
-        assertTrue(source.contains("ChatRequestMessage("))
-        assertTrue(source.contains("role = \"tool\""))
-        assertTrue(source.contains("toolCallId = call.id"))
-        assertTrue(source.contains("webSearchClient.search(query, tavilyApiKey, installId)"))
-        assertTrue(source.contains("MaxToolCallRounds"))
     }
 
     @Test
@@ -162,6 +142,6 @@ class ChatViewModelContractTest {
         assertTrue(sendBlock.contains("assistant = chatRepository.appendMessage("))
         assertTrue(sendBlock.contains("activeAssistantMessageId = assistant.id"))
         assertTrue(source.contains("private suspend fun ensureVisibleAssistantSegmentBeforeToolCall("))
-        assertTrue(source.contains("ToolCallPrefaceFallback"))
+        assertTrue(source.contains("ReplyPolicy.toolPreface"))
     }
 }

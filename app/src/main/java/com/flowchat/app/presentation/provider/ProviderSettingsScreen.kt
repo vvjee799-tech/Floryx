@@ -1,11 +1,12 @@
 package com.flowchat.app.presentation.provider
 
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -17,10 +18,31 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.wrapContentWidth
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.material3.Surface
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.outlined.Edit
+import androidx.compose.material.icons.outlined.Key
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.platform.testTag
+import com.flowchat.app.presentation.common.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.KeyboardArrowDown
@@ -45,6 +67,8 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -56,6 +80,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -100,8 +125,8 @@ fun ProviderSettingsScreen(
         ProviderEditor(
             state = state,
             onUpdate = viewModel::updateSelected,
+            onSelectProvider = viewModel::select,
             onApiKey = viewModel::updateApiKey,
-            onTavilyApiKey = viewModel::updateTavilyApiKey,
             onLoadModelOptions = viewModel::loadModelOptions,
             onSelectModelOption = viewModel::selectModelOption,
             onDismissModelOptions = viewModel::dismissModelOptions,
@@ -113,17 +138,21 @@ fun ProviderSettingsScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .padding(16.dp)
+                .imePadding()
+                .wrapContentWidth(Alignment.CenterHorizontally)
+                .widthIn(max = FlowLayout.ContentWidth)
+                .padding(horizontal = FlowLayout.Gutter)
         )
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun ProviderEditor(
+internal fun ProviderEditor(
     state: ProviderSettingsUiState,
     onUpdate: ((ProviderConfig) -> ProviderConfig) -> Unit,
+    onSelectProvider: (ProviderConfig) -> Unit,
     onApiKey: (String) -> Unit,
-    onTavilyApiKey: (String) -> Unit,
     onLoadModelOptions: () -> Unit,
     onSelectModelOption: (String) -> Unit,
     onDismissModelOptions: () -> Unit,
@@ -135,34 +164,45 @@ private fun ProviderEditor(
     modifier: Modifier = Modifier
 ) {
     val provider = state.selected
-    var customConfigurationExpanded by rememberSaveable(provider?.id, state.currentProvider?.id) {
-        mutableStateOf(state.currentProvider == null || state.currentProvider.id == provider?.id)
+    var customConfigurationExpanded by rememberSaveable {
+        mutableStateOf(false)
     }
-    var searchFallbackExpanded by rememberSaveable { mutableStateOf(false) }
+    val formHeader = remember { BringIntoViewRequester() }
+    LaunchedEffect(customConfigurationExpanded, provider?.id) {
+        if (customConfigurationExpanded) formHeader.bringIntoView()
+    }
     Column(
         modifier = modifier
             .fillMaxSize()
-            .verticalScroll(rememberScrollState()),
-        verticalArrangement = Arrangement.spacedBy(14.dp)
+            .verticalScroll(rememberScrollState()).testTag("provider-editor").padding(bottom = 24.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        ProviderPresetSection(
-            state = state,
-            onApplyPreset = onApplyPreset
-        )
-        if (provider == null) {
-            Text(stringResource(R.string.no_provider_selected))
-            return@Column
-        }
         Text(
             text = stringResource(R.string.current_configuration),
             style = MaterialTheme.typography.labelLarge,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
         CurrentProviderCard(provider = state.currentProvider)
+        if (state.currentProvider != null) TextButton(onClick = {
+            onSelectProvider(state.currentProvider)
+            customConfigurationExpanded = true
+        }) {
+            Icon(Icons.Outlined.Edit, null, Modifier.size(18.dp))
+            Spacer(Modifier.width(8.dp))
+            Text(stringResource(R.string.provider_edit_current))
+        }
+        Text(stringResource(R.string.provider_quick_setup),
+            style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        ProviderPresetSection(state = state, onApplyPreset = onApplyPreset)
+        if (provider == null) {
+            Text(stringResource(R.string.no_provider_selected))
+            return@Column
+        }
         ProviderSection(
             title = stringResource(R.string.custom_api_configuration),
             expanded = customConfigurationExpanded,
-            onToggle = { customConfigurationExpanded = !customConfigurationExpanded }
+            onToggle = { customConfigurationExpanded = !customConfigurationExpanded },
+            headerModifier = Modifier.bringIntoViewRequester(formHeader)
         ) {
             OutlinedTextField(
                 value = provider.displayName,
@@ -263,44 +303,18 @@ private fun ProviderEditor(
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth()
             )
+            if (state.message != null) Text(localizedProviderMessage(state.message),
+                color = if (state.message == "Saved") MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.error,
+                style = MaterialTheme.typography.bodySmall)
+            Text(stringResource(R.string.provider_security_hint), style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
             ProviderSaveButton(onSave = onSave)
         }
-        ProviderSection(
-            title = stringResource(R.string.web_search_configuration),
-            expanded = searchFallbackExpanded,
-            onToggle = { searchFallbackExpanded = !searchFallbackExpanded }
-        ) {
-            val tavilySavedMaskVisible = state.hasTavilyApiKey && state.tavilyApiKey.isBlank()
-            val displayedTavilyApiKey = if (tavilySavedMaskVisible) SavedApiKeyDisplayValue else state.tavilyApiKey
-            OutlinedTextField(
-                value = displayedTavilyApiKey,
-                onValueChange = { value ->
-                    val normalizedValue = when {
-                        tavilySavedMaskVisible && value == SavedApiKeyDisplayValue -> ""
-                        tavilySavedMaskVisible && value.all { it == SavedApiKeyDisplayValue.first() } -> ""
-                        tavilySavedMaskVisible && value.startsWith(SavedApiKeyDisplayValue) -> value.removePrefix(SavedApiKeyDisplayValue)
-                        else -> value
-                    }
-                    onTavilyApiKey(normalizedValue)
-                },
-                visualTransformation = PasswordVisualTransformation(),
-                label = { Text(stringResource(R.string.tavily_api_key)) },
-                shape = RoundedCornerShape(14.dp),
-                colors = providerTextFieldColors(),
-                supportingText = {
-                    if (state.hasTavilyApiKey) {
-                        Text(stringResource(R.string.api_key_saved_hint))
-                    }
-                },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth()
-            )
-            ProviderSaveButton(onSave = onSave)
-        }
-        state.message?.let { Text(localizedProviderMessage(it), color = MaterialTheme.colorScheme.primary) }
     }
     state.pendingPreset?.let { preset ->
         PresetApiKeyDialog(
+            providerName = preset.displayName,
+            errorMessage = state.message?.takeUnless { it == "Saved" },
             apiKey = state.presetApiKey,
             onApiKey = onPresetApiKey,
             onDismiss = onDismissPresetApiKeyDialog,
@@ -340,6 +354,8 @@ private fun localizedProviderMessage(message: String): String {
 
 @Composable
 private fun PresetApiKeyDialog(
+    providerName: String,
+    errorMessage: String?,
     apiKey: String,
     onApiKey: (String) -> Unit,
     onDismiss: () -> Unit,
@@ -347,20 +363,29 @@ private fun PresetApiKeyDialog(
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
+        icon = { ProviderLogo(providerName, Modifier.size(40.dp)) },
+        title = { Text(stringResource(R.string.provider_preset_title, providerName)) },
         text = {
+            FlowDialogSystemBars()
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             OutlinedTextField(
                 value = apiKey,
                 onValueChange = onApiKey,
                 visualTransformation = PasswordVisualTransformation(),
                 label = { Text(stringResource(R.string.preset_api_key_placeholder)) },
+                isError = errorMessage != null,
+                supportingText = { if (errorMessage != null) Text(localizedProviderMessage(errorMessage)) },
                 shape = RoundedCornerShape(14.dp),
                 colors = providerTextFieldColors(),
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth()
             )
+            Text(stringResource(R.string.provider_security_hint), style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
         },
         confirmButton = {
-            TextButton(onClick = onSave) {
+            TextButton(onClick = onSave, enabled = apiKey.isNotBlank()) {
                 Text(stringResource(R.string.save))
             }
         },
@@ -382,10 +407,7 @@ private fun CurrentProviderCard(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(14.dp))
-            .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(14.dp))
-            .border(BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant), RoundedCornerShape(14.dp))
-            .padding(horizontal = 14.dp, vertical = 12.dp),
+            .padding(vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
@@ -394,20 +416,22 @@ private fun CurrentProviderCard(
             Text(
                 text = provider?.displayName ?: stringResource(R.string.none),
                 style = MaterialTheme.typography.titleSmall,
-                maxLines = 1
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
             )
             Text(
                 text = provider?.defaultModel ?: stringResource(R.string.no_provider_selected),
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
             )
         }
         if (provider != null) {
             Text(
                 text = stringResource(R.string.saved),
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.primary
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.tertiary
             )
         }
     }
@@ -418,6 +442,7 @@ private fun ProviderSection(
     title: String,
     expanded: Boolean,
     onToggle: () -> Unit,
+    headerModifier: Modifier = Modifier,
     content: @Composable ColumnScope.() -> Unit
 ) {
     Card(
@@ -430,14 +455,15 @@ private fun ProviderSection(
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
     ) {
         Column(
-            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+            modifier = Modifier.padding(vertical = 10.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             Row(
-                modifier = Modifier
+                modifier = headerModifier
                     .fillMaxWidth()
-                    .clickable(onClick = onToggle)
-                    .padding(vertical = 4.dp),
+                    .heightIn(min = 48.dp)
+                    .clickable(role = Role.Button, onClick = onToggle)
+                    .padding(vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
@@ -467,7 +493,7 @@ private fun ProviderSaveButton(onSave: () -> Unit) {
         onClick = onSave,
         modifier = Modifier
             .fillMaxWidth()
-            .height(48.dp),
+            .heightIn(min = 48.dp),
         shape = RoundedCornerShape(12.dp),
         colors = ButtonDefaults.buttonColors(
             containerColor = MaterialTheme.colorScheme.primary,
@@ -479,37 +505,29 @@ private fun ProviderSaveButton(onSave: () -> Unit) {
 }
 
 @Composable
-private fun ProviderPresetSection(
-    state: ProviderSettingsUiState,
-    onApplyPreset: (ProviderPreset) -> Unit
-) {
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .horizontalScroll(rememberScrollState()),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            state.providerPresets.forEach { preset ->
-                OutlinedButton(
-                    onClick = { onApplyPreset(preset) },
-                    shape = RoundedCornerShape(12.dp),
-                    colors = ButtonDefaults.outlinedButtonColors(
-                        containerColor = MaterialTheme.colorScheme.surface,
-                        contentColor = MaterialTheme.colorScheme.onSurface
-                    ),
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-                    modifier = Modifier
-                        .height(64.dp)
-                        .widthIn(min = 112.dp)
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        ProviderLogo(providerName = preset.displayName, modifier = Modifier.size(24.dp))
-                        Text(preset.displayName, style = MaterialTheme.typography.labelLarge, maxLines = 1)
+private fun ProviderPresetSection(state: ProviderSettingsUiState, onApplyPreset: (ProviderPreset) -> Unit) {
+    BoxWithConstraints(Modifier.fillMaxWidth()) {
+        val columns = if (maxWidth < 340.dp && LocalDensity.current.fontScale > 1.3f) 1 else 2
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            state.providerPresets.chunked(columns).forEach { presets ->
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth().heightIn(min = 64.dp)) {
+                    presets.forEach { preset ->
+                        val configured = state.providers.any { it.id == preset.id && it.apiKeyAlias != null }
+                        Surface(onClick = { onApplyPreset(preset) }, shape = MaterialTheme.shapes.medium,
+                            color = MaterialTheme.colorScheme.surface,
+                            border = null,
+                            modifier = Modifier.weight(1f).heightIn(min = 64.dp)) {
+                            Row(Modifier.padding(horizontal = 4.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                ProviderLogo(providerName = preset.displayName, modifier = Modifier.size(28.dp))
+                                Text(preset.displayName, style = MaterialTheme.typography.labelLarge, modifier = Modifier.weight(1f),
+                                    maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                if (configured) Icon(Icons.Default.Check, stringResource(R.string.provider_saved_badge),
+                                    Modifier.size(16.dp), tint = MaterialTheme.colorScheme.tertiary)
+                            }
+                        }
                     }
+                    if (presets.size < columns) Spacer(Modifier.weight(1f))
                 }
             }
         }
@@ -524,13 +542,14 @@ private fun ProviderLogo(
     Box(
         modifier = modifier
             .clip(CircleShape)
-            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.72f), CircleShape),
+            .background(if (providerLogoRes(providerName) == R.drawable.provider_kimi) androidx.compose.ui.graphics.Color(0xFF111827) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.72f), CircleShape),
         contentAlignment = Alignment.Center
     ) {
         val logoRes = providerLogoRes(providerName)
         if (logoRes != null) {
             Image(
                 painter = painterResource(logoRes),
+                colorFilter = if (logoRes == R.drawable.provider_grok) androidx.compose.ui.graphics.ColorFilter.tint(MaterialTheme.colorScheme.onSurface) else null,
                 contentDescription = null,
                 contentScale = ContentScale.Fit,
                 modifier = Modifier
@@ -552,6 +571,18 @@ private fun ProviderLogo(
 
 private fun providerLogoRes(providerName: String?): Int? =
     when {
+        providerName?.contains("qwen", ignoreCase = true) == true -> R.drawable.provider_qwen
+        providerName?.contains("通义", ignoreCase = true) == true -> R.drawable.provider_qwen
+        providerName?.contains("glm", ignoreCase = true) == true -> R.drawable.provider_glm
+        providerName?.contains("zhipu", ignoreCase = true) == true -> R.drawable.provider_glm
+        providerName?.contains("智谱", ignoreCase = true) == true -> R.drawable.provider_glm
+        providerName?.contains("kimi", ignoreCase = true) == true -> R.drawable.provider_kimi
+        providerName?.contains("moonshot", ignoreCase = true) == true -> R.drawable.provider_kimi
+        providerName?.contains("grok", ignoreCase = true) == true -> R.drawable.provider_grok
+        providerName?.contains("x.ai", ignoreCase = true) == true -> R.drawable.provider_grok
+        providerName?.contains("minimax", ignoreCase = true) == true -> R.drawable.provider_minimax
+        providerName?.contains("doubao", ignoreCase = true) == true -> R.drawable.provider_doubao
+        providerName?.contains("豆包", ignoreCase = true) == true -> R.drawable.provider_doubao
         providerName?.contains("claude", ignoreCase = true) == true -> R.drawable.provider_claude
         providerName?.contains("deep", ignoreCase = true) == true -> R.drawable.provider_deepseek
         providerName?.contains("gemini", ignoreCase = true) == true -> R.drawable.provider_gemini
@@ -561,12 +592,4 @@ private fun providerLogoRes(providerName: String?): Int? =
     }
 
 @Composable
-private fun providerTextFieldColors() = OutlinedTextFieldDefaults.colors(
-    focusedTextColor = MaterialTheme.colorScheme.onSurface,
-    unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
-    focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
-    unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
-    focusedBorderColor = MaterialTheme.colorScheme.primary,
-    unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
-    cursorColor = MaterialTheme.colorScheme.onSurface
-)
+private fun providerTextFieldColors() = flowFieldColors()

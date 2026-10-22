@@ -1,5 +1,7 @@
 package com.flowchat.app.data.db
 
+import androidx.room.ColumnInfo
+import com.flowchat.app.domain.model.ReplyPhase
 import androidx.room.Entity
 import androidx.room.ForeignKey
 import androidx.room.Index
@@ -32,7 +34,10 @@ data class MessageEntity(
     val status: String,
     val modelName: String?,
     val createdAt: Long,
-    val updatedAt: Long
+    val updatedAt: Long,
+    val attachmentImagePath: String? = null,
+    val attachmentMimeType: String? = null,
+    @ColumnInfo(defaultValue = "'Answer'") val replyPhase: String = ReplyPhase.Answer.name
 )
 
 fun MessageEntity.toDomain(): Message = Message(
@@ -47,7 +52,10 @@ fun MessageEntity.toDomain(): Message = Message(
     status = MessageStatus.valueOf(status),
     modelName = modelName,
     createdAt = createdAt,
-    updatedAt = updatedAt
+    updatedAt = updatedAt,
+    attachmentImagePath = attachmentImagePath,
+    attachmentMimeType = attachmentMimeType,
+    replyPhase = runCatching { ReplyPhase.valueOf(replyPhase) }.getOrDefault(ReplyPhase.Answer)
 )
 
 fun Message.toEntity(): MessageEntity = MessageEntity(
@@ -62,5 +70,8 @@ fun Message.toEntity(): MessageEntity = MessageEntity(
     status = status.name,
     modelName = modelName,
     createdAt = createdAt,
-    updatedAt = updatedAt
+    updatedAt = updatedAt,
+    attachmentImagePath = attachmentImagePath,
+    attachmentMimeType = attachmentMimeType,
+    replyPhase = replyPhase.name
 )

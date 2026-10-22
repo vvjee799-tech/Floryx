@@ -20,6 +20,8 @@ enum class MessageStatus {
     Failed
 }
 
+enum class ReplyPhase { Answer, Commentary }
+
 data class Message(
     val id: String = UUID.randomUUID().toString(),
     val conversationId: String,
@@ -32,5 +34,8 @@ data class Message(
     val status: MessageStatus = MessageStatus.Complete,
     val modelName: String? = null,
     val createdAt: Long = System.currentTimeMillis(),
-    val updatedAt: Long = createdAt
+    val updatedAt: Long = createdAt,
+    val attachmentImagePath: String? = null,
+    val attachmentMimeType: String? = null,
+    val replyPhase: ReplyPhase = ReplyPhase.Answer
 )
