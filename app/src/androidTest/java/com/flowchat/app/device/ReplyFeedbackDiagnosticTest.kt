@@ -200,7 +200,7 @@ class ReplyFeedbackDiagnosticTest {
                         while (offset < length) { val size = input.read(bytes, offset, length - offset); check(size > 0); offset += size }
                         val request = Json.parseToJsonElement(bytes.toString(Charsets.UTF_8)).jsonObject
                         val messages = request["messages"]!!.jsonArray
-                        sawPolicy = messages.any { it.jsonObject["content"]?.jsonPrimitive?.content.orEmpty().contains("# FlowChat response behavior") }
+                        sawPolicy = messages.any { it.jsonObject["content"]?.jsonPrimitive?.content.orEmpty().contains("# Floryx response behavior") }
                         requests++
                         val lastTool = messages.lastOrNull { it.jsonObject["role"]!!.jsonPrimitive.content == "tool" }
                         val event = when (requests) {

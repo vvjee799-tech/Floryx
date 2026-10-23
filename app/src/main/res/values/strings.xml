@@ -1,5 +1,5 @@
 <resources>
-    <string name="app_name">FlowChat</string>
+    <string name="app_name">Floryx</string>
     <string name="new_chat">New chat</string>
     <string name="conversations">Conversations</string>
     <string name="providers">Providers</string>
@@ -67,7 +67,7 @@
     <string name="permission_enabled">Enabled</string>
     <string name="permission_open">Open</string>
     <string name="usage_access_permission_title">Allow app usage access?</string>
-    <string name="usage_access_permission_message">%1$s needs Android Usage Access to read app usage summaries. Open system settings and allow FlowChat, then retry.</string>
+    <string name="usage_access_permission_message">%1$s needs Android Usage Access to read app usage summaries. Open system settings and allow Floryx, then retry.</string>
     <string name="open_system_settings">Open system settings</string>
     <string name="tool_action_running">%1$s...</string>
     <string name="tool_action_complete">Finished %1$s</string>
@@ -159,7 +159,7 @@
     <string name="done">Done</string>
     <string name="enable">Enable</string>
     <string name="web_search_disclosure_title">Enable web search?</string>
-    <string name="web_search_disclosure_message">Your search query is sent to the FlowChat search service and relevant results are included in the model request. FlowChat does not keep a search history.</string>
+    <string name="web_search_disclosure_message">Your search query is sent to the Floryx search service and relevant results are included in the model request. Floryx does not keep a search history.</string>
     <string name="advanced_parameters">Advanced response parameters</string>
     <string name="open_app_named">Open app: %1$s</string>
     <string name="conversation_not_found">Conversation not found.</string>
@@ -185,9 +185,9 @@
     <string name="root_permission_required">Grant Root</string>
     <string name="root_permission_denied">Retry authorization</string>
     <string name="root_connected">Root connected</string>
-    <string name="root_unavailable_description">Cannot access su. Grant FlowChat permission in your Root manager, such as KernelSU, then return and retry; or choose Shizuku.</string>
-    <string name="root_permission_required_description">Tap to request superuser permission for FlowChat.</string>
-    <string name="root_permission_denied_description">Authorization was denied or timed out. Allow FlowChat in your Root manager, then tap to retry.</string>
+    <string name="root_unavailable_description">Cannot access su. Grant Floryx permission in your Root manager, such as KernelSU, then return and retry; or choose Shizuku.</string>
+    <string name="root_permission_required_description">Tap to request superuser permission for Floryx.</string>
+    <string name="root_permission_denied_description">Authorization was denied or timed out. Allow Floryx in your Root manager, then tap to retry.</string>
     <string name="root_connected_description">Device tools use Root directly without Shizuku.</string>
     <string name="power_mode">Power mode</string>
     <string name="power_mode_description">Use authorized tools to open apps, read pages and carry out phone tasks.</string>
@@ -212,8 +212,8 @@
     <string name="shizuku_error">Connection error</string>
     <string name="shizuku_not_installed_description">Install Shizuku before enabling device tools.</string>
     <string name="shizuku_not_running_description">Start Shizuku, then refresh this page.</string>
-    <string name="shizuku_permission_required_description">Authorize FlowChat in Shizuku to continue.</string>
-    <string name="shizuku_permission_denied_description">Open Shizuku and grant FlowChat permission.</string>
+    <string name="shizuku_permission_required_description">Authorize Floryx in Shizuku to continue.</string>
+    <string name="shizuku_permission_denied_description">Open Shizuku and grant Floryx permission.</string>
     <string name="shizuku_connecting_description">Connecting to the protected device service.</string>
     <string name="shizuku_connected_adb_description">Device tools use Shizuku started through ADB.</string>
     <string name="shizuku_connected_root_description">Device tools use Shizuku with root privileges.</string>
@@ -229,16 +229,16 @@
     <string name="capability_text_input">Enter text</string>
     <string name="capability_screen_swipe">Swipe screen</string>
     <string name="capability_navigation">Back and Home</string>
-    <string name="accessibility_service_description">Lets FlowChat read visible controls and perform device actions you request in chat. Password and payment screens are blocked.</string>
+    <string name="accessibility_service_description">Lets Floryx read visible controls and perform device actions you request in chat. Password and payment screens are blocked.</string>
     <string name="accessibility_screen_control">Screen understanding and control</string>
     <string name="enable_accessibility_service">Enable screen control</string>
     <string name="accessibility_disabled">Screen control off</string>
     <string name="accessibility_connected">Screen control ready</string>
     <string name="accessibility_unavailable">Waiting for screen service</string>
     <string name="accessibility_error">Screen control error</string>
-    <string name="accessibility_disabled_description">Enable FlowChat in Android Accessibility settings for multi-step app tasks.</string>
+    <string name="accessibility_disabled_description">Enable Floryx in Android Accessibility settings for multi-step app tasks.</string>
     <string name="accessibility_connected_description">Visible controls can be understood and operated. Sensitive screens remain blocked.</string>
-    <string name="accessibility_unavailable_description">The service is enabled but disconnected. If it does not recover, turn FlowChat off and on in Accessibility settings. Status refreshes when you return.</string>
+    <string name="accessibility_unavailable_description">The service is enabled but disconnected. If it does not recover, turn Floryx off and on in Accessibility settings. Status refreshes when you return.</string>
     <string name="device_accessibility_settings">Open Accessibility settings</string>
     <string name="accessibility_error_description">Screen control is unavailable. Open Accessibility settings and try again.</string>
     <string name="force_stop_named">Force stop app: %1$s</string>
@@ -246,11 +246,11 @@
     <string name="force_stop_confirmation_message">Unsaved work in %1$s may be lost.</string>
     <string name="continue_action">Continue</string>
     <string name="floating_assistant">Floating assistant</string>
-    <string name="floating_assistant_description">Keep FlowChat beside other apps so you can follow progress and continue the conversation.</string>
+    <string name="floating_assistant_description">Keep Floryx beside other apps so you can follow progress and continue the conversation.</string>
     <string name="floating_assistant_permission">Allow display over other apps</string>
-    <string name="floating_assistant_permission_required">Overlay permission is required before the assistant can appear outside FlowChat.</string>
-    <string name="floating_assistant_running">FlowChat assistant is ready</string>
-    <string name="floating_assistant_notification_description">Shows conversation progress while FlowChat works with another app.</string>
+    <string name="floating_assistant_permission_required">Overlay permission is required before the assistant can appear outside Floryx.</string>
+    <string name="floating_assistant_running">Floryx assistant is ready</string>
+    <string name="floating_assistant_notification_description">Shows conversation progress while Floryx works with another app.</string>
     <string name="floating_assistant_browsing_app">Browsing %1$s</string>
     <string name="floating_assistant_working">Working in the background</string>
     <string name="floating_assistant_thinking">Thinking…</string>
@@ -284,7 +284,7 @@
     <string name="thinking_effort_xhigh">Extra high</string>
     <string name="thinking_effort_max">Maximum</string>
     <string name="collapse_floating_assistant">Collapse floating assistant</string>
-    <string name="open_flowchat">Open FlowChat</string>
+    <string name="open_flowchat">Open Floryx</string>
     <string name="close">Close</string>
     <string name="device_connection_method">Connection method</string>
     <string name="device_connect_authorize">Connect and authorize</string>
@@ -311,7 +311,7 @@
     <string name="device_automation_no_progress">Repeated device actions made no progress, so this task was stopped. Check whether the target app opened or a system prompt blocked it.</string>
     <string name="device_error_no_change">No new content was observed after swiping. Checking the blocker instead of retrying blindly.</string>
     <string name="device_task_paused_title">Phone task paused</string>
-    <string name="device_task_paused_description">You returned to FlowChat. Continue to check the current screen and finish the remaining steps.</string>
+    <string name="device_task_paused_description">You returned to Floryx. Continue to check the current screen and finish the remaining steps.</string>
     <string name="device_task_resume">Continue task</string>
     <string name="device_task_end">End task</string>
     <string name="settings_capabilities">Assistant</string>
@@ -330,7 +330,7 @@
     <string name="memory_summary_label">Memory summary</string>
     <string name="memory_edit_hint">%1$d / 180 · Keep a useful fact; omit sensitive information</string>
     <string name="terminal_title">Command environment</string>
-    <string name="terminal_notification">Commands are running. Open FlowChat to view output.</string>
+    <string name="terminal_notification">Commands are running. Open Floryx to view output.</string>
     <string name="terminal_ai_enabled">Allow AI commands</string>
     <string name="terminal_ai_disclosure">Commands and output are sent to the current model. Android commands need Power and approval for each task.</string>
     <string name="terminal_linux">Linux workspace</string>

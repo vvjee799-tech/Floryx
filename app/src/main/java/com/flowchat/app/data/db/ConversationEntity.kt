@@ -26,7 +26,8 @@ data class ConversationEntity(
     val maxTokens: Int?,
     val createdAt: Long,
     val updatedAt: Long,
-    @ColumnInfo(defaultValue = "'auto'") val thinkingEffort: String = "auto"
+    @ColumnInfo(defaultValue = "'auto'") val thinkingEffort: String = "auto",
+    val contextCheckpoint: String? = null
 )
 
 fun ConversationEntity.toDomain(): Conversation = Conversation(

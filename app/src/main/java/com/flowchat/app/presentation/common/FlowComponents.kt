@@ -32,7 +32,7 @@ object FlowLayout {
 
 @Composable
 fun FlowWordmark(modifier: Modifier = Modifier) {
-    Text("FlowChat", style = PaperWordmark, maxLines = 1, modifier = modifier)
+    Text(stringResource(R.string.app_name), style = PaperWordmark, maxLines = 1, modifier = modifier)
 }
 
 /** Decorative vector mark accompanying the app name. */

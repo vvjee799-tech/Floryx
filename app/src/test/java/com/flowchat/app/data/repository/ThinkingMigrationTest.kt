@@ -9,9 +9,12 @@ import androidx.test.core.app.ApplicationProvider
 import com.flowchat.app.data.db.FlowChatDatabase
 import com.flowchat.app.data.db.MIGRATION_6_7
 import com.flowchat.app.data.db.MIGRATION_8_9
+import com.flowchat.app.data.db.MIGRATION_10_11
+import com.flowchat.app.data.db.MIGRATION_9_10
 import com.flowchat.app.domain.model.ReplyPhase
 import com.flowchat.app.data.db.MIGRATION_7_8
 import com.flowchat.app.domain.model.ThinkingEffort
+import com.flowchat.app.domain.chat.*
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.*
 import org.junit.Test
@@ -40,7 +43,7 @@ class ThinkingMigrationTest {
             }).build())
         helper.writableDatabase
         helper.close()
-        fun open() = Room.databaseBuilder(context, FlowChatDatabase::class.java, name).addMigrations(MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9).allowMainThreadQueries().build()
+        fun open() = Room.databaseBuilder(context, FlowChatDatabase::class.java, name).addMigrations(MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11).allowMainThreadQueries().build()
         try {
             val first = open()
             try {
@@ -53,11 +56,19 @@ class ThinkingMigrationTest {
                 assertEquals("Keep this message", repository.getMessages("c").single().content)
                 assertNull(repository.getMessages("c").single().attachmentImagePath)
                 assertEquals(ReplyPhase.Answer, repository.getMessages("c").single().replyPhase)
+                assertNull(repository.getMessages("c").single().executionContext)
+                assertNull(repository.getContextCheckpoint("c"))
+                repository.updateExecutionContext("m", "persisted execution evidence")
                 repository.updateMessage("m", "Keep this message", com.flowchat.app.domain.model.MessageStatus.Sent, replyPhase = ReplyPhase.Commentary)
                 repository.updateThinkingSettings("c", false, ThinkingEffort.Max)
                 repository.appendMessage("c", com.flowchat.app.domain.model.MessageRole.User, "Image caption",
                     com.flowchat.app.domain.model.MessageStatus.Sent, "deepseek-flash", "photo.png", null,
                     "attachments/images/migration.png", "image/png")
+                val sources = repository.getMessages("c")
+                val note = ContextNote("Keep the original task", listOf("m"))
+                val checkpoint = TaskCheckpoint("c", sources.last().id, CheckpointCodec.fingerprint(sources),
+                    TaskSummary(note), note, listOf(note), emptyList())
+                assertTrue(repository.saveContextCheckpoint(checkpoint, null))
             } finally { first.close() }
             val second = open()
             try {
@@ -72,6 +83,15 @@ class ThinkingMigrationTest {
                 assertEquals("image/png", image.attachmentMimeType)
                 assertEquals("existing-alias", db.providerDao().getProvider("p")?.apiKeyAlias)
                 assertEquals(ReplyPhase.Commentary, repository.getMessages("c").first { it.id == "m" }.replyPhase)
+                assertEquals("persisted execution evidence", repository.getMessages("c").first { it.id == "m" }.executionContext)
+                val checkpoint = repository.getContextCheckpoint("c")!!
+                assertTrue(checkpoint.matches(repository.getMessages("c")))
+                assertFalse(repository.saveContextCheckpoint(checkpoint, null))
+                repository.updateMessage("m", "A source changed", com.flowchat.app.domain.model.MessageStatus.Sent)
+                assertFalse(repository.saveContextCheckpoint(checkpoint, checkpoint))
+                assertEquals("A source changed", repository.getMessages("c").first { it.id == "m" }.content)
+                repository.deleteConversation("c")
+                assertNull(repository.getContextCheckpoint("c"))
             } finally { second.close() }
         } finally { context.deleteDatabase(name) }
     }

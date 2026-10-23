@@ -46,6 +46,9 @@ import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonPrimitive
 import org.junit.After
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertEquals
@@ -432,6 +435,93 @@ class ChatViewModelTest {
         vm.updateInput("还需要打开吗"); vm.send(); advanceUntilIdle()
         assertTrue(client.requests.last().messages.any { it.content == "当前是测试页面。" })
         assertFalse(client.requests.last().messages.any { it.content == "先检查页面" })
+        collection.cancel()
+    }
+
+    @Test fun stoppingThenImmediatelySendingKeepsCompletedToolEvidenceEvenWithMemoryOff() = runTest(dispatcher) {
+        val client = FakeChatCompletionClient(listOf(
+            listOf(ChatDelta.Content("调整到 25"), ChatDelta.ToolCalls(listOf(ChatToolCall("brightness",
+                AgentToolDefinitions.SetBrightnessToolName, """{"percent":25}""")))),
+            listOf(ChatDelta.Content("不会发送的旧结论"), ChatDelta.Done),
+            listOf(ChatDelta.Content("上一步已完成，只处理剩余部分。"), ChatDelta.Done)))
+        client.responseGates[1] = kotlinx.coroutines.CompletableDeferred()
+        val vm = deviceTestViewModel(client, FakeDeviceAssistantGateway(), memoryEnabled = false)
+        val collection = backgroundScope.launch { vm.uiState.collect {} }
+        advanceUntilIdle()
+        vm.updateInput("调整亮度再继续检查"); vm.send(); advanceUntilIdle()
+        assertEquals(2, client.requests.size)
+        vm.stop()
+        vm.updateInput("继续剩下的，不要重调亮度"); vm.send(); advanceUntilIdle()
+        val next = client.requests.last()
+        val evidence = next.messages.first { it.content.orEmpty().startsWith(com.flowchat.app.domain.chat.TaskExecutionHistory.ContextPrefix) }.content!!
+        assertTrue(evidence.contains("brightness=25"))
+        assertTrue(evidence.contains("\"percent\":25"))
+        assertTrue(evidence.contains("Stopped"))
+        assertEquals("继续剩下的，不要重调亮度", next.messages.last().content)
+        assertTrue(next.messages.none { it.role == "tool" })
+        assertEquals(3, client.requests.size)
+        collection.cancel()
+    }
+
+    @Test fun aLongRunningTurnCompactsWithoutRepeatingActionsAndKeepsNativeResultPairs() = runTest(dispatcher) {
+        val normalRequests = mutableListOf<ChatRequest>()
+        val summaryRequests = mutableListOf<ChatRequest>()
+        var round = 0
+        val client = object : ChatCompletionClient {
+            override fun streamChat(request: ChatRequest, provider: ProviderConfig, apiKey: String?) = kotlinx.coroutines.flow.flow {
+                if (request.messages.first().content.orEmpty().contains("# Floryx context checkpoint writer")) {
+                    summaryRequests += request
+                    val input = kotlinx.serialization.json.Json.parseToJsonElement(request.messages.last().content!!).jsonObject
+                    val record = input["new_records"]!!.jsonArray.first().jsonObject
+                    val id = record["id"]!!.jsonPrimitive.content
+                    emit(ChatDelta.Content("""{"objective":{"text":"完成测试调节任务","sources":["$id"]},"remaining":[{"text":"继续剩余步骤，不要重做已完成操作","sources":["$id"]}]}"""))
+                    emit(ChatDelta.Done)
+                } else {
+                    normalRequests += request
+                    round++
+                    if (round <= 7) {
+                        emit(ChatDelta.Reasoning("PRIVATE_REASONING_" + "r".repeat(10_000)))
+                        emit(ChatDelta.ProviderData(kotlinx.serialization.json.Json.parseToJsonElement("""[{"type":"reasoning","id":"opaque-$round"}]""").jsonArray))
+                        emit(ChatDelta.ToolCalls(listOf(ChatToolCall("step-$round", AgentToolDefinitions.SetBrightnessToolName, """{"percent":${round + 20}}"""))))
+                    } else { emit(ChatDelta.Content("已完成本轮测试。")); emit(ChatDelta.Done) }
+                }
+            }
+        }
+        val gateway = FakeDeviceAssistantGateway()
+        val vm = deviceTestViewModel(client, gateway, memoryEnabled = false)
+        val collection = backgroundScope.launch { vm.uiState.collect {} }
+        advanceUntilIdle()
+        vm.updateInput("按步骤完成测试调节任务"); vm.send(); advanceUntilIdle()
+        assertEquals((21..27).toList(), gateway.brightnessValues)
+        assertTrue(summaryRequests.isNotEmpty())
+        assertTrue(summaryRequests.none { it.messages.last().content.orEmpty().contains("PRIVATE_REASONING_") })
+        val compacted = normalRequests.first { request -> request.messages.any { it.content.orEmpty().startsWith("Conversation task checkpoint") } }
+        val calls = compacted.messages.flatMap { it.toolCalls }
+        assertEquals(2, calls.size)
+        assertEquals(calls.map { it.id }.toSet(), compacted.messages.filter { it.role == "tool" }.map { it.toolCallId }.toSet())
+        assertEquals(2, compacted.messages.count { it.providerData != null && it.reasoningContent.orEmpty().contains("PRIVATE_REASONING_") })
+        assertEquals("已完成本轮测试。", vm.uiState.value.messages.last().content)
+        collection.cancel()
+    }
+
+    @Test fun stopWhileAnActionIsInFlightPersistsUnconfirmedOutcomeBeforeFollowUp() = runTest(dispatcher) {
+        val gateway = FakeDeviceAssistantGateway().apply { observationGate = kotlinx.coroutines.CompletableDeferred() }
+        val client = FakeChatCompletionClient(listOf(
+            listOf(ChatDelta.Content("先读取页面"), ChatDelta.ToolCalls(listOf(ChatToolCall("observe",
+                AgentToolDefinitions.ObserveScreenToolName, "{}")))),
+            listOf(ChatDelta.Content("上次读取未完成，需要先确认状态。"), ChatDelta.Done)))
+        val vm = deviceTestViewModel(client, gateway, memoryEnabled = false)
+        val collection = backgroundScope.launch { vm.uiState.collect {} }
+        advanceUntilIdle()
+        vm.updateInput("检查页面"); vm.send(); advanceUntilIdle()
+        assertEquals(1, gateway.observeCount)
+        vm.stop()
+        vm.updateInput("继续"); vm.send(); advanceUntilIdle()
+        val next = client.requests.last().messages.joinToString("\n") { it.content.orEmpty() }
+        assertTrue(next.contains("interrupted_unconfirmed"))
+        assertTrue(next.contains("Segment status: Stopped"))
+        assertTrue(next.contains("may have taken effect"))
+        assertEquals(1, gateway.observeCount)
         collection.cancel()
     }
 
@@ -937,7 +1027,7 @@ class ChatViewModelTest {
         viewModel.send()
         advanceUntilIdle()
 
-        assertTrue(chatClient.requests.single().tools.isEmpty())
+        assertEquals(listOf(com.flowchat.app.domain.chat.TaskContextTools.Read), chatClient.requests.single().tools.map { it.name })
         collection.cancel()
     }
 
@@ -1141,6 +1231,7 @@ class ChatViewModelTest {
         initialConversations: List<Conversation>,
         private val nextConversation: Conversation
     ) : ChatRepository {
+        private val checkpoints = mutableMapOf<String, com.flowchat.app.domain.chat.TaskCheckpoint>()
         private val conversations = linkedMapOf<String, Conversation>()
         private val messages = linkedMapOf<String, MutableList<Message>>()
         private val conversationsFlow = MutableStateFlow(initialConversations)
@@ -1165,6 +1256,22 @@ class ChatViewModelTest {
 
         override suspend fun getMessages(conversationId: String): List<Message> =
             messagesFor(conversationId)
+
+        override suspend fun updateExecutionContext(id: String, context: String) {
+            messages.values.forEach { rows ->
+                val index = rows.indexOfFirst { it.id == id }
+                if (index >= 0) rows[index] = rows[index].copy(executionContext = context)
+            }
+        }
+
+        override suspend fun getContextCheckpoint(conversationId: String) = checkpoints[conversationId]
+
+        override suspend fun saveContextCheckpoint(checkpoint: com.flowchat.app.domain.chat.TaskCheckpoint,
+            expected: com.flowchat.app.domain.chat.TaskCheckpoint?): Boolean {
+            if (checkpoints[checkpoint.conversationId] != expected || !checkpoint.matches(messagesFor(checkpoint.conversationId))) return false
+            checkpoints[checkpoint.conversationId] = checkpoint
+            return true
+        }
 
         override suspend fun createConversation(providerId: String, modelName: String): Conversation {
             lastCreateProviderId = providerId
@@ -1343,6 +1450,7 @@ class ChatViewModelTest {
             AccessibilityConnectionState(AccessibilityConnectionStatus.Connected)
         )
         val forceStoppedApps = mutableListOf<String>()
+        val brightnessValues = mutableListOf<Int>()
         var observeCount = 0
         var observationGate: kotlinx.coroutines.CompletableDeferred<Unit>? = null
         val tappedIndexes = mutableListOf<Int>()
@@ -1352,7 +1460,7 @@ class ChatViewModelTest {
         override fun requestPermission() = Unit
         override suspend fun getDeviceStatus() = DeviceToolResult(true, "device ok")
         override suspend fun getForegroundApp() = DeviceToolResult(true, "foreground_package=test")
-        override suspend fun setScreenBrightness(percent: Int) = DeviceToolResult(true, "brightness=$percent")
+        override suspend fun setScreenBrightness(percent: Int): DeviceToolResult { brightnessValues += percent; return DeviceToolResult(true, "brightness=$percent") }
         override suspend fun setMediaVolume(percent: Int) = DeviceToolResult(true, "volume=$percent")
         override suspend fun enablePowerMode() = DeviceToolResult(true, "power mode")
         override suspend fun forceStopApp(appName: String): DeviceToolResult {

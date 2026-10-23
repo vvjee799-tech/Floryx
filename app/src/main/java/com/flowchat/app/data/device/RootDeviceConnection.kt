@@ -60,7 +60,7 @@ class RootDeviceConnection internal constructor(
     suspend fun requireService(): FlowChatShizukuService {
         refresh()
         check(state.value.status == ShizukuConnectionStatus.ConnectedDirectRoot) {
-            "Root is not connected. Grant FlowChat superuser permission first."
+            "Root is not connected. Grant Floryx superuser permission first."
         }
         return service
     }

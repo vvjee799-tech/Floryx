@@ -200,7 +200,7 @@ class ShizukuDeviceAssistantGateway @Inject constructor(
                 Shizuku.shouldShowRequestPermissionRationale() -> mutableConnectionState.value =
                     ShizukuConnectionState(
                         status = ShizukuConnectionStatus.PermissionDenied,
-                        detail = "Open Shizuku and grant FlowChat permission."
+                        detail = "Open Shizuku and grant Floryx permission."
                     )
                 else -> Shizuku.requestPermission(PermissionRequestCode)
             }
@@ -261,7 +261,7 @@ class ShizukuDeviceAssistantGateway @Inject constructor(
         if (app.packageName == context.packageName) {
             return DeviceToolResult(
                 success = false,
-                summary = "FlowChat cannot force stop itself.",
+                summary = "Floryx cannot force stop itself.",
                 errorCode = "self_stop_blocked"
             )
         }
@@ -403,7 +403,7 @@ class ShizukuDeviceAssistantGateway @Inject constructor(
             snapshotGuard.remember(null)
             return DeviceToolResult(
                 success = false,
-                summary = "FlowChat will not automate its own interface.",
+                summary = "Floryx will not automate its own interface.",
                 errorCode = "self_automation_blocked"
             )
         }
@@ -466,7 +466,7 @@ class ShizukuDeviceAssistantGateway @Inject constructor(
 
     private fun accessibilityUnavailable() = DeviceToolResult(
         success = false,
-        summary = "Enable FlowChat in Android Accessibility settings first.",
+        summary = "Enable Floryx in Android Accessibility settings first.",
         errorCode = "accessibility_unavailable"
     )
 

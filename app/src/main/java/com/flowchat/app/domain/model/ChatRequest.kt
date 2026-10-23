@@ -23,7 +23,9 @@ data class ChatRequestMessage(
     val toolCallId: String? = null,
     val toolCalls: List<ChatToolCall> = emptyList(),
     val providerData: JsonArray? = null,
-    val images: List<ChatImage> = emptyList()
+    val images: List<ChatImage> = emptyList(),
+    /** Local linking metadata only; never serialized to a provider. */
+    val localMessageId: String? = null
 )
 
 data class ChatImage(val mimeType: String, val base64: String) {

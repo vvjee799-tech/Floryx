@@ -61,12 +61,12 @@ class ImageWireFormatTest {
         val r = ChatRequestFactory.create(conversation, history, imageAttachments = mapOf("image1" to image))
         assertEquals(image, r.messages.first { it.role == "user" }.images.single())
         val recent = (1..6).map { Message(conversationId = "c", role = MessageRole.User, content = "Turn $it") }
-        assertEquals(5, ChatRequestFactory.create(conversation, listOf(photo) + recent).messages.count { it.role == "user" })
+        assertEquals(7, ChatRequestFactory.create(conversation, listOf(photo) + recent).messages.count { it.role == "user" })
     }
 
     @Test(expected = IllegalArgumentException::class)
     fun missingImageFailsInsteadOfSilentlySendingOnlyTheCaption() {
-        ChatRequestFactory.create(Conversation(providerId = "p", modelName = "vision"), listOf(
+        ChatRequestFactory.create(Conversation(id = "c", providerId = "p", modelName = "vision"), listOf(
             Message(conversationId = "c", role = MessageRole.User, content = "Look", attachmentImagePath = "missing")))
     }
 }

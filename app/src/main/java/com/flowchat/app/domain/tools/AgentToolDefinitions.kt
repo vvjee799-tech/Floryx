@@ -337,7 +337,7 @@ object AgentToolDefinitions {
                 insertionIndex,
                 ChatRequestMessage(role = "system", content = NaturalToolUseInstruction +
                     if (tools.any { it.name == ObserveScreenToolName })
-                        " Runtime capability: FlowChat CAN operate this Android phone using the listed device tools now. Earlier assistant statements that it cannot open apps or touch the phone are outdated; do not repeat them. Carry out the user's requested task using tools. Avoid repeating filler transitions between steps."
+                        " Runtime capability: Floryx CAN operate this Android phone using the listed device tools now. Earlier assistant statements that it cannot open apps or touch the phone are outdated; do not repeat them. Carry out the user's requested task using tools. Avoid repeating filler transitions between steps."
                     else "")
             )
         }

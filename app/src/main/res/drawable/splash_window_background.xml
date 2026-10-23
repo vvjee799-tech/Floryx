@@ -1,7 +1,3 @@
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
-    <item>
-        <bitmap
-            android:gravity="fill"
-            android:src="@drawable/splash_transition_light" />
-    </item>
+    <item android:drawable="@drawable/splash_transition_light" />
 </layer-list>

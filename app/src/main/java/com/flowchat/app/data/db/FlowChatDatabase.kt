@@ -11,7 +11,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         ConversationEntity::class,
         MessageEntity::class
     ],
-    version = 9,
+    version = 11,
     exportSchema = false
 )
 abstract class FlowChatDatabase : RoomDatabase() {
@@ -71,5 +71,17 @@ val MIGRATION_7_8 = object : Migration(7, 8) {
 val MIGRATION_8_9 = object : Migration(8, 9) {
     override fun migrate(db: SupportSQLiteDatabase) {
         db.execSQL("ALTER TABLE messages ADD COLUMN replyPhase TEXT NOT NULL DEFAULT 'Answer'")
+    }
+}
+
+val MIGRATION_9_10 = object : Migration(9, 10) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE messages ADD COLUMN executionContext TEXT")
+    }
+}
+
+val MIGRATION_10_11 = object : Migration(10, 11) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE conversations ADD COLUMN contextCheckpoint TEXT")
     }
 }

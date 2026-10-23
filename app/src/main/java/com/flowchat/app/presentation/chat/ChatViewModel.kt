@@ -21,6 +21,9 @@ import com.flowchat.app.domain.device.DeviceSwipeDirection
 import com.flowchat.app.domain.device.DeviceTaskControl
 import com.flowchat.app.domain.device.UnavailableDeviceAssistantGateway
 import com.flowchat.app.domain.chat.ReplyPolicy
+import com.flowchat.app.domain.chat.TaskExecutionHistory
+import com.flowchat.app.domain.chat.TaskContextTools
+import com.flowchat.app.data.chat.TaskContextManager
 import com.flowchat.app.domain.model.ReplyPhase
 import com.flowchat.app.domain.chat.ChatRequestFactory
 import com.flowchat.app.domain.memory.MemoryContextFormatter
@@ -97,7 +100,8 @@ class ChatViewModel @Inject constructor(
     private val floatingAssistantBridge: FloatingAssistantBridge = FloatingAssistantBridge(),
     private val memorySummaryGenerator: MemorySummaryGenerator = MemorySummaryGenerator(chatClient),
     private val imageAttachmentStore: ImageAttachmentStore? = null,
-    private val terminalManager: TerminalManager? = null
+    private val terminalManager: TerminalManager? = null,
+    private val taskContextManager: TaskContextManager = TaskContextManager(chatClient, chatRepository)
 ) : ViewModel() {
     private val currentConversationId = MutableStateFlow<String?>(null)
     private var commandRunId = UUID.randomUUID().toString()
@@ -125,6 +129,7 @@ class ChatViewModel @Inject constructor(
     private var memoryUpdateJob: Job? = null
     @Volatile private var memoryEpoch = 0L
     private var sendJob: Job? = null
+    private var stoppedTurnPersistence: Job? = null
     private var activeAssistantMessageId: String? = null
     private var activeAssistantContent = ""
     private var activeAssistantReasoningContent = ""
@@ -541,8 +546,10 @@ class ChatViewModel @Inject constructor(
         activeDeviceResults.clear()
         activeDeviceResults.addAll(resume?.results.orEmpty())
         pausedDeviceTask.value = null
+        val previousTurnPersistence = stoppedTurnPersistence
         sendJob = viewModelScope.launch {
             isStreaming.value = true
+            previousTurnPersistence?.join()
             val conversation = chatRepository.getConversation(selectedConversationId)
                 ?: uiState.value.currentConversation?.takeIf { it.id == selectedConversationId }
             if (conversation == null) {
@@ -611,13 +618,19 @@ class ChatViewModel @Inject constructor(
             } else {
                 emptyList()
             }
-            var request = runCatching { ChatRequestFactory.create(
+            val apiKey = providerRepository.getApiKey(provider)
+            var appliedCheckpointBoundary: String? = null
+            var request = runCatching {
+                val prepared = taskContextManager.prepare(freshConversation, history, provider, apiKey)
+                appliedCheckpointBoundary = prepared.checkpoint?.throughMessageId
+                ChatRequestFactory.create(
                 freshConversation,
-                history,
+                prepared.messages,
                 null,
                 activeProfile.thinkingFormat,
                 relevantMemories,
-                imageAttachments = imageAttachmentStore?.loadRecent(history).orEmpty()
+                imageAttachments = imageAttachmentStore?.loadRecent(prepared.messages).orEmpty(),
+                checkpoint = prepared.checkpoint
             ) }.getOrElse { error ->
                 if (error is CancellationException) throw error
                 val message = error.userFacingChatError()
@@ -641,7 +654,7 @@ class ChatViewModel @Inject constructor(
                 deviceCapabilities = deviceAssistantGateway.connectionState.value.capabilities
             )
             request = TerminalToolDefinitions.attach(request, settings.commandExecutionEnabled && terminalManager != null)
-            val apiKey = providerRepository.getApiKey(provider)
+            request = TaskContextTools.attach(request)
             var content = ""
             var reasoningContent = ""
             var toolResultCount = 0
@@ -652,6 +665,37 @@ class ChatViewModel @Inject constructor(
                 var toolRoundLimit = if (settings.commandExecutionEnabled) 80 else MaxToolCallRounds
                 val toolCallLoopGuard = ToolCallLoopGuard(MaxConsecutiveIdenticalToolCalls)
                 while (true) {
+                    if (closingReason == null && taskContextManager.shouldCompact(request)) {
+                        // Keep the last two native call/result groups intact, including provider reasoning signatures.
+                        val retainedStart = request.messages.withIndex().filter { it.value.toolCalls.isNotEmpty() }.takeLast(2).firstOrNull()
+                        val protectedId = retainedStart?.value?.localMessageId
+                        if (retainedStart != null && protectedId != null) {
+                            val stored = chatRepository.getMessages(conversation.id).filter { it.id != assistant.id }
+                            val prepared = taskContextManager.prepare(freshConversation, stored, provider, apiKey,
+                                protectedMessageId = protectedId, force = true)
+                            val boundary = prepared.checkpoint?.throughMessageId
+                            if (boundary != null && boundary != appliedCheckpointBoundary) {
+                                val protectedIndex = prepared.messages.indexOfFirst { it.id == protectedId }
+                                if (protectedIndex >= 0) {
+                                    val prefix = prepared.messages.take(protectedIndex)
+                                    val rebuilt = ChatRequestFactory.create(freshConversation, prefix, null, activeProfile.thinkingFormat,
+                                        relevantMemories, imageAttachmentStore?.loadRecent(prefix).orEmpty(), prepared.checkpoint)
+                                    request = request.copy(messages = rebuilt.messages + request.messages.drop(retainedStart.index))
+                                    appliedCheckpointBoundary = boundary
+                                }
+                            }
+                        } else if (retainedStart == null) {
+                            val stored = chatRepository.getMessages(conversation.id).filter { it.id != assistant.id }
+                            val prepared = taskContextManager.prepare(freshConversation, stored, provider, apiKey, force = true)
+                            if (prepared.checkpoint != null && prepared.checkpoint.throughMessageId != appliedCheckpointBoundary) {
+                                val rebuilt = ChatRequestFactory.create(freshConversation, prepared.messages, null, activeProfile.thinkingFormat,
+                                    relevantMemories, imageAttachmentStore?.loadRecent(prepared.messages).orEmpty(), prepared.checkpoint)
+                                request = request.copy(messages = rebuilt.messages)
+                                appliedCheckpointBoundary = prepared.checkpoint.throughMessageId
+                            }
+                        }
+                    }
+                    taskContextManager.requireFits(request)
                     val response = collectAssistantResponse(
                         request = request,
                         provider = provider,
@@ -702,6 +746,7 @@ class ChatViewModel @Inject constructor(
                         )
                         val toolResultMessages = executeToolCalls(
                             calls = response.toolCalls,
+                            assistantId = assistant.id,
                             conversationId = conversation.id,
                             modelName = conversation.modelName,
                             loopGuard = toolCallLoopGuard,
@@ -715,7 +760,8 @@ class ChatViewModel @Inject constructor(
                                     content = content,
                                     reasoningContent = reasoningContent,
                                     toolCalls = response.toolCalls,
-                                    providerData = response.providerData
+                                    providerData = response.providerData,
+                                    localMessageId = assistant.id
                                 ) +
                                 toolResultMessages
                         )
@@ -837,14 +883,20 @@ class ChatViewModel @Inject constructor(
 
     private suspend fun executeToolCalls(
         calls: List<ChatToolCall>,
+        assistantId: String,
         conversationId: String,
         modelName: String?,
         loopGuard: ToolCallLoopGuard,
         allowedTools: Set<String>
     ): List<ChatRequestMessage> {
         var uiChanged = false
+        val evidence = mutableListOf<com.flowchat.app.domain.chat.ExecutionStep>()
         return calls.map { call ->
-            val result = if (loopGuard.shouldStopAutomation) {
+            // Commit intent before a side effect, then commit its returned evidence before the next call.
+            // Even cancellation or process death leaves an explicit unconfirmed action to inspect.
+            evidence += TaskExecutionHistory.pending(call)
+            chatRepository.updateExecutionContext(assistantId, TaskExecutionHistory.encode(evidence))
+            val result = try { if (loopGuard.shouldStopAutomation) {
                 "cancelled: tool execution has stopped for this turn. Do not retry."
             } else if (call.name !in allowedTools) {
                 loopGuard.recordOutcome(false)
@@ -857,6 +909,17 @@ class ChatViewModel @Inject constructor(
                 modelName,
                 loopGuard
             )
+            } catch (cancelled: CancellationException) {
+                evidence[evidence.lastIndex] = TaskExecutionHistory.interrupted(evidence.last())
+                withContext(NonCancellable) {
+                    chatRepository.updateExecutionContext(assistantId, TaskExecutionHistory.encode(evidence))
+                }
+                throw cancelled
+            }
+            evidence[evidence.lastIndex] = TaskExecutionHistory.completed(evidence.last(), result)
+            withContext(NonCancellable) {
+                chatRepository.updateExecutionContext(assistantId, TaskExecutionHistory.encode(evidence))
+            }
             if (call.name in UiAutomationToolNames + AgentToolDefinitions.OpenAppToolName) {
                 activeDeviceResults += "${call.name}: ${result.lineSequence().firstOrNull().orEmpty().take(300)}"
                 while (activeDeviceResults.size > 12) activeDeviceResults.removeAt(0)
@@ -876,6 +939,12 @@ class ChatViewModel @Inject constructor(
         modelName: String?,
         loopGuard: ToolCallLoopGuard
     ): String {
+        if (call.name == TaskContextTools.Read) {
+            if (!loopGuard.allow(call)) return "Stopped a repeated identical history lookup."
+            val result = TaskContextTools.read(call.arguments, conversationId, chatRepository.getMessages(conversationId))
+            loopGuard.recordOutcome(!result.startsWith("failed:"))
+            return result
+        }
         if (call.name in setOf(TerminalToolDefinitions.Status, TerminalToolDefinitions.Read, TerminalToolDefinitions.Stop)) {
             if (!loopGuard.allow(call)) return "Stopped a repeated identical tool loop. No more tools are available."
             return runCatching {
@@ -1263,7 +1332,7 @@ class ChatViewModel @Inject constructor(
     )
 
     private fun requestUsageAccessPermission(toolName: String): ToolExecutionOutcome {
-        val message = "Open Android system Usage Access settings and allow FlowChat before retrying this tool."
+        val message = "Open Android system Usage Access settings and allow Floryx before retrying this tool."
         usageAccessPermissionRequest.value = UsageAccessPermissionRequestUi(toolName)
         return ToolExecutionOutcome(
             content = "App usage access is not enabled. $message",
@@ -1453,20 +1522,23 @@ class ChatViewModel @Inject constructor(
             if (activeTaskInstruction.any { it in '\u3400'..'\u9fff' }) "已停止本轮处理。" else "This turn has stopped."
         }
         val stoppedReasoningContent = activeAssistantReasoningContent
-        sendJob?.cancel()
+        val stoppedReasoningDuration = activeAssistantReasoningDurationMillis
+        val stoppingJob = sendJob
+        stoppingJob?.cancel()
         deviceActionConfirmation?.complete(false)
         deviceActionConfirmation = null
         pendingDeviceActionConfirmation.value = null
         sendJob = null
         isStreaming.value = false
         if (assistantId != null) {
-            viewModelScope.launch {
+            stoppedTurnPersistence = viewModelScope.launch {
+                stoppingJob?.join()
                 chatRepository.updateMessage(
                     assistantId,
                     stoppedContent,
                     MessageStatus.Stopped,
                     stoppedReasoningContent,
-                    reasoningDurationMillis = activeAssistantReasoningDurationMillis.takeIf { it > 0L }
+                    reasoningDurationMillis = stoppedReasoningDuration.takeIf { it > 0L }
                 )
             }
         }

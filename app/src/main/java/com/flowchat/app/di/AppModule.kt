@@ -13,11 +13,14 @@ import com.flowchat.app.data.db.MIGRATION_4_5
 import com.flowchat.app.data.db.MIGRATION_5_6
 import com.flowchat.app.data.db.MIGRATION_6_7
 import com.flowchat.app.data.db.MIGRATION_8_9
+import com.flowchat.app.data.db.MIGRATION_9_10
+import com.flowchat.app.data.db.MIGRATION_10_11
 import com.flowchat.app.data.db.MIGRATION_7_8
 import com.flowchat.app.data.db.MessageDao
 import com.flowchat.app.data.db.ProviderDao
 import com.flowchat.app.data.device.ShizukuDeviceAssistantGateway
 import com.flowchat.app.data.network.ChatCompletionClient
+import com.flowchat.app.data.chat.TaskContextManager
 import com.flowchat.app.data.network.KtorOpenAiCompatibleClient
 import com.flowchat.app.data.network.KtorModelCatalogClient
 import com.flowchat.app.data.network.ModelCatalogClient
@@ -80,12 +83,14 @@ object AppModule {
     @Singleton
     fun provideDatabase(@ApplicationContext context: Context): FlowChatDatabase =
         Room.databaseBuilder(context, FlowChatDatabase::class.java, "flowchat.db")
-            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9)
+            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11)
             .build()
 
     @Provides fun provideProviderDao(database: FlowChatDatabase): ProviderDao = database.providerDao()
     @Provides fun provideConversationDao(database: FlowChatDatabase): ConversationDao = database.conversationDao()
     @Provides fun provideMessageDao(database: FlowChatDatabase): MessageDao = database.messageDao()
+    @Provides @Singleton fun provideTaskContextManager(client: ChatCompletionClient, repository: ChatRepository): TaskContextManager =
+        TaskContextManager(client, repository)
 }
 
 @Module

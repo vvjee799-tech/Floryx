@@ -10,6 +10,8 @@ import com.flowchat.app.domain.model.Message
 import com.flowchat.app.domain.model.MessageRole
 import com.flowchat.app.domain.model.MessageStatus
 import com.flowchat.app.domain.repository.ChatRepository
+import com.flowchat.app.domain.chat.CheckpointCodec
+import com.flowchat.app.domain.chat.TaskCheckpoint
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.flow.Flow
@@ -32,6 +34,16 @@ class RoomChatRepository @Inject constructor(
 
     override suspend fun getMessages(conversationId: String): List<Message> =
         messageDao.getMessages(conversationId).map { it.toDomain() }
+
+    override suspend fun updateExecutionContext(id: String, context: String) {
+        messageDao.updateExecutionContext(id, context)
+    }
+
+    override suspend fun getContextCheckpoint(conversationId: String): TaskCheckpoint? =
+        CheckpointCodec.decode(messageDao.getContextCheckpoint(conversationId))
+
+    override suspend fun saveContextCheckpoint(checkpoint: TaskCheckpoint, expected: TaskCheckpoint?): Boolean =
+        messageDao.saveContextCheckpoint(checkpoint, expected)
 
     override suspend fun createConversation(providerId: String, modelName: String): Conversation {
         val now = System.currentTimeMillis()

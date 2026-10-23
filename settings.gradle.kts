@@ -14,5 +14,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "FlowChat"
+rootProject.name = "Floryx"
 include(":app")

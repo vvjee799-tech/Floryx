@@ -16,7 +16,7 @@ import kotlinx.coroutines.flow.update
 
 data class FloatingAssistantState(
     val conversationId: String? = null,
-    val assistantName: String = "FlowChat",
+    val assistantName: String = "Floryx",
     val assistantAvatarPath: String? = null,
     val modelName: String = "",
     val assistantText: String = "",
@@ -59,7 +59,7 @@ data class FloatingAssistantState(
                 conversationId = conversation?.id,
                 assistantName = conversation?.assistantName?.trim().takeUnless { it.isNullOrBlank() }
                     ?: conversation?.title?.trim().takeUnless { it.isNullOrBlank() }
-                    ?: "FlowChat",
+                    ?: "Floryx",
                 assistantAvatarPath = conversation?.assistantAvatarPath,
                 modelName = conversation?.modelName.orEmpty(),
                 assistantText = assistantText,

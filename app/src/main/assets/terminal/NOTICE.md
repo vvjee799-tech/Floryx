@@ -1,6 +1,6 @@
-# FlowChat command runtime
+# Floryx command runtime
 
-FlowChat uses these independent open source components:
+Floryx uses these independent open source components:
 
 - PRoot 5.1.107.98, copyright STMicroelectronics and upstream contributors; GPL terms in licenses/proot-proot-5.1.107.98_COPYING.txt.
 - talloc 2.5.0, copyright Andrew Tridgell and contributors; LGPL-3.0-or-later in licenses/talloc-talloc-2.5.0_LICENSE.txt, together with licenses/GPL-3.0.txt.

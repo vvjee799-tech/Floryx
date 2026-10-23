@@ -32,8 +32,8 @@ class ChatRequestFactoryTest {
         assertEquals(listOf("system", "user", "assistant"), request.messages.map { it.role })
         assertEquals(
             """
-            # FlowChat conversation instructions
-            You are FlowChat's assistant in this conversation.
+            # Floryx conversation instructions
+            You are Floryx's assistant in this conversation.
             Apply <user_system_prompt> to every assistant reply, including follow-up turns and replies that use conversation history or temporary context.
             The latest user message is the immediate task. Use conversation history to resolve references, remember preferences, and keep continuity.
             If conversation history or temporary context conflicts with <user_system_prompt>, follow <user_system_prompt> unless the latest user message explicitly changes it.
@@ -43,7 +43,7 @@ class ChatRequestFactoryTest {
             Answer concisely.
             </user_system_prompt>
             """.trimIndent(),
-            request.messages.first().content.orEmpty().substringAfter("# FlowChat conversation instructions", "").let { "# FlowChat conversation instructions$it" }
+            request.messages.first().content.orEmpty().substringAfter("# Floryx conversation instructions", "").let { "# Floryx conversation instructions$it" }
         )
         assertEquals(0.4, request.temperature, 0.0)
         assertEquals(0.9, request.topP, 0.0)
@@ -51,7 +51,7 @@ class ChatRequestFactoryTest {
     }
 
     @Test
-    fun excludesLocalToolTimelineMessagesFromApiConversationHistory() {
+    fun keepsLegacyToolLabelsAsHistoricalDataWithoutOrphanedToolRoles() {
         val request = ChatRequestFactory.create(
             conversation = Conversation(
                 id = "c1",
@@ -72,11 +72,12 @@ class ChatRequestFactoryTest {
         )
 
         assertEquals(
-            listOf("system", "user", "assistant", "assistant"),
+            listOf("system", "user", "assistant", "assistant", "assistant"),
             request.messages.map { it.role }
         )
         assertTrue(request.messages.none { it.role == "tool" })
         assertTrue(request.messages.none { it.content == "应用使用情况" })
+        assertTrue(request.messages.any { it.content.orEmpty().contains("Legacy tool label") })
     }
 
     @Test
@@ -94,8 +95,8 @@ class ChatRequestFactoryTest {
         assertEquals("system", request.messages.first().role)
         assertEquals(
             """
-            # FlowChat conversation instructions
-            You are FlowChat's assistant in this conversation.
+            # Floryx conversation instructions
+            You are Floryx's assistant in this conversation.
             Apply <user_system_prompt> to every assistant reply, including follow-up turns and replies that use conversation history or temporary context.
             The latest user message is the immediate task. Use conversation history to resolve references, remember preferences, and keep continuity.
             If conversation history or temporary context conflicts with <user_system_prompt>, follow <user_system_prompt> unless the latest user message explicitly changes it.
@@ -106,12 +107,12 @@ class ChatRequestFactoryTest {
             回答要短一点。
             </user_system_prompt>
             """.trimIndent(),
-            request.messages.first().content.orEmpty().substringAfter("# FlowChat conversation instructions", "").let { "# FlowChat conversation instructions$it" }
+            request.messages.first().content.orEmpty().substringAfter("# Floryx conversation instructions", "").let { "# Floryx conversation instructions$it" }
         )
     }
 
     @Test
-    fun excludesFailedAssistantMessagesFromContext() {
+    fun retainsFailedAssistantMessagesAsIncompleteHistory() {
         val request = ChatRequestFactory.create(
             conversation = Conversation(id = "c1", providerId = "p1", modelName = "deepseek-chat"),
             messages = listOf(
@@ -125,11 +126,12 @@ class ChatRequestFactoryTest {
             )
         )
 
-        assertEquals(listOf("system", "user"), request.messages.map { it.role })
+        assertEquals(listOf("system", "user", "assistant"), request.messages.map { it.role })
+        assertTrue(request.messages.last().content.orEmpty().contains("Failed"))
     }
 
     @Test
-    fun excludesStoppedAssistantMessagesFromContext() {
+    fun retainsStoppedStatusWithoutReplayingPrivateReasoning() {
         val request = ChatRequestFactory.create(
             conversation = Conversation(id = "c1", providerId = "p1", modelName = "deepseek-chat"),
             messages = listOf(
@@ -144,7 +146,9 @@ class ChatRequestFactoryTest {
             )
         )
 
-        assertEquals(listOf("system", "user"), request.messages.map { it.role })
+        assertEquals(listOf("system", "user", "assistant"), request.messages.map { it.role })
+        assertTrue(request.messages.last().content.orEmpty().contains("Stopped"))
+        assertTrue(request.messages.none { it.content.orEmpty().contains("partial reasoning") })
     }
 
     @Test
@@ -296,11 +300,11 @@ class ChatRequestFactoryTest {
     }
 
     @Test
-    fun keepsOnlyMostRecentFiveUserTurnsInConversationHistory() {
+    fun keepsAllUnsummarizedTurnsInsteadOfBlindlyDroppingOldHistory() {
         val messages = buildList {
-            for (turn in 1..6) {
+            for (turn in 1..21) {
                 add(Message(conversationId = "c1", role = MessageRole.User, content = "User $turn"))
-                if (turn < 6) {
+                if (turn < 21) {
                     add(Message(conversationId = "c1", role = MessageRole.Assistant, content = "Assistant $turn"))
                 }
             }
@@ -316,17 +320,11 @@ class ChatRequestFactoryTest {
             messages = messages
         )
 
-        assertEquals(
-            listOf(
-                "User 2", "Assistant 2",
-                "User 3", "Assistant 3",
-                "User 4", "Assistant 4",
-                "User 5", "Assistant 5",
-                "User 6"
-            ),
-            request.messages.drop(1).map { it.content }
-        )
-        assertTrue(request.messages.none { it.content == "User 1" || it.content == "Assistant 1" })
+        val expected = (1..21).flatMap { turn ->
+            if (turn < 21) listOf("User $turn", "Assistant $turn") else listOf("User $turn")
+        }
+        assertEquals(expected, request.messages.drop(1).map { it.content })
+        assertTrue(request.messages.any { it.content == "User 1" })
     }
 
     @Test
@@ -395,8 +393,8 @@ class ChatRequestFactoryTest {
     }
 
     private fun expectedSystemPrompt(prompt: String): String = buildString {
-        appendLine("# FlowChat conversation instructions")
-        appendLine("You are FlowChat's assistant in this conversation.")
+        appendLine("# Floryx conversation instructions")
+        appendLine("You are Floryx's assistant in this conversation.")
         appendLine("Apply <user_system_prompt> to every assistant reply, including follow-up turns and replies that use conversation history or temporary context.")
         appendLine("The latest user message is the immediate task. Use conversation history to resolve references, remember preferences, and keep continuity.")
         appendLine("If conversation history or temporary context conflicts with <user_system_prompt>, follow <user_system_prompt> unless the latest user message explicitly changes it.")

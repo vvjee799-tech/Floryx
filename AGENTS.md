@@ -11,4 +11,4 @@
 - JDK: `D:\ruanjian\Java\jdk-21.0.12.1+1` (set `JAVA_HOME` for build commands).
 - Android SDK: `D:\ruanjian\AndroidSDK`; the ignored `local.properties` points here.
 - Gradle: `D:\ruanjian\Gradle\gradle-8.10.2\bin\gradle.bat`; use `GRADLE_USER_HOME=D:\ruanjian\GradleCache` to reuse the downloaded dependencies.
-- Debug builds install as `FlowChat Dev` (`com.flowchat.app.debug`) alongside the release app. KernelSU permissions must be granted separately to each package.
+- Debug builds install as `Floryx Dev` (`com.flowchat.app.debug`) alongside the release app. KernelSU permissions must be granted separately to each package.

@@ -7,6 +7,7 @@ import com.flowchat.app.domain.model.Conversation
 import com.flowchat.app.domain.model.Message
 import com.flowchat.app.domain.model.MessageRole
 import com.flowchat.app.domain.model.MessageStatus
+import com.flowchat.app.domain.model.ReplyPhase
 
 object ChatRequestFactory {
     fun create(
@@ -15,30 +16,39 @@ object ChatRequestFactory {
         transientSystemContext: String? = null,
         thinkingFormat: String? = null,
         relevantMemories: List<String> = emptyList(),
-        imageAttachments: Map<String, ChatImage> = emptyMap()
+        imageAttachments: Map<String, ChatImage> = emptyMap(),
+        checkpoint: TaskCheckpoint? = null
     ): ChatRequest {
         val context = transientSystemContext?.trim()
             ?.takeIf { it.isNotEmpty() }
             ?.asTemporaryContext()
             .orEmpty()
-        val conversationMessages = messages
-            .filter { it.replyPhase != com.flowchat.app.domain.model.ReplyPhase.Commentary }
-            .filter { it.status != MessageStatus.Failed }
-            .filter { it.status != MessageStatus.Stopped }
-            .filter { it.role == MessageRole.User || it.role == MessageRole.Assistant }
-            .filter { it.content.isNotBlank() || !it.attachmentText.isNullOrBlank() || it.attachmentImagePath != null }
-            .takeRecentMessageTurns(MaxHistoryUserTurns)
-            .map { message ->
-                ChatRequestMessage(
-                    role = message.role.apiRole,
-                    content = message.content.withAttachment(message),
-                    reasoningContent = message.reasoningContent.takeIf { message.role == MessageRole.Assistant && it.isNotBlank() },
-                    images = message.attachmentImagePath?.let { path ->
-                        listOf(requireNotNull(imageAttachments[path]) { "Image attachment unavailable. Please attach the image again." })
-                    }.orEmpty()
-                )
+        val history = messages.filter { it.conversationId == conversation.id }
+        // Keep the image transport limit separate from text/task continuity.
+        val imageUserIds = history.filter { it.role == MessageRole.User }.takeLast(5).map { it.id }.toSet()
+        val turns = mutableListOf<MutableList<Message>>()
+        history.forEach { message ->
+            if (turns.isEmpty() || message.role == MessageRole.User) turns.add(mutableListOf())
+            turns.last().add(message)
+        }
+        val projectedTurns = turns.map { turn -> buildList {
+            turn.filter { it.role == MessageRole.User }.forEach { message ->
+                val includeImage = message.attachmentImagePath != null && message.id in imageUserIds
+                val content = message.content.withAttachment(message) +
+                    if (message.attachmentImagePath != null && !includeImage) "\n[Earlier image omitted from this request; ask to reattach if its pixels are needed.]" else ""
+                add(ChatRequestMessage(role = "user", content = content, images = if (includeImage) {
+                    listOf(requireNotNull(imageAttachments[message.attachmentImagePath]) { "Image attachment unavailable. Please attach the image again." })
+                } else emptyList(), localMessageId = message.id))
             }
-            .takeRecentUserTurns(MaxHistoryUserTurns)
+            TaskExecutionHistory.context(turn)?.let { add(ChatRequestMessage("assistant", it)) }
+            turn.filter { it.role == MessageRole.Assistant && it.replyPhase == ReplyPhase.Answer &&
+                it.status == MessageStatus.Complete && it.content.isNotBlank() }.forEach { message ->
+                add(ChatRequestMessage("assistant", message.content.withAttachment(message),
+                    localMessageId = message.id))
+            }
+        } }
+        // The context manager owns compaction. Never silently delete an unsummarized turn here.
+        val conversationMessages = projectedTurns.flatten()
         val contextInsertIndex = conversationMessages.indexOfLast { it.role == MessageRole.User.apiRole }
         val latestUserPrefix = buildLatestUserPrefix(relevantMemories, thinkingFormat.takeIf { conversation.enableThinking })
 
@@ -48,6 +58,9 @@ object ChatRequestFactory {
                 append(ReplyPolicy.instructions)
                 if (prompt.isNotEmpty()) append("\n\n").append(prompt.asConversationSystemPrompt())
             }))
+            checkpoint?.takeIf { it.conversationId == conversation.id }?.let {
+                add(ChatRequestMessage("assistant", it.asContext()))
+            }
             if (context.isNotEmpty() && contextInsertIndex < 0) {
                 add(ChatRequestMessage(role = MessageRole.System.apiRole, content = context))
             }
@@ -74,8 +87,8 @@ object ChatRequestFactory {
     }
 
     private fun String.asConversationSystemPrompt(): String = buildString {
-        appendLine("# FlowChat conversation instructions")
-        appendLine("You are FlowChat's assistant in this conversation.")
+        appendLine("# Floryx conversation instructions")
+        appendLine("You are Floryx's assistant in this conversation.")
         appendLine("Apply <user_system_prompt> to every assistant reply, including follow-up turns and replies that use conversation history or temporary context.")
         appendLine("The latest user message is the immediate task. Use conversation history to resolve references, remember preferences, and keep continuity.")
         appendLine("If conversation history or temporary context conflicts with <user_system_prompt>, follow <user_system_prompt> unless the latest user message explicitly changes it.")
@@ -145,20 +158,5 @@ object ChatRequestFactory {
         }
     }
 
-    private fun List<ChatRequestMessage>.takeRecentUserTurns(maxTurns: Int): List<ChatRequestMessage> {
-        val userIndexes = mapIndexedNotNull { index, message ->
-            index.takeIf { message.role == MessageRole.User.apiRole }
-        }
-        if (userIndexes.size <= maxTurns) return this
-        val firstKeptIndex = userIndexes[userIndexes.size - maxTurns]
-        return drop(firstKeptIndex)
-    }
-
-    private fun List<Message>.takeRecentMessageTurns(maxTurns: Int): List<Message> {
-        val indexes = mapIndexedNotNull { index, message -> index.takeIf { message.role == MessageRole.User } }
-        return if (indexes.size <= maxTurns) this else drop(indexes[indexes.size - maxTurns])
-    }
-
-    private const val MaxHistoryUserTurns = 5
     private const val MaxRelevantMemories = 5
 }

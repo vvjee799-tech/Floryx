@@ -37,5 +37,6 @@ data class Message(
     val updatedAt: Long = createdAt,
     val attachmentImagePath: String? = null,
     val attachmentMimeType: String? = null,
-    val replyPhase: ReplyPhase = ReplyPhase.Answer
+    val replyPhase: ReplyPhase = ReplyPhase.Answer,
+    val executionContext: String? = null
 )

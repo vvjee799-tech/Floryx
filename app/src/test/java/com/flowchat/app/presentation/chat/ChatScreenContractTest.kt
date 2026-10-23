@@ -418,14 +418,14 @@ class ChatScreenContractTest {
     }
 
     @Test
-    fun appDisplayNameUsesFlowChatWithoutSpaceEverywhere() {
+    fun appDisplayNameUsesFloryxEverywhere() {
         val source = File("src/main/java/com/flowchat/app/presentation/chat/ChatScreen.kt").readText()
         val manifest = File("src/main/AndroidManifest.xml").readText()
         val strings = File("src/main/res/values/strings.xml").readText()
         val zhStrings = File("src/main/res/values-zh-rCN/strings.xml").readText()
 
-        assertTrue(strings.contains("<string name=\"app_name\">FlowChat</string>"))
-        assertTrue(zhStrings.contains("<string name=\"app_name\">FlowChat</string>"))
+        assertTrue(strings.contains("<string name=\"app_name\">Floryx</string>"))
+        assertTrue(zhStrings.contains("<string name=\"app_name\">Floryx</string>"))
         assertTrue(manifest.contains("android:label=\"@string/app_name\""))
         assertTrue(source.contains("stringResource(R.string.app_name)"))
         assertFalse(source.contains("\"Flow Chat\""))
@@ -544,12 +544,12 @@ class ChatScreenContractTest {
         val databaseSource = File("src/main/java/com/flowchat/app/data/db/FlowChatDatabase.kt").readText()
         val appModuleSource = File("src/main/java/com/flowchat/app/di/AppModule.kt").readText()
 
-        assertTrue(databaseSource.contains("version = 9"))
+        assertTrue(databaseSource.contains("version = 11"))
         assertTrue(databaseSource.contains("MIGRATION_1_2"))
         assertTrue(databaseSource.contains("ALTER TABLE conversations ADD COLUMN assistantName TEXT NOT NULL DEFAULT ''"))
         assertTrue(databaseSource.contains("ALTER TABLE conversations ADD COLUMN assistantAvatarPath TEXT"))
         assertTrue(databaseSource.contains("MIGRATION_2_3"))
-        assertTrue(appModuleSource.contains(".addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9)"))
+        assertTrue(appModuleSource.contains(".addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11)"))
         assertFalse(appModuleSource.contains("fallbackToDestructiveMigration"))
     }
 
@@ -614,10 +614,10 @@ class ChatScreenContractTest {
         assertTrue(modelSource.contains("val showAvatars: Boolean = false"))
         assertTrue(entitySource.contains("val showAvatars: Boolean"))
         assertTrue(entitySource.contains("showAvatars = showAvatars"))
-        assertTrue(databaseSource.contains("version = 9"))
+        assertTrue(databaseSource.contains("version = 11"))
         assertTrue(databaseSource.contains("MIGRATION_2_3"))
         assertTrue(databaseSource.contains("ALTER TABLE conversations ADD COLUMN showAvatars INTEGER NOT NULL DEFAULT 0"))
-        assertTrue(appModuleSource.contains(".addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9)"))
+        assertTrue(appModuleSource.contains(".addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11)"))
         assertTrue(sheetBlock.contains("var showAvatars by remember(conversation.id) { mutableStateOf(conversation.showAvatars) }"))
         assertTrue(sheetBlock.contains("Switch("))
         assertTrue(sheetBlock.contains("checked = showAvatars"))
@@ -669,13 +669,13 @@ class ChatScreenContractTest {
         assertTrue(messageEntitySource.contains("val reasoningDurationMillis: Long"))
         assertTrue(messageEntitySource.contains("reasoningContent = reasoningContent"))
         assertTrue(messageEntitySource.contains("reasoningDurationMillis = reasoningDurationMillis"))
-        assertTrue(databaseSource.contains("version = 9"))
+        assertTrue(databaseSource.contains("version = 11"))
         assertTrue(databaseSource.contains("MIGRATION_3_4"))
         assertTrue(databaseSource.contains("ALTER TABLE conversations ADD COLUMN enableThinking INTEGER NOT NULL DEFAULT 0"))
         assertTrue(databaseSource.contains("ALTER TABLE messages ADD COLUMN reasoningContent TEXT NOT NULL DEFAULT ''"))
         assertTrue(databaseSource.contains("MIGRATION_4_5"))
         assertTrue(databaseSource.contains("ALTER TABLE messages ADD COLUMN reasoningDurationMillis INTEGER NOT NULL DEFAULT 0"))
-        assertTrue(appModuleSource.contains(".addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9)"))
+        assertTrue(appModuleSource.contains(".addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11)"))
         assertFalse(sheetBlock.contains("var enableThinking"))
         assertFalse(sheetBlock.contains("R.string.deep_thinking"))
         assertFalse(sheetBlock.contains("checked = enableThinking"))

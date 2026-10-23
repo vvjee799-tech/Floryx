@@ -1,5 +1,5 @@
 <resources>
-    <string name="app_name">FlowChat</string>
+    <string name="app_name">Floryx</string>
     <string name="new_chat">新建会话</string>
     <string name="conversations">会话</string>
     <string name="providers">服务商</string>
@@ -67,7 +67,7 @@
     <string name="permission_enabled">已开启</string>
     <string name="permission_open">去开启</string>
     <string name="usage_access_permission_title">允许应用使用情况访问？</string>
-    <string name="usage_access_permission_message">%1$s 需要 Android 使用情况访问权限来读取应用使用摘要。请打开系统设置并允许 FlowChat，然后重试。</string>
+    <string name="usage_access_permission_message">%1$s 需要 Android 使用情况访问权限来读取应用使用摘要。请打开系统设置并允许 Floryx，然后重试。</string>
     <string name="open_system_settings">打开系统设置</string>
     <string name="tool_action_running">正在%1$s…</string>
     <string name="tool_action_complete">已%1$s</string>
@@ -159,7 +159,7 @@
     <string name="done">&#23436;&#25104;</string>
     <string name="enable">&#24320;&#21551;</string>
     <string name="web_search_disclosure_title">&#24320;&#21551;&#32852;&#32593;&#25628;&#32034;&#65311;</string>
-    <string name="web_search_disclosure_message">&#25628;&#32034;&#38382;&#39064;&#20250;&#21457;&#36865;&#21040; FlowChat &#25628;&#32034;&#26381;&#21153;&#65292;&#30456;&#20851;&#32467;&#26524;&#23558;&#21152;&#20837;&#27169;&#22411;&#35831;&#27714;&#12290;FlowChat &#19981;&#20445;&#23384;&#25628;&#32034;&#21382;&#21490;&#12290;</string>
+    <string name="web_search_disclosure_message">&#25628;&#32034;&#38382;&#39064;&#20250;&#21457;&#36865;&#21040; Floryx &#25628;&#32034;&#26381;&#21153;&#65292;&#30456;&#20851;&#32467;&#26524;&#23558;&#21152;&#20837;&#27169;&#22411;&#35831;&#27714;&#12290;Floryx &#19981;&#20445;&#23384;&#25628;&#32034;&#21382;&#21490;&#12290;</string>
     <string name="advanced_parameters">&#39640;&#32423;&#22238;&#22797;&#21442;&#25968;</string>
     <string name="open_app_named">&#25171;&#24320;&#24212;&#29992;&#65306;%1$s</string>
     <string name="conversation_not_found">&#26410;&#25214;&#21040;&#35813;&#20250;&#35805;&#12290;</string>
@@ -185,9 +185,9 @@
     <string name="root_permission_required">授予 Root</string>
     <string name="root_permission_denied">重新授权</string>
     <string name="root_connected">Root 已连接</string>
-    <string name="root_unavailable_description">无法访问 su。请在 KernelSU 等 Root 管理器中授予 FlowChat 权限，再返回重试；或选择 Shizuku。</string>
-    <string name="root_permission_required_description">点击为 FlowChat 申请超级用户权限。</string>
-    <string name="root_permission_denied_description">授权被拒绝或超时。请在 Root 管理器中允许 FlowChat，再点击重试。</string>
+    <string name="root_unavailable_description">无法访问 su。请在 KernelSU 等 Root 管理器中授予 Floryx 权限，再返回重试；或选择 Shizuku。</string>
+    <string name="root_permission_required_description">点击为 Floryx 申请超级用户权限。</string>
+    <string name="root_permission_denied_description">授权被拒绝或超时。请在 Root 管理器中允许 Floryx，再点击重试。</string>
     <string name="root_connected_description">设备工具直接通过 Root 运行，无需 Shizuku。</string>
     <string name="power_mode">Power 模式</string>
     <string name="power_mode_description">允许 AI 使用已授权能力打开应用、理解页面并执行手机操作。</string>
@@ -212,8 +212,8 @@
     <string name="shizuku_error">连接异常</string>
     <string name="shizuku_not_installed_description">请先安装 Shizuku，再启用设备工具。</string>
     <string name="shizuku_not_running_description">请启动 Shizuku，然后刷新此页面。</string>
-    <string name="shizuku_permission_required_description">请在 Shizuku 中授权 FlowChat。</string>
-    <string name="shizuku_permission_denied_description">请打开 Shizuku 并授予 FlowChat 权限。</string>
+    <string name="shizuku_permission_required_description">请在 Shizuku 中授权 Floryx。</string>
+    <string name="shizuku_permission_denied_description">请打开 Shizuku 并授予 Floryx 权限。</string>
     <string name="shizuku_connecting_description">正在连接受保护的设备服务。</string>
     <string name="shizuku_connected_adb_description">设备工具通过 ADB 启动的 Shizuku 运行。</string>
     <string name="shizuku_connected_root_description">设备工具通过 Root 权限的 Shizuku 运行。</string>
@@ -229,16 +229,16 @@
     <string name="capability_text_input">输入文字</string>
     <string name="capability_screen_swipe">滑动屏幕</string>
     <string name="capability_navigation">返回与桌面</string>
-    <string name="accessibility_service_description">允许 FlowChat 读取可见控件并执行你在聊天中提出的手机操作；密码与支付页面会自动阻止。</string>
+    <string name="accessibility_service_description">允许 Floryx 读取可见控件并执行你在聊天中提出的手机操作；密码与支付页面会自动阻止。</string>
     <string name="accessibility_screen_control">页面理解与操作</string>
     <string name="enable_accessibility_service">启用页面操作</string>
     <string name="accessibility_disabled">页面操作未开启</string>
     <string name="accessibility_connected">页面操作已就绪</string>
     <string name="accessibility_unavailable">正在等待页面服务</string>
     <string name="accessibility_error">页面操作异常</string>
-    <string name="accessibility_disabled_description">在系统无障碍设置中启用 FlowChat，才能执行连续的应用内任务。</string>
+    <string name="accessibility_disabled_description">在系统无障碍设置中启用 Floryx，才能执行连续的应用内任务。</string>
     <string name="accessibility_connected_description">AI 可以理解并操作可见控件，密码和支付页面仍会自动阻止。</string>
-    <string name="accessibility_unavailable_description">服务已启用但尚未连接。若等待后仍未恢复，请在系统无障碍设置中重新开启 FlowChat；返回后会自动刷新。</string>
+    <string name="accessibility_unavailable_description">服务已启用但尚未连接。若等待后仍未恢复，请在系统无障碍设置中重新开启 Floryx；返回后会自动刷新。</string>
     <string name="device_accessibility_settings">打开无障碍设置</string>
     <string name="accessibility_error_description">页面操作暂不可用，请打开无障碍设置后重试。</string>
     <string name="force_stop_named">强制停止应用：%1$s</string>
@@ -248,9 +248,9 @@
     <string name="floating_assistant">浮窗助手</string>
     <string name="floating_assistant_description">切到其他应用后也能查看进度、继续对话和停止输出。</string>
     <string name="floating_assistant_permission">允许显示在其他应用上层</string>
-    <string name="floating_assistant_permission_required">需要先授予悬浮窗权限，助手才能出现在 FlowChat 外。</string>
-    <string name="floating_assistant_running">FlowChat 浮窗助手已就绪</string>
-    <string name="floating_assistant_notification_description">在 FlowChat 协助使用其他应用时显示对话进度。</string>
+    <string name="floating_assistant_permission_required">需要先授予悬浮窗权限，助手才能出现在 Floryx 外。</string>
+    <string name="floating_assistant_running">Floryx 浮窗助手已就绪</string>
+    <string name="floating_assistant_notification_description">在 Floryx 协助使用其他应用时显示对话进度。</string>
     <string name="floating_assistant_browsing_app">正在浏览 %1$s</string>
     <string name="floating_assistant_working">正在后台处理</string>
     <string name="floating_assistant_thinking">正在思考…</string>
@@ -284,7 +284,7 @@
     <string name="thinking_effort_xhigh">超高</string>
     <string name="thinking_effort_max">最高</string>
     <string name="collapse_floating_assistant">收起浮窗助手</string>
-    <string name="open_flowchat">打开 FlowChat</string>
+    <string name="open_flowchat">打开 Floryx</string>
     <string name="close">关闭</string>
     <string name="device_connection_method">连接方式</string>
     <string name="device_connect_authorize">连接并授权</string>
@@ -311,7 +311,7 @@
     <string name="device_automation_no_progress">连续操作没有取得进展，已停止本次手机任务。请检查目标应用是否打开或是否出现拦截提示。</string>
     <string name="device_error_no_change">滑动后未观察到新内容，将检查原因并停止无效重试。</string>
     <string name="device_task_paused_title">手机任务已暂停</string>
-    <string name="device_task_paused_description">你已切回 FlowChat。点击继续后会重新检查当前页面，再完成剩余步骤。</string>
+    <string name="device_task_paused_description">你已切回 Floryx。点击继续后会重新检查当前页面，再完成剩余步骤。</string>
     <string name="device_task_resume">继续任务</string>
     <string name="device_task_end">结束任务</string>
     <string name="settings_capabilities">助手能力</string>
@@ -330,7 +330,7 @@
     <string name="memory_summary_label">记忆摘要</string>
     <string name="memory_edit_hint">%1$d / 180 · 保留有用事实，请勿填写敏感信息</string>
     <string name="terminal_title">命令环境</string>
-    <string name="terminal_notification">命令正在运行，打开 FlowChat 查看输出。</string>
+    <string name="terminal_notification">命令正在运行，打开 Floryx 查看输出。</string>
     <string name="terminal_ai_enabled">允许 AI 执行命令</string>
     <string name="terminal_ai_disclosure">命令及输出会发送给当前模型。使用系统权限前，每次任务都需确认。</string>
     <string name="terminal_linux">Linux 工作区</string>

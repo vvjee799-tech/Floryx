@@ -122,8 +122,8 @@ class ChatViewModelContractTest {
         assertTrue(source.contains("failedToolMessageContent(toolName, message)"))
         assertTrue(source.contains("MessageStatus.Failed"))
         assertTrue(source.contains("private fun failedToolMessageContent(toolName: String, detail: String): String"))
-        assertTrue(source.contains("Open Android system Usage Access settings and allow FlowChat before retrying this tool."))
-        assertTrue(source.contains("Ask the user to enable Usage Access in FlowChat settings.").not())
+        assertTrue(source.contains("Open Android system Usage Access settings and allow Floryx before retrying this tool."))
+        assertTrue(source.contains("Ask the user to enable Usage Access in Floryx settings.").not())
     }
 
     @Test

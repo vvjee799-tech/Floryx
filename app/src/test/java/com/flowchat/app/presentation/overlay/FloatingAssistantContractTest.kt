@@ -50,7 +50,7 @@ class FloatingAssistantContractTest {
             "src/main/java/com/flowchat/app/presentation/overlay/FloatingAssistantService.kt"
         ).readText()
         val panelStart = service.indexOf("private fun ExpandedAssistantPanel(")
-        val panelEnd = service.indexOf("private fun FloatingAssistantBubble(", panelStart)
+        val panelEnd = service.indexOf("private fun WatchingAssistantControls(", panelStart)
         val panel = service.substring(panelStart, panelEnd)
 
         assertTrue(panel.contains("val messageScrollState = rememberScrollState()"))
@@ -67,7 +67,7 @@ class FloatingAssistantContractTest {
             "src/main/java/com/flowchat/app/presentation/overlay/FloatingAssistantService.kt"
         ).readText()
         val panelStart = service.indexOf("private fun ExpandedAssistantPanel(")
-        val panelEnd = service.indexOf("private fun FloatingAssistantBubble(", panelStart)
+        val panelEnd = service.indexOf("private fun WatchingAssistantControls(", panelStart)
         val panel = service.substring(panelStart, panelEnd)
         val sendHandlerStart = service.indexOf("onSend = { text ->")
         val sendHandlerEnd = service.indexOf("},", sendHandlerStart)

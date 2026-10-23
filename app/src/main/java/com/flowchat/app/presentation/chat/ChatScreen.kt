@@ -803,7 +803,7 @@ internal fun AppSettingsSheet(
     onUpdateMemory: (String, String) -> Unit,
     onClearMemories: () -> Unit,
     onDismiss: () -> Unit,
-    userName: String = "FlowChat", userAvatarPath: String? = null, providerName: String? = null,
+    userName: String = "Floryx", userAvatarPath: String? = null, providerName: String? = null,
     onOpenProfile: (() -> Unit)? = null
 ) {
     val context = LocalContext.current
@@ -858,7 +858,7 @@ internal fun AppSettingsSheet(
                     trailingText = stringResource(currentLanguage.labelRes()), onClick = { showLanguageDialog = true })
             }
             Text(
-                text = "FlowChat · ${BuildConfig.VERSION_NAME}",
+                text = "${stringResource(R.string.app_name)} · ${BuildConfig.VERSION_NAME}",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),

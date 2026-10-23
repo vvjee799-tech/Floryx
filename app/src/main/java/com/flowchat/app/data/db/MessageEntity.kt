@@ -37,7 +37,8 @@ data class MessageEntity(
     val updatedAt: Long,
     val attachmentImagePath: String? = null,
     val attachmentMimeType: String? = null,
-    @ColumnInfo(defaultValue = "'Answer'") val replyPhase: String = ReplyPhase.Answer.name
+    @ColumnInfo(defaultValue = "'Answer'") val replyPhase: String = ReplyPhase.Answer.name,
+    val executionContext: String? = null
 )
 
 fun MessageEntity.toDomain(): Message = Message(
@@ -55,7 +56,8 @@ fun MessageEntity.toDomain(): Message = Message(
     updatedAt = updatedAt,
     attachmentImagePath = attachmentImagePath,
     attachmentMimeType = attachmentMimeType,
-    replyPhase = runCatching { ReplyPhase.valueOf(replyPhase) }.getOrDefault(ReplyPhase.Answer)
+    replyPhase = runCatching { ReplyPhase.valueOf(replyPhase) }.getOrDefault(ReplyPhase.Answer),
+    executionContext = executionContext
 )
 
 fun Message.toEntity(): MessageEntity = MessageEntity(
@@ -73,5 +75,6 @@ fun Message.toEntity(): MessageEntity = MessageEntity(
     updatedAt = updatedAt,
     attachmentImagePath = attachmentImagePath,
     attachmentMimeType = attachmentMimeType,
-    replyPhase = replyPhase.name
+    replyPhase = replyPhase.name,
+    executionContext = executionContext
 )

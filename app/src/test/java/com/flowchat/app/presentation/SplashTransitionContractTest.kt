@@ -1,7 +1,6 @@
 package com.flowchat.app.presentation
 
 import java.io.File
-import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -17,8 +16,8 @@ class SplashTransitionContractTest {
         val androidTwelveStylesFile = File("src/main/res/values-v31/styles.xml")
         val androidTwelveNightStylesFile = File("src/main/res/values-night-v31/styles.xml")
         val transparentSplashIconFile = File("src/main/res/drawable/transparent_splash_icon.xml")
-        val splashLightImage = File("src/main/res/drawable-nodpi/splash_transition_light.png")
-        val splashDarkImage = File("src/main/res/drawable-nodpi/splash_transition_dark.png")
+        val splashLightImage = File("src/main/res/drawable/splash_transition_light.xml")
+        val splashDarkImage = File("src/main/res/drawable/splash_transition_dark.xml")
 
         assertTrue(splashTransitionFile.exists())
         assertTrue(windowBackgroundFile.exists())
@@ -47,13 +46,11 @@ class SplashTransitionContractTest {
         assertTrue(splashTransition.contains("fadeOut("))
         assertTrue(styles.contains("<item name=\"android:windowBackground\">@drawable/splash_window_background</item>"))
         assertTrue(windowBackground.contains("<layer-list"))
-        assertTrue(windowBackground.contains("<bitmap"))
+        assertTrue(windowBackground.contains("<item android:drawable="))
         assertTrue(windowBackground.contains("@drawable/splash_transition_light"))
-        assertTrue(windowBackground.contains("android:gravity=\"fill\""))
         assertTrue(nightWindowBackground.contains("<layer-list"))
-        assertTrue(nightWindowBackground.contains("<bitmap"))
+        assertTrue(nightWindowBackground.contains("<item android:drawable="))
         assertTrue(nightWindowBackground.contains("@drawable/splash_transition_dark"))
-        assertTrue(nightWindowBackground.contains("android:gravity=\"fill\""))
         assertTrue(androidTwelveStyles.contains("android:windowSplashScreenAnimatedIcon"))
         assertTrue(androidTwelveStyles.contains("@drawable/transparent_splash_icon"))
         assertTrue(androidTwelveStyles.contains("android:windowSplashScreenBackground"))
@@ -64,23 +61,7 @@ class SplashTransitionContractTest {
         assertTrue(androidTwelveNightStyles.contains("#000000"))
         assertTrue(transparentSplashIcon.contains("android:alpha=\"0\""))
 
-        val (lightWidth, lightHeight) = readPngDimensions(splashLightImage)
-        val (darkWidth, darkHeight) = readPngDimensions(splashDarkImage)
-        assertEquals(941, lightWidth)
-        assertEquals(1672, lightHeight)
-        assertEquals(941, darkWidth)
-        assertEquals(1672, darkHeight)
+        assertTrue(splashLightImage.readText().contains("<vector"))
+        assertTrue(splashDarkImage.readText().contains("<vector"))
     }
 }
-
-private fun readPngDimensions(file: File): Pair<Int, Int> {
-    val bytes = file.readBytes()
-    require(bytes.copyOfRange(0, 8).contentEquals(byteArrayOf(-119, 80, 78, 71, 13, 10, 26, 10)))
-    return readPngInt(bytes, 16) to readPngInt(bytes, 20)
-}
-
-private fun readPngInt(bytes: ByteArray, offset: Int): Int =
-    ((bytes[offset].toInt() and 0xFF) shl 24) or
-        ((bytes[offset + 1].toInt() and 0xFF) shl 16) or
-        ((bytes[offset + 2].toInt() and 0xFF) shl 8) or
-        (bytes[offset + 3].toInt() and 0xFF)

@@ -4,6 +4,7 @@ import com.flowchat.app.domain.model.Conversation
 import com.flowchat.app.domain.model.Message
 import com.flowchat.app.domain.model.MessageRole
 import com.flowchat.app.domain.model.MessageStatus
+import com.flowchat.app.domain.chat.TaskCheckpoint
 import kotlinx.coroutines.flow.Flow
 
 interface ChatRepository {
@@ -11,6 +12,9 @@ interface ChatRepository {
     fun observeMessages(conversationId: String): Flow<List<Message>>
     suspend fun getConversation(id: String): Conversation?
     suspend fun getMessages(conversationId: String): List<Message>
+    suspend fun updateExecutionContext(id: String, context: String)
+    suspend fun getContextCheckpoint(conversationId: String): TaskCheckpoint?
+    suspend fun saveContextCheckpoint(checkpoint: TaskCheckpoint, expected: TaskCheckpoint?): Boolean
     suspend fun createConversation(providerId: String, modelName: String): Conversation
     suspend fun updateConversationSettings(
         id: String,

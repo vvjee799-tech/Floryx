@@ -71,7 +71,6 @@ import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.ColorMatrix
 import androidx.compose.ui.graphics.SolidColor
@@ -185,7 +184,8 @@ class FloatingAssistantService : Service(), LifecycleOwner, ViewModelStoreOwner,
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
                 WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
-                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+                WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED,
             PixelFormat.TRANSLUCENT
         ).apply {
             gravity = Gravity.TOP or Gravity.END
@@ -200,7 +200,8 @@ class FloatingAssistantService : Service(), LifecycleOwner, ViewModelStoreOwner,
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
                 WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
-                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+                WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED,
             PixelFormat.TRANSLUCENT
         ).apply {
             gravity = Gravity.TOP or Gravity.END
@@ -313,17 +314,22 @@ class FloatingAssistantService : Service(), LifecycleOwner, ViewModelStoreOwner,
     private fun updateOverlayWindows() {
         if (!overlayAttached) return
         val passive = expanded && watching
+        val passThrough = passive || automationBusy
         val focusable = expanded && !watching && !automationBusy
         if (!focusable) clearOverlayFocus()
         layoutParams.flags = WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
             WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+            WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED or
             (if (focusable) 0 else WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE) or
-            (if (passive || automationBusy) WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE else 0)
+            (if (passThrough) WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE else 0)
         // Android 12+ can block pass-through touches when an untrusted overlay is too opaque.
         // The controls occupy a separate, non-overlapping window above the text panel.
-        layoutParams.alpha = if (passive) passThroughAlpha() else 1f
+        // A visible bubble must also stay below Android's obscuring-opacity limit while yielding.
+        // Hiding it for every observation/tap caused it to disappear throughout repeated actions.
+        layoutParams.alpha = if (passThrough) passThroughAlpha() else 1f
+        layoutParams.width = if (expanded) WindowManager.LayoutParams.WRAP_CONTENT else dp(BubbleSizeDp)
+        layoutParams.height = if (expanded) WindowManager.LayoutParams.WRAP_CONTENT else dp(BubbleSizeDp)
         layoutParams.y = anchorY + if (passive) dp(48) else 0
-        overlayView.visibility = if (automationBusy && !passive) View.INVISIBLE else View.VISIBLE
         runCatching { windowManager.updateViewLayout(overlayView, layoutParams) }
         if (passive) {
             controlsLayoutParams.y = anchorY
@@ -411,8 +417,8 @@ class FloatingAssistantService : Service(), LifecycleOwner, ViewModelStoreOwner,
         const val NotificationId = 1207
         const val PositionPreferences = "floating_assistant_position"
         const val PositionYKey = "position_y"
-        const val OutputWindowTitle = "FlowChatOutput"
-        const val ControlsWindowTitle = "FlowChatControls"
+        const val OutputWindowTitle = "FloryxOutput"
+        const val ControlsWindowTitle = "FloryxControls"
     }
 }
 
@@ -430,6 +436,8 @@ private fun FloatingAssistantOverlay(
 ) {
     Crossfade(
         targetState = expanded to watching,
+        // Do not retain the outgoing panel's rectangular bounds around a collapsed bubble.
+        modifier = if (expanded) Modifier else Modifier.size(BubbleSizeDp.dp).clip(CircleShape),
         animationSpec = tween(140, easing = FastOutSlowInEasing),
         label = "floating-assistant"
     ) { (isExpanded, isWatching) ->
@@ -477,7 +485,8 @@ private fun FloatingAssistantBubble(
     }
     Box(
         modifier = Modifier
-            .size(48.dp)
+            .size(BubbleSizeDp.dp)
+            .clip(CircleShape)
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,
@@ -492,8 +501,7 @@ private fun FloatingAssistantBubble(
     ) {
         Surface(
             modifier = Modifier
-                .size(40.dp)
-                .shadow(9.dp, CircleShape)
+                .fillMaxSize()
                 .border(
                     width = if (isStreaming) 2.dp else 1.dp,
                     color = if (isStreaming) {
@@ -638,19 +646,6 @@ private fun WatchingAssistantControls(
 }
 
 @Composable
-private fun FloatingAssistantBubble(
-    isStreaming: Boolean,
-    onClick: () -> Unit,
-    onDrag: (Float) -> Unit,
-    onDragFinished: () -> Unit,
-    modifier: Modifier
-) {
-    Box(modifier = modifier) {
-        FloatingAssistantBubble(isStreaming, onClick, onDrag, onDragFinished)
-    }
-}
-
-@Composable
 private fun OverlayComposer(
     isStreaming: Boolean,
     onSend: (String) -> Unit,
@@ -768,4 +763,4 @@ private fun FlowChatMark(modifier: Modifier = Modifier) {
     )
 }
 
-private val StopCoral = Color(0xFFFF665D)
+private const val BubbleSizeDp = 48
