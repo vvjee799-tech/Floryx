@@ -13,7 +13,9 @@ data class ChatRequest(
     val tools: List<ChatToolDefinition> = emptyList(),
     val toolChoice: String? = null,
     val parallelToolCalls: Boolean? = null,
-    val thinkingEffort: ThinkingEffort = ThinkingEffort.Auto
+    val thinkingEffort: ThinkingEffort = ThinkingEffort.Auto,
+    /** Local accounting attribution; never included in the provider payload. */
+    val usageConversationId: String? = null
 )
 
 data class ChatRequestMessage(
@@ -25,7 +27,9 @@ data class ChatRequestMessage(
     val providerData: JsonArray? = null,
     val images: List<ChatImage> = emptyList(),
     /** Local linking metadata only; never serialized to a provider. */
-    val localMessageId: String? = null
+    val localMessageId: String? = null,
+    /** Stored text/checkpoint projection, not a native model message from the active tool chain. */
+    val historical: Boolean = false
 )
 
 data class ChatImage(val mimeType: String, val base64: String) {

@@ -13,17 +13,28 @@ internal data class AccessibilityReadResult(
 )
 
 internal object AccessibilityScreenReader {
-    fun read(root: AccessibilityNodeInfo, activityName: String): AccessibilityReadResult {
+    fun read(root: AccessibilityNodeInfo, activityName: String, viewport: Rect): AccessibilityReadResult {
         val elements = mutableListOf<DeviceUiElement>()
         val indexedNodes = linkedMapOf<Int, AccessibilityNodeInfo>()
+        var visitedNodes = 0
+        var truncated = false
 
         fun visit(node: AccessibilityNodeInfo, depth: Int) {
-            if (depth > MaxTreeDepth || elements.size >= MaxObservedElements) return
+            if (visitedNodes >= MaxVisitedNodes) {
+                truncated = true
+                return
+            }
+            visitedNodes++
+            if (depth > MaxTreeDepth) {
+                truncated = true
+                return
+            }
             val bounds = Rect().also(node::getBoundsInScreen)
             val hasMeaningfulText = !node.text.isNullOrBlank() || !node.contentDescription.isNullOrBlank()
             val interactive = node.isClickable || node.isLongClickable || node.isEditable ||
                 node.isScrollable || node.isCheckable
-            val include = node.isVisibleToUser && bounds.width() > 0 && bounds.height() > 0 &&
+            // Android can report visible nodes translated beyond the display during app transitions.
+            val include = node.isVisibleToUser && bounds.intersect(viewport) &&
                 (interactive || hasMeaningfulText)
             if (include) {
                 val index = elements.size
@@ -44,8 +55,10 @@ internal object AccessibilityScreenReader {
                     focused = node.isFocused,
                     hint = node.hintText?.toString()
                 )
-                @Suppress("DEPRECATION")
-                indexedNodes[index] = AccessibilityNodeInfo.obtain(node)
+                if (index < MaxObservedElements) {
+                    @Suppress("DEPRECATION")
+                    indexedNodes[index] = AccessibilityNodeInfo.obtain(node)
+                }
             }
             for (childIndex in 0 until node.childCount) {
                 val child = node.getChild(childIndex) ?: continue
@@ -55,7 +68,10 @@ internal object AccessibilityScreenReader {
                     @Suppress("DEPRECATION")
                     child.recycle()
                 }
-                if (elements.size >= MaxObservedElements) break
+                if (visitedNodes >= MaxVisitedNodes && childIndex < node.childCount - 1) {
+                    truncated = true
+                    break
+                }
             }
         }
 
@@ -73,14 +89,17 @@ internal object AccessibilityScreenReader {
             snapshot = DeviceScreenSnapshot(
                 packageName = packageName,
                 activityName = activityName,
-                elements = if (detection.sensitive) emptyList() else elements,
+                elements = if (detection.sensitive) emptyList() else elements.take(MaxObservedElements),
                 sensitive = detection.sensitive,
-                sensitivityReason = detection.reason
+                sensitivityReason = detection.reason,
+                truncated = truncated || elements.size > MaxObservedElements
             ),
             indexedNodes = indexedNodes
         )
     }
 
     const val MaxObservedElements = 160
-    private const val MaxTreeDepth = 30
+    // Real Compose screens can place their input and send controls more than 40 levels deep.
+    private const val MaxTreeDepth = 128
+    private const val MaxVisitedNodes = 4_096
 }

@@ -8,6 +8,9 @@ import com.flowchat.app.MainActivity
 import com.flowchat.app.R
 import com.flowchat.app.diagnostics.AttachmentDiagnosticsEntryPoint
 import com.flowchat.app.diagnostics.TerminalDiagnosticsEntryPoint
+import com.flowchat.app.diagnostics.DeviceDiagnosticsEntryPoint
+import com.flowchat.app.presentation.overlay.FloatingAssistantService
+import com.flowchat.app.presentation.overlay.FloatingTaskPhase
 import com.flowchat.app.domain.device.PowerConnectionMode
 import com.flowchat.app.domain.model.*
 import com.flowchat.app.domain.terminal.CommandEnvironment
@@ -34,6 +37,57 @@ class TerminalAgentDiagnosticTest {
         val data = EntryPointAccessors.fromApplication(context, AttachmentDiagnosticsEntryPoint::class.java)
         val entry = EntryPointAccessors.fromApplication(context, TerminalDiagnosticsEntryPoint::class.java)
         val original = entry.settings().state.value
+        val checkOverlay = InstrumentationRegistry.getArguments().getString("runOverlayCommandDiagnostics") == "true"
+        val bridge = EntryPointAccessors.fromApplication(context, DeviceDiagnosticsEntryPoint::class.java).bridge()
+        val automation by lazy { instrumentation.getUiAutomation(android.app.UiAutomation.FLAG_DONT_SUPPRESS_ACCESSIBILITY_SERVICES) }
+        suspend fun watchCommand() {
+            check(android.provider.Settings.canDrawOverlays(context)) { "Previously granted overlay permission required" }
+            context.startActivity(Intent().apply {
+                component = android.content.ComponentName(instrumentation.context.packageName, DeviceAutomationFixtureActivity::class.java.name)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                putExtra("overlay_probe", true)
+            })
+            withTimeout(5_000) { while (bridge.appInForeground.value) delay(100) }
+            context.startForegroundService(Intent(context, FloatingAssistantService::class.java))
+            var output: android.view.View? = null
+            withTimeout(5_000) {
+                while (output == null) {
+                    instrumentation.runOnMainSync {
+                        output = android.view.inspector.WindowInspector.getGlobalWindowViews().firstOrNull {
+                            (it.layoutParams as? android.view.WindowManager.LayoutParams)?.title == "FloryxOutput" && it.isShown
+                        }
+                    }
+                    delay(100)
+                }
+            }
+            val center = IntArray(2)
+            instrumentation.runOnMainSync {
+                output!!.getLocationOnScreen(center)
+                center[0] += output!!.width / 2; center[1] += output!!.height / 2
+            }
+            val down = android.os.SystemClock.uptimeMillis()
+            for (action in listOf(android.view.MotionEvent.ACTION_DOWN, android.view.MotionEvent.ACTION_UP)) {
+                val event = android.view.MotionEvent.obtain(down, android.os.SystemClock.uptimeMillis(), action, center[0].toFloat(), center[1].toFloat(), 0)
+                try { assertTrue(automation.injectInputEvent(event, true)) } finally { event.recycle() }
+            }
+            compose.waitUntil(5_000) { compose.onAllNodesWithText(context.getString(R.string.floating_status_command)).fetchSemanticsNodes().isNotEmpty() }
+            assertEquals(FloatingTaskPhase.RunningCommand, bridge.state.value.progress!!.phase)
+            val params = output!!.layoutParams as android.view.WindowManager.LayoutParams
+            assertTrue(params.flags and android.view.WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE != 0)
+        }
+        suspend fun showMain() {
+            context.startActivity(Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            delay(500)
+            compose.waitUntil(5_000) { compose.onAllNodes(hasSetTextAction()).fetchSemanticsNodes().isNotEmpty() }
+        }
+        fun capture(name: String) {
+            automation.takeScreenshot()?.let { bitmap ->
+                File(context.getExternalFilesDir(null), "$name.png").outputStream().use {
+                    bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it)
+                }
+                bitmap.recycle()
+            }
+        }
         val server = LocalTerminalModel()
         val provider = ProviderConfig(id = "terminal-agent-qa-${UUID.randomUUID()}", displayName = "Terminal QA local",
             baseUrl = "http://127.0.0.1:${server.port}/v1", defaultModel = "terminal-qa")
@@ -68,7 +122,24 @@ class TerminalAgentDiagnosticTest {
             }
             assertEquals("No model requests while the command is waiting locally", 1, server.linuxRequests)
             assertEquals(1, data.chats().getMessages(conversation.id).count { it.role == MessageRole.Assistant })
+            if (checkOverlay) {
+                watchCommand()
+                val startedAt = requireNotNull(bridge.state.value.progress!!.startedAt)
+                val firstSeconds = (System.currentTimeMillis() - startedAt) / 1000 + 1
+                compose.waitUntil(4_000) { compose.onAllNodesWithText(context.getString(R.string.floating_status_elapsed, firstSeconds)).fetchSemanticsNodes().isNotEmpty() }
+                val oldText = bridge.state.value.assistantText
+                val laterSeconds = firstSeconds + 3
+                compose.waitUntil(5_000) { compose.onAllNodesWithText(context.getString(R.string.floating_status_elapsed, laterSeconds)).fetchSemanticsNodes().isNotEmpty() }
+                assertEquals("Assistant text stays unchanged while the local timer advances", oldText, bridge.state.value.assistantText)
+                assertEquals("No model polling for overlay progress", 1, server.linuxRequests)
+                capture("overlay-command-running")
+            }
             awaitAnswer("TERMINAL_AGENT_LOCAL_OK")
+            if (checkOverlay) {
+                compose.waitUntil(5_000) { compose.onAllNodesWithText(context.getString(R.string.floating_status_finished)).fetchSemanticsNodes().isNotEmpty() }
+                capture("overlay-command-finished")
+                showMain()
+            }
             val linuxMessages = data.chats().getMessages(conversation.id)
             assertEquals(1, linuxMessages.count { it.role == MessageRole.Tool })
             assertTrue(linuxMessages.any { it.role == MessageRole.Tool && it.content.contains("AGENT_TERMINAL_OK") })
@@ -76,7 +147,12 @@ class TerminalAgentDiagnosticTest {
             assertEquals("One request to start the command and one to summarize its result", 2, server.linuxRequests)
             assertEquals(0, server.pollRequests)
             assertTrue(server.linuxElapsedSeconds in 20..35)
-            compose.onAllNodesWithText(context.getString(R.string.thinking_expand)).assertCountEquals(1)
+            // Completed tool activity is now grouped under the activity disclosure, not the
+            // old standalone thinking panel. Wait for the persisted result to reach Compose.
+            compose.waitUntil(5_000) {
+                compose.onAllNodesWithText(context.getString(R.string.reply_activity)).fetchSemanticsNodes().isNotEmpty()
+            }
+            compose.onAllNodesWithText(context.getString(R.string.reply_activity)).assertCountEquals(1)
             send("CANCEL_AGENT_QA wait until I stop the command")
             val cancelCommand = withTimeout(10_000) {
                 while (true) {
@@ -86,12 +162,20 @@ class TerminalAgentDiagnosticTest {
                 }
                 error("unreachable")
             }
-            compose.onNodeWithContentDescription(context.getString(R.string.stop)).performClick()
+            if (checkOverlay) {
+                watchCommand()
+                compose.onNodeWithText(context.getString(R.string.stop)).performClick()
+            } else compose.onNodeWithContentDescription(context.getString(R.string.stop)).performClick()
             withTimeout(10_000) {
                 while (entry.terminal().state.value.commands.first { it.id == cancelCommand.id }.isRunning) delay(100)
             }
             assertEquals(CommandStatus.Cancelled, entry.terminal().state.value.commands.first { it.id == cancelCommand.id }.status)
             assertEquals(1, server.cancelRequests)
+            if (checkOverlay) {
+                compose.waitUntil(5_000) { compose.onAllNodesWithText(context.getString(R.string.floating_status_stopped)).fetchSemanticsNodes().isNotEmpty() }
+                capture("overlay-command-stopped")
+                showMain()
+            }
             if (InstrumentationRegistry.getArguments().getString("runRootTerminalDiagnostics") == "true") {
                 entry.settings().setPowerConnectionMode(PowerConnectionMode.Root)
                 entry.settings().setPowerModeEnabled(true)
@@ -111,7 +195,7 @@ class TerminalAgentDiagnosticTest {
             }
             // Verify the environment settings and execution records using the actual app surface.
             compose.onNodeWithContentDescription(context.getString(R.string.open_navigation_drawer)).performClick()
-            compose.onNodeWithText(context.getString(R.string.settings)).performClick()
+            compose.onNodeWithContentDescription(context.getString(R.string.settings)).performClick()
             compose.onNodeWithText(context.getString(R.string.terminal_title)).performClick()
             compose.onNodeWithText(context.getString(R.string.terminal_linux)).assertExists()
             compose.onNodeWithText(context.getString(R.string.terminal_android)).assertExists()
@@ -120,7 +204,7 @@ class TerminalAgentDiagnosticTest {
                 File(context.getExternalFilesDir(null), "terminal-panel.png").outputStream().use { bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it) }; bitmap.recycle()
             }
             File(context.getExternalFilesDir(null), "terminal-agent-results.txt").writeText(
-                "PASS: 20-second command waits locally with live elapsed time, exactly 2 model calls and no polling, merged reasoning panel, user cancellation, Python/Node execution, persisted output and Linux without Power. Root task consent checked when enabled.")
+                "PASS: 20-second command waits locally with live elapsed time, exactly 2 model calls and no polling, grouped activity disclosure, user cancellation, Python/Node execution, persisted output and Linux without Power. Root task consent checked when enabled.")
         } finally {
             entry.terminal().cancelAll()
             entry.settings().setCommandExecutionEnabled(original.commandExecutionEnabled)

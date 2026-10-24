@@ -16,6 +16,9 @@ interface ChatRepository {
     suspend fun getContextCheckpoint(conversationId: String): TaskCheckpoint?
     suspend fun saveContextCheckpoint(checkpoint: TaskCheckpoint, expected: TaskCheckpoint?): Boolean
     suspend fun createConversation(providerId: String, modelName: String): Conversation
+    suspend fun updateConversationWorkspace(id: String, workspace: com.flowchat.app.domain.workspace.WorkspaceLocation?) {
+        error("Workspace settings are unavailable.")
+    }
     suspend fun updateConversationSettings(
         id: String,
         assistantName: String,

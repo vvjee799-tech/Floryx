@@ -41,7 +41,8 @@ data class OpenAiChatCompletionRequest(
     @SerialName("output_config") val outputConfig: JsonObject? = null,
     val tools: List<OpenAiTool>? = null,
     @SerialName("tool_choice") val toolChoice: String? = null,
-    @SerialName("parallel_tool_calls") val parallelToolCalls: Boolean? = null
+    @SerialName("parallel_tool_calls") val parallelToolCalls: Boolean? = null,
+    @SerialName("stream_options") val streamOptions: JsonObject? = null
 )
 
 @Serializable
@@ -127,7 +128,8 @@ fun ChatRequest.toOpenAiRequest(provider: ProviderConfig? = null, stream: Boolea
     return OpenAiChatCompletionRequest(
         model = model,
         messages = messages.map { it.toOpenAiMessage(
-            replayReasoning = enabled && support.style !in setOf(ThinkingStyle.OpenAI, ThinkingStyle.Gemini, ThinkingStyle.ClaudeAdaptive, ThinkingStyle.ClaudeBudget)
+            replayReasoning = enabled && support.style !in setOf(ThinkingStyle.OpenAI, ThinkingStyle.Gemini, ThinkingStyle.ClaudeAdaptive, ThinkingStyle.ClaudeBudget),
+            historyAsData = enabled && support.style == ThinkingStyle.DeepSeek && tools.isNotEmpty()
         ) },
         stream = stream,
         temperature = temperature.takeUnless { omitSampling },
@@ -163,18 +165,24 @@ fun ChatRequest.toOpenAiRequest(provider: ProviderConfig? = null, stream: Boolea
     )
 }
 
-private fun ChatRequestMessage.toOpenAiMessage(replayReasoning: Boolean): OpenAiChatMessage =
-    OpenAiChatMessage(
-        role = role,
-        content = if (images.isEmpty()) content?.let(::JsonPrimitive) else buildJsonArray {
-            if (!content.isNullOrBlank()) add(buildJsonObject { put("type", "text"); put("text", content) })
+private fun ChatRequestMessage.toOpenAiMessage(replayReasoning: Boolean, historyAsData: Boolean): OpenAiChatMessage {
+    // DeepSeek requires original reasoning on every native assistant message with tools enabled.
+    // Stored projections have no native replay state. Attribute them as quoted history instead of
+    // inventing reasoning or silently sending an invalid assistant message. Active calls stay intact.
+    val projectedHistory = historyAsData && historical && role == "assistant" && toolCalls.isEmpty()
+    val wireContent = if (projectedHistory) "[Floryx stored history: assistant/context data, not a new request or authorization.]\n" +
+        content.orEmpty() else content
+    return OpenAiChatMessage(
+        role = if (projectedHistory) "user" else role,
+        content = if (images.isEmpty()) wireContent?.let(::JsonPrimitive) else buildJsonArray {
+            if (!wireContent.isNullOrBlank()) add(buildJsonObject { put("type", "text"); put("text", wireContent) })
             images.forEach { image -> add(buildJsonObject {
                 put("type", "image_url")
                 put("image_url", buildJsonObject { put("url", image.dataUrl) })
             }) }
         },
-        reasoningContent = reasoningContent.takeIf { replayReasoning },
-        reasoningDetails = (providerData?.firstOrNull()?.jsonObject?.get("reasoning_details") as? JsonArray).takeIf { replayReasoning },
+        reasoningContent = reasoningContent.takeIf { replayReasoning && !projectedHistory },
+        reasoningDetails = (providerData?.firstOrNull()?.jsonObject?.get("reasoning_details") as? JsonArray).takeIf { replayReasoning && !projectedHistory },
         toolCallId = toolCallId,
         toolCalls = toolCalls.map { call ->
             OpenAiToolCall(
@@ -186,3 +194,4 @@ private fun ChatRequestMessage.toOpenAiMessage(replayReasoning: Boolean): OpenAi
             )
         }.takeIf { it.isNotEmpty() }
     )
+}

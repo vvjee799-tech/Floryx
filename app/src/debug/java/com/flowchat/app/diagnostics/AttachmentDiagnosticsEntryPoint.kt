@@ -13,5 +13,7 @@ import dagger.hilt.components.SingletonComponent
 interface AttachmentDiagnosticsEntryPoint {
     fun chats(): ChatRepository
     fun providers(): ProviderRepository
+    fun usage(): com.flowchat.app.data.usage.UsageTracker
     fun client(): ChatCompletionClient
+    fun workspaces(): com.flowchat.app.data.workspace.WorkspaceManager
 }

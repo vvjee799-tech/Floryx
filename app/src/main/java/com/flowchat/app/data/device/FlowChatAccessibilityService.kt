@@ -59,7 +59,9 @@ class FlowChatAccessibilityService : AccessibilityService() {
             }
             try {
                 val activityName = windows.firstOrNull { it.isActive }?.title?.toString().orEmpty()
-                val readResult = AccessibilityScreenReader.read(root, activityName)
+                val metrics = resources.displayMetrics
+                val readResult = AccessibilityScreenReader.read(root, activityName,
+                    android.graphics.Rect(0, 0, metrics.widthPixels, metrics.heightPixels))
                 clearNodeCache()
                 indexedNodes.putAll(readResult.indexedNodes)
                 cachedSnapshot = readResult.snapshot
@@ -77,7 +79,8 @@ class FlowChatAccessibilityService : AccessibilityService() {
         repeat(6) {
             delay(200)
             val current = observeScreen()
-            if (current != null && (current.sensitive || previous?.hasSameUi(current) == true)) return current
+            if (current != null && (current.sensitive ||
+                    (current.elements.isNotEmpty() && previous?.hasSameUi(current) == true))) return current
             previous = current
         }
         return previous
@@ -118,7 +121,8 @@ class FlowChatAccessibilityService : AccessibilityService() {
             @Suppress("DEPRECATION")
             parent?.recycle()
             val bounds = android.graphics.Rect().also(node::getBoundsInScreen)
-            if (bounds.width() <= 0 || bounds.height() <= 0) return@withContext false
+            val metrics = resources.displayMetrics
+            if (!bounds.intersect(0, 0, metrics.widthPixels, metrics.heightPixels)) return@withContext false
             dispatchPointGesture(
                 x = bounds.centerX().toFloat(),
                 y = bounds.centerY().toFloat(),

@@ -113,6 +113,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.VerticalDivider
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.ModalDrawerSheet
@@ -231,12 +232,21 @@ fun ChatScreen(
     viewModel: ChatViewModel = hiltViewModel()
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
+    val usageRecords by viewModel.usageRecords.collectAsStateWithLifecycle()
+    val balanceState by viewModel.balanceState.collectAsStateWithLifecycle()
     val terminalState by viewModel.terminalState.collectAsStateWithLifecycle()
+    val workspaceState by viewModel.workspaceState.collectAsStateWithLifecycle()
     val openDrawerDescription = stringResource(R.string.open_navigation_drawer)
     val newChatDescription = stringResource(R.string.new_chat)
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
+    var workspacePickerOwner by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf<String?>(null) }
+    val workspacePicker = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        if (result.resultCode == android.app.Activity.RESULT_OK) result.data?.let { data ->
+            data.data?.let { uri -> viewModel.selectWorkspace(uri.toString(), data.flags, workspacePickerOwner) }
+        }
+    }
     val attachmentPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
         if (uri != null) {
             val appContext = context.applicationContext
@@ -256,6 +266,7 @@ fun ChatScreen(
     var showUserSettings by remember { mutableStateOf(false) }
     var showAppSettings by remember { mutableStateOf(false) }
     var showTerminal by remember { mutableStateOf(false) }
+    var showWorkspace by remember { mutableStateOf(false) }
     var conversationPendingDelete by remember { mutableStateOf<Conversation?>(null) }
 
     ModalNavigationDrawer(
@@ -384,6 +395,8 @@ fun ChatScreen(
                         attachmentPicker.launch(AttachmentDocumentParser.PickerMimeTypes)
                     },
                     onClearAttachment = viewModel::clearAttachment,
+                    usageRecords = usageRecords.takeIf { state.appSettings.usageTrackingEnabled },
+                    balanceState = balanceState, onRefreshBalance = viewModel::refreshBalance,
                     onSelectModel = viewModel::updateConversationModel
                 )
             }
@@ -490,7 +503,10 @@ fun ChatScreen(
                 onOpenProviders()
             },
             onOpenTerminal = { showAppSettings = false; showTerminal = true },
+            onOpenWorkspace = { showAppSettings = false; showWorkspace = true },
+            workspaceName = workspaceState.location?.name,
             onMemoryEnabledChange = viewModel::setMemoryEnabled,
+            onUsageTrackingChange = viewModel::setUsageTrackingEnabled,
             onPowerModeEnabledChange = viewModel::setPowerModeEnabled,
             onPowerConnectionModeChange = viewModel::setPowerConnectionMode,
             onRequestShizukuPermission = viewModel::requestShizukuPermission,
@@ -514,6 +530,24 @@ fun ChatScreen(
         onInstallTools = viewModel::installDeveloperTools,
         onStop = viewModel::stopTerminalCommand,
         onDismiss = { showTerminal = false }
+    )
+
+    if (showWorkspace) WorkspaceSettingsSheet(
+        state = workspaceState,
+        isDefault = workspaceState.location != null && workspaceState.location == state.appSettings.defaultWorkspace,
+        taskRunning = state.isStreaming || terminalState.commands.any { it.isRunning },
+        onChoose = {
+            workspacePickerOwner = state.currentConversation?.id
+            val intent = Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or
+                Intent.FLAG_GRANT_WRITE_URI_PERMISSION or Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION or Intent.FLAG_GRANT_PREFIX_URI_PERMISSION)
+            workspaceState.location?.let { intent.putExtra(android.provider.DocumentsContract.EXTRA_INITIAL_URI, Uri.parse(it.treeUri)) }
+            runCatching { workspacePicker.launch(intent) }.onFailure { viewModel.workspacePickerFailed(it.localizedMessage) }
+        },
+        onDefaultChange = viewModel::setWorkspaceDefault,
+        onClear = viewModel::clearWorkspace,
+        onRefresh = viewModel::refreshWorkspace,
+        onRetrySave = viewModel::retryWorkspaceSave,
+        onDismiss = { showWorkspace = false }
     )
 
     state.usageAccessPermissionRequest?.let { request ->
@@ -804,7 +838,10 @@ internal fun AppSettingsSheet(
     onClearMemories: () -> Unit,
     onDismiss: () -> Unit,
     userName: String = "Floryx", userAvatarPath: String? = null, providerName: String? = null,
-    onOpenProfile: (() -> Unit)? = null
+    onOpenProfile: (() -> Unit)? = null,
+    onUsageTrackingChange: (Boolean) -> Unit = {},
+    onOpenWorkspace: () -> Unit = {},
+    workspaceName: String? = null
 ) {
     val context = LocalContext.current
     val currentLanguage = AppLocale.getLanguage(context)
@@ -850,6 +887,19 @@ internal fun AppSettingsSheet(
                     trailingText = deviceReadinessLabel(deviceReadiness(appSettings.powerModeEnabled, shizukuState, accessibilityState)),
                     onClick = { onRefreshShizuku(); showDeviceAssistantDialog = true })
                 SettingsRow(title = stringResource(R.string.terminal_title), onClick = onOpenTerminal)
+                SettingsRow(title = stringResource(R.string.workspace_title), trailingText = workspaceName ?: stringResource(R.string.workspace_none),
+                    onClick = onOpenWorkspace)
+            }
+            SettingsGroup(title = stringResource(R.string.usage_title)) {
+                Row(Modifier.fillMaxWidth().heightIn(min = 64.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f).padding(end = 12.dp)) {
+                        Text(stringResource(R.string.usage_enable), style = MaterialTheme.typography.bodyLarge)
+                        Text(stringResource(R.string.usage_setting_description), style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    Switch(checked = appSettings.usageTrackingEnabled, onCheckedChange = onUsageTrackingChange,
+                        modifier = Modifier.testTag("usage_tracking").semantics { contentDescription = context.getString(R.string.usage_enable) })
+                }
             }
             SettingsGroup(title = stringResource(R.string.settings_preferences)) {
                 SettingsRow(title = stringResource(R.string.appearance),
@@ -1338,6 +1388,13 @@ private fun localizedToolName(toolName: String): String {
     val detail = toolName.substringAfter(':', missingDelimiterValue = "").trim()
     return when (baseName) {
         TerminalToolDefinitions.Run -> stringResource(R.string.terminal_run)
+        com.flowchat.app.domain.workspace.WorkspaceToolDefinitions.Status -> stringResource(R.string.workspace_tool_status)
+        com.flowchat.app.domain.workspace.WorkspaceToolDefinitions.ListFiles -> stringResource(R.string.workspace_tool_list)
+        com.flowchat.app.domain.workspace.WorkspaceToolDefinitions.Read -> stringResource(R.string.workspace_tool_read)
+        com.flowchat.app.domain.workspace.WorkspaceToolDefinitions.Write -> stringResource(R.string.workspace_tool_write)
+        com.flowchat.app.domain.workspace.WorkspaceToolDefinitions.Rename -> stringResource(R.string.workspace_tool_rename)
+        com.flowchat.app.domain.workspace.WorkspaceToolDefinitions.Import -> stringResource(R.string.workspace_tool_import)
+        com.flowchat.app.domain.workspace.WorkspaceToolDefinitions.Publish -> stringResource(R.string.workspace_tool_publish)
         "web_search" -> stringResource(R.string.web_search_short)
         "get_app_usage_summary" -> stringResource(R.string.app_usage_tool)
         "get_recent_app_activity" -> stringResource(R.string.recent_app_activity_tool)
@@ -1851,7 +1908,10 @@ internal fun MessageComposer(
     onThinkingEffortChange: (ThinkingEffort) -> Unit,
     onPickAttachment: () -> Unit,
     onClearAttachment: () -> Unit,
-    onSelectModel: (ProviderConfig, String) -> Unit
+    onSelectModel: (ProviderConfig, String) -> Unit,
+    usageRecords: List<com.flowchat.app.data.db.UsageRecord>? = null,
+    balanceState: com.flowchat.app.data.usage.BalanceState = com.flowchat.app.data.usage.BalanceState(),
+    onRefreshBalance: () -> Unit = {}
 ) {
     val focusRequester = remember { FocusRequester() }
     val keyboardController = LocalSoftwareKeyboardController.current
@@ -1895,7 +1955,8 @@ internal fun MessageComposer(
         .padding(horizontal = 20.dp, vertical = 4.dp)) {
       Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(17.dp))
         .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(17.dp))
-        .background(MaterialTheme.colorScheme.surfaceContainerLowest).padding(6.dp)) {
+        .background(MaterialTheme.colorScheme.surfaceContainerLowest).testTag("message_composer_panel")) {
+       Column(Modifier.padding(6.dp)) {
         if (isAttachmentLoading) {
             LinearProgressIndicator(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp))
             Text(stringResource(R.string.attachment_loading), style = MaterialTheme.typography.labelSmall,
@@ -1997,10 +2058,29 @@ internal fun MessageComposer(
                 }
             }
         }
+       }
+       if (usageRecords != null) {
+          HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+          Row(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surface)
+              .padding(horizontal = 12.dp, vertical = 6.dp).testTag("composer_usage_footer"),
+              verticalAlignment = Alignment.CenterVertically) {
+              UsageDisplay(usageRecords,
+                  com.flowchat.app.data.usage.UsageTracker.supports(currentConversation?.modelName.orEmpty(), currentProvider),
+                  Modifier.weight(1f), balanceState, onRefreshBalance)
+              VerticalDivider(Modifier.height(28.dp).padding(horizontal = 10.dp),
+                  color = MaterialTheme.colorScheme.outlineVariant)
+              Box(Modifier.weight(1.1f)) {
+                  ModelSwitchButton(currentProvider, currentConversation?.modelName, modelOptions,
+                      enabled = enabled && !isStreaming && modelOptions.isNotEmpty(), onSelectModel = onSelectModel, compact = true)
+              }
+          }
+       }
       }
-      Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-          ModelSwitchButton(currentProvider, currentConversation?.modelName, modelOptions,
-              enabled = enabled && !isStreaming && modelOptions.isNotEmpty(), onSelectModel = onSelectModel)
+      if (usageRecords == null) {
+          Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+              ModelSwitchButton(currentProvider, currentConversation?.modelName, modelOptions,
+                  enabled = enabled && !isStreaming && modelOptions.isNotEmpty(), onSelectModel = onSelectModel)
+          }
       }
     }
 }
@@ -2011,7 +2091,8 @@ private fun ModelSwitchButton(
     currentModelName: String?,
     modelOptions: List<ComposerModelOption>,
     enabled: Boolean,
-    onSelectModel: (ProviderConfig, String) -> Unit
+    onSelectModel: (ProviderConfig, String) -> Unit,
+    compact: Boolean = false
 ) {
     var expanded by remember { mutableStateOf(false) }
     val selectedDotColor = MaterialTheme.colorScheme.primary
@@ -2023,9 +2104,9 @@ private fun ModelSwitchButton(
                 .clip(RoundedCornerShape(16.dp))
                 .semantics { contentDescription = switchModelDescription }
                 .clickable(enabled = enabled) { expanded = true }
-                .padding(horizontal = 10.dp),
+                .padding(horizontal = if (compact) 4.dp else 10.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp)
+            horizontalArrangement = Arrangement.spacedBy(if (compact) 4.dp else 6.dp)
         ) {
             Text(currentModelName?.takeIf { it.isNotBlank() } ?: stringResource(R.string.model),
                 style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,

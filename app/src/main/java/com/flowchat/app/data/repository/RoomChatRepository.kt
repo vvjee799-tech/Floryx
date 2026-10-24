@@ -21,7 +21,8 @@ import kotlinx.coroutines.flow.map
 class RoomChatRepository @Inject constructor(
     private val conversationDao: ConversationDao,
     private val messageDao: MessageDao,
-    private val imageAttachmentStore: ImageAttachmentStore? = null
+    private val imageAttachmentStore: ImageAttachmentStore? = null,
+    private val appSettingsStore: com.flowchat.app.data.preferences.AppSettingsStore? = null
 ) : ChatRepository {
     override fun observeConversations(): Flow<List<Conversation>> =
         conversationDao.observeConversations().map { rows -> rows.map { it.toDomain() } }
@@ -52,10 +53,15 @@ class RoomChatRepository @Inject constructor(
             providerId = providerId,
             modelName = modelName,
             createdAt = now,
-            updatedAt = now
+            updatedAt = now,
+            workspace = appSettingsStore?.state?.value?.defaultWorkspace
         )
         conversationDao.upsert(conversation.toEntity())
         return conversation
+    }
+
+    override suspend fun updateConversationWorkspace(id: String, workspace: com.flowchat.app.domain.workspace.WorkspaceLocation?) {
+        conversationDao.updateWorkspace(id, com.flowchat.app.domain.workspace.WorkspaceCodec.encode(workspace), System.currentTimeMillis())
     }
 
     override suspend fun updateConversationSettings(

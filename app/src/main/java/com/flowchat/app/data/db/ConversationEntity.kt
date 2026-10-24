@@ -27,7 +27,8 @@ data class ConversationEntity(
     val createdAt: Long,
     val updatedAt: Long,
     @ColumnInfo(defaultValue = "'auto'") val thinkingEffort: String = "auto",
-    val contextCheckpoint: String? = null
+    val contextCheckpoint: String? = null,
+    val workspaceJson: String? = null
 )
 
 fun ConversationEntity.toDomain(): Conversation = Conversation(
@@ -45,7 +46,8 @@ fun ConversationEntity.toDomain(): Conversation = Conversation(
     maxTokens = maxTokens,
     createdAt = createdAt,
     updatedAt = updatedAt,
-    thinkingEffort = ThinkingEffort.fromStored(thinkingEffort)
+    thinkingEffort = ThinkingEffort.fromStored(thinkingEffort),
+    workspace = com.flowchat.app.domain.workspace.WorkspaceCodec.decode(workspaceJson)
 )
 
 fun Conversation.toEntity(): ConversationEntity = ConversationEntity(
@@ -63,5 +65,6 @@ fun Conversation.toEntity(): ConversationEntity = ConversationEntity(
     maxTokens = maxTokens,
     createdAt = createdAt,
     updatedAt = updatedAt,
-    thinkingEffort = thinkingEffort.wireValue
+    thinkingEffort = thinkingEffort.wireValue,
+    workspaceJson = com.flowchat.app.domain.workspace.WorkspaceCodec.encode(workspace)
 )

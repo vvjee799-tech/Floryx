@@ -9,6 +9,9 @@ import androidx.test.core.app.ApplicationProvider
 import com.flowchat.app.data.db.FlowChatDatabase
 import com.flowchat.app.data.db.MIGRATION_6_7
 import com.flowchat.app.data.db.MIGRATION_8_9
+import com.flowchat.app.data.db.MIGRATION_11_12
+import com.flowchat.app.data.db.MIGRATION_12_13
+import com.flowchat.app.domain.workspace.WorkspaceLocation
 import com.flowchat.app.data.db.MIGRATION_10_11
 import com.flowchat.app.data.db.MIGRATION_9_10
 import com.flowchat.app.domain.model.ReplyPhase
@@ -43,7 +46,7 @@ class ThinkingMigrationTest {
             }).build())
         helper.writableDatabase
         helper.close()
-        fun open() = Room.databaseBuilder(context, FlowChatDatabase::class.java, name).addMigrations(MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11).allowMainThreadQueries().build()
+        fun open() = Room.databaseBuilder(context, FlowChatDatabase::class.java, name).addMigrations(MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13).allowMainThreadQueries().build()
         try {
             val first = open()
             try {
@@ -58,6 +61,7 @@ class ThinkingMigrationTest {
                 assertEquals(ReplyPhase.Answer, repository.getMessages("c").single().replyPhase)
                 assertNull(repository.getMessages("c").single().executionContext)
                 assertNull(repository.getContextCheckpoint("c"))
+                assertNull(migrated.workspace)
                 repository.updateExecutionContext("m", "persisted execution evidence")
                 repository.updateMessage("m", "Keep this message", com.flowchat.app.domain.model.MessageStatus.Sent, replyPhase = ReplyPhase.Commentary)
                 repository.updateThinkingSettings("c", false, ThinkingEffort.Max)
@@ -69,6 +73,7 @@ class ThinkingMigrationTest {
                 val checkpoint = TaskCheckpoint("c", sources.last().id, CheckpointCodec.fingerprint(sources),
                     TaskSummary(note), note, listOf(note), emptyList())
                 assertTrue(repository.saveContextCheckpoint(checkpoint, null))
+                repository.updateConversationWorkspace("c", WorkspaceLocation("content://test/tree/folder", "项目", "Documents/项目"))
             } finally { first.close() }
             val second = open()
             try {
@@ -77,6 +82,7 @@ class ThinkingMigrationTest {
                 assertFalse(repository.getConversation("c")!!.enableThinking)
                 assertEquals(ThinkingEffort.Max, repository.getConversation("c")!!.thinkingEffort)
                 assertEquals("Keep this prompt", repository.getConversation("c")!!.systemPrompt)
+                assertEquals("项目", repository.getConversation("c")!!.workspace!!.name)
                 assertEquals("Keep this message", repository.getMessages("c").first { it.id == "m" }.content)
                 val image = repository.getMessages("c").last()
                 assertEquals("attachments/images/migration.png", image.attachmentImagePath)

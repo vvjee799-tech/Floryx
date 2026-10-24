@@ -1,11 +1,16 @@
 package com.flowchat.app.presentation.chat
 
+import com.flowchat.app.data.usage.*
+import kotlinx.coroutines.flow.flow
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.flowchat.app.data.network.ChatCompletionClient
 import com.flowchat.app.data.attachment.ExtractedAttachment
 import com.flowchat.app.data.attachment.ImageAttachmentStore
 import com.flowchat.app.data.terminal.TerminalManager
+import com.flowchat.app.data.workspace.WorkspaceManager
+import com.flowchat.app.data.workspace.WorkspaceBatch
+import com.flowchat.app.domain.workspace.*
 import com.flowchat.app.domain.terminal.*
 import java.util.UUID
 import kotlinx.serialization.json.buildJsonObject
@@ -101,9 +106,17 @@ class ChatViewModel @Inject constructor(
     private val memorySummaryGenerator: MemorySummaryGenerator = MemorySummaryGenerator(chatClient),
     private val imageAttachmentStore: ImageAttachmentStore? = null,
     private val terminalManager: TerminalManager? = null,
-    private val taskContextManager: TaskContextManager = TaskContextManager(chatClient, chatRepository)
+    private val taskContextManager: TaskContextManager = TaskContextManager(chatClient, chatRepository),
+    private val usageTracker: com.flowchat.app.data.usage.UsageTracker? = null,
+    private val balanceClient: DeepSeekBalanceClient? = null,
+    private val workspaceManager: WorkspaceManager? = null
 ) : ViewModel() {
     private val currentConversationId = MutableStateFlow<String?>(null)
+    val usageRecords = currentConversationId.flatMapLatest { id ->
+        if (id == null) flowOf(emptyList()) else usageTracker?.observe(id) ?: flowOf(emptyList())
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    fun setUsageTrackingEnabled(enabled: Boolean) = appSettingsStore.setUsageTrackingEnabled(enabled)
+
     private var commandRunId = UUID.randomUUID().toString()
     private var systemCommandsApproved = false
     private var systemCommandsDeclined = false
@@ -119,6 +132,7 @@ class ChatViewModel @Inject constructor(
     private var activeDeviceTask: DeviceTaskControl.Task? = null
     private var activeTaskInstruction = ""
     private var activeTaskConversationId: String? = null
+    private var activeWorkspace: WorkspaceLocation? = null
     private val activeDeviceResults = mutableListOf<String>()
     private val errorMessage = MutableStateFlow<String?>(null)
     private val usageAccessPermissionRequest = MutableStateFlow<UsageAccessPermissionRequestUi?>(null)
@@ -229,6 +243,90 @@ class ChatViewModel @Inject constructor(
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ChatUiState())
 
+    private val workspaceBusy = MutableStateFlow(false)
+    private val workspaceError = MutableStateFlow<String?>(null)
+    private val workspaceSaveNotice = MutableStateFlow<Pair<String, WorkspaceSave>?>(null)
+    val workspaceState = combine(
+        uiState.map { it.currentConversation?.let { chat -> chat.id to chat.workspace } }.distinctUntilChanged(),
+        workspaceManager?.changes ?: flowOf(0L), workspaceBusy, workspaceError, workspaceSaveNotice
+    ) { selected, _, busy, error, saved ->
+        runCatching { workspaceManager?.inspect(selected?.first, if (selected != null) selected.second else uiState.value.appSettings.defaultWorkspace)
+            ?: WorkspaceUiState() }.getOrElse { WorkspaceUiState(error = it.message) }.let {
+            it.copy(busy = busy, error = error ?: it.error, lastSave = saved?.takeIf { notice -> notice.first == selected?.first }?.second)
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), WorkspaceUiState())
+
+    fun refreshWorkspace() { workspaceManager?.refresh() }
+    fun workspacePickerFailed(message: String?) { workspaceError.value = message ?: "The system folder picker is unavailable." }
+    fun selectWorkspace(uri: String, flags: Int, conversationId: String?) {
+        val manager = workspaceManager ?: return
+        viewModelScope.launch {
+            workspaceBusy.value = true; workspaceError.value = null; workspaceSaveNotice.value = null
+            try {
+                val selected = manager.select(uri, flags)
+                if (conversationId == null) appSettingsStore.setDefaultWorkspace(selected)
+                else chatRepository.updateConversationWorkspace(conversationId, selected)
+            } catch (error: Exception) {
+                if (error is CancellationException) throw error
+                workspaceError.value = error.message
+            } finally { workspaceBusy.value = false; manager.refresh() }
+        }
+    }
+    fun setWorkspaceDefault(enabled: Boolean) {
+        appSettingsStore.setDefaultWorkspace(if (enabled) workspaceState.value.location else null)
+        refreshWorkspace()
+    }
+    fun clearWorkspace() {
+        workspaceSaveNotice.value = null
+        val conversation = uiState.value.currentConversation
+        val selected = workspaceState.value.location
+        viewModelScope.launch {
+            workspaceError.value = null
+            runCatching {
+                if (conversation != null) chatRepository.updateConversationWorkspace(conversation.id, null)
+                if (appSettingsStore.state.value.defaultWorkspace == selected) appSettingsStore.setDefaultWorkspace(null)
+            }.onFailure { workspaceError.value = it.message }
+            refreshWorkspace()
+        }
+    }
+    fun retryWorkspaceSave(localPath: String) {
+        if (isStreaming.value || terminalState.value.commands.any { it.isRunning }) return
+        val owner = uiState.value.currentConversation?.id ?: return
+        viewModelScope.launch {
+            workspaceBusy.value = true; workspaceError.value = null
+            try { workspaceSaveNotice.value = workspaceManager?.retry(owner, localPath)?.let { owner to it } }
+            catch (error: Exception) {
+                if (error is CancellationException) throw error
+                workspaceError.value = error.message
+            } finally { workspaceBusy.value = false; refreshWorkspace() }
+        }
+    }
+
+    private val balanceRefresh = MutableStateFlow(0)
+    fun refreshBalance() { balanceRefresh.update { it + 1 } }
+    private data class BalanceSelection(val provider: ProviderConfig?, val enabled: Boolean, val streaming: Boolean)
+    val balanceState = combine(
+        uiState.map { state -> BalanceSelection(state.providers.firstOrNull { it.id == state.currentConversation?.providerId },
+            state.appSettings.usageTrackingEnabled, state.isStreaming) }.distinctUntilChanged(),
+        usageRecords.map { records -> records.filter { it.inputTokens != null }.map { it.id to it.outputTokens } }.distinctUntilChanged(),
+        balanceRefresh
+    ) { selection, _, _ -> selection }.flatMapLatest { selection -> flow {
+        val provider = selection.provider
+        when {
+            !selection.enabled || provider == null -> emit(BalanceState())
+            !DeepSeekBalanceClient.supports(provider) -> emit(BalanceState(BalanceStatus.Unsupported))
+            selection.streaming -> emit(BalanceState(BalanceStatus.Waiting))
+            else -> {
+                emit(BalanceState(BalanceStatus.Loading))
+                val result = try {
+                    balanceClient?.fetch(provider, providerRepository.getApiKey(provider)) ?: BalanceState(BalanceStatus.Failed)
+                } catch (cancelled: CancellationException) { throw cancelled }
+                  catch (_: Exception) { BalanceState(BalanceStatus.Failed) }
+                emit(result)
+            }
+        }
+    } }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), BalanceState())
+
     init {
         viewModelScope.launch {
             providerRepository.ensureTemplates()
@@ -254,9 +352,12 @@ class ChatViewModel @Inject constructor(
             }
         }
         viewModelScope.launch {
-            uiState.collect { state ->
-                floatingAssistantBridge.publish(FloatingAssistantState.from(state))
-            }
+            combine(uiState, terminalManager?.state ?: flowOf(TerminalUiState())) { state, terminal ->
+                val owner = state.currentConversation?.id
+                FloatingAssistantState.from(state, terminal.commands.filter {
+                    owner != null && terminalManager?.owns(owner, it.id) == true
+                })
+            }.collect(floatingAssistantBridge::publish)
         }
         viewModelScope.launch {
             floatingAssistantBridge.commands.collect { command ->
@@ -557,6 +658,7 @@ class ChatViewModel @Inject constructor(
                 isStreaming.value = false
                 return@launch
             }
+            activeWorkspace = conversation.workspace
             val provider = providerRepository.getProvider(conversation.providerId)
             if (provider == null) {
                 errorMessage.value = "Provider not found."
@@ -619,9 +721,14 @@ class ChatViewModel @Inject constructor(
                 emptyList()
             }
             val apiKey = providerRepository.getApiKey(provider)
+            val chinese = text.any { it in '\u3400'..'\u9fff' }
+            val showContextPreparation: suspend () -> Unit = {
+                chatRepository.updateMessage(assistant.id, ReplyPolicy.contextPreparation(chinese), MessageStatus.Streaming,
+                    replyPhase = ReplyPhase.Commentary)
+            }
             var appliedCheckpointBoundary: String? = null
             var request = runCatching {
-                val prepared = taskContextManager.prepare(freshConversation, history, provider, apiKey)
+                val prepared = taskContextManager.prepare(freshConversation, history, provider, apiKey, onCompacting = showContextPreparation)
                 appliedCheckpointBoundary = prepared.checkpoint?.throughMessageId
                 ChatRequestFactory.create(
                 freshConversation,
@@ -634,7 +741,7 @@ class ChatViewModel @Inject constructor(
             ) }.getOrElse { error ->
                 if (error is CancellationException) throw error
                 val message = error.userFacingChatError()
-                chatRepository.markMessageFailed(assistant.id, message)
+                chatRepository.updateMessage(assistant.id, message, MessageStatus.Failed, replyPhase = ReplyPhase.Answer)
                 errorMessage.value = message
                 activeAssistantMessageId = null
                 activeDeviceTask = null
@@ -654,15 +761,16 @@ class ChatViewModel @Inject constructor(
                 deviceCapabilities = deviceAssistantGateway.connectionState.value.capabilities
             )
             request = TerminalToolDefinitions.attach(request, settings.commandExecutionEnabled && terminalManager != null)
+            if (workspaceManager != null) request = WorkspaceToolDefinitions.attach(request, activeWorkspace,
+                settings.commandExecutionEnabled && terminalManager != null)
             request = TaskContextTools.attach(request)
             var content = ""
             var reasoningContent = ""
             var toolResultCount = 0
             var closingReason: String? = null
-            val chinese = text.any { it in '\u3400'..'\u9fff' }
             runCatching {
                 var toolRounds = 0
-                var toolRoundLimit = if (settings.commandExecutionEnabled) 80 else MaxToolCallRounds
+                var toolRoundLimit = if (settings.commandExecutionEnabled || activeWorkspace != null) 80 else MaxToolCallRounds
                 val toolCallLoopGuard = ToolCallLoopGuard(MaxConsecutiveIdenticalToolCalls)
                 while (true) {
                     if (closingReason == null && taskContextManager.shouldCompact(request)) {
@@ -672,7 +780,7 @@ class ChatViewModel @Inject constructor(
                         if (retainedStart != null && protectedId != null) {
                             val stored = chatRepository.getMessages(conversation.id).filter { it.id != assistant.id }
                             val prepared = taskContextManager.prepare(freshConversation, stored, provider, apiKey,
-                                protectedMessageId = protectedId, force = true)
+                                protectedMessageId = protectedId, force = true, onCompacting = showContextPreparation)
                             val boundary = prepared.checkpoint?.throughMessageId
                             if (boundary != null && boundary != appliedCheckpointBoundary) {
                                 val protectedIndex = prepared.messages.indexOfFirst { it.id == protectedId }
@@ -680,22 +788,22 @@ class ChatViewModel @Inject constructor(
                                     val prefix = prepared.messages.take(protectedIndex)
                                     val rebuilt = ChatRequestFactory.create(freshConversation, prefix, null, activeProfile.thinkingFormat,
                                         relevantMemories, imageAttachmentStore?.loadRecent(prefix).orEmpty(), prepared.checkpoint)
-                                    request = request.copy(messages = rebuilt.messages + request.messages.drop(retainedStart.index))
+                                    request = request.copy(messages = WorkspaceToolDefinitions.withContext(rebuilt, activeWorkspace).messages + request.messages.drop(retainedStart.index))
                                     appliedCheckpointBoundary = boundary
                                 }
                             }
                         } else if (retainedStart == null) {
                             val stored = chatRepository.getMessages(conversation.id).filter { it.id != assistant.id }
-                            val prepared = taskContextManager.prepare(freshConversation, stored, provider, apiKey, force = true)
+                            val prepared = taskContextManager.prepare(freshConversation, stored, provider, apiKey, force = true, onCompacting = showContextPreparation)
                             if (prepared.checkpoint != null && prepared.checkpoint.throughMessageId != appliedCheckpointBoundary) {
                                 val rebuilt = ChatRequestFactory.create(freshConversation, prepared.messages, null, activeProfile.thinkingFormat,
                                     relevantMemories, imageAttachmentStore?.loadRecent(prepared.messages).orEmpty(), prepared.checkpoint)
-                                request = request.copy(messages = rebuilt.messages)
+                                request = request.copy(messages = WorkspaceToolDefinitions.withContext(rebuilt, activeWorkspace).messages)
                                 appliedCheckpointBoundary = prepared.checkpoint.throughMessageId
                             }
                         }
                     }
-                    taskContextManager.requireFits(request)
+                    taskContextManager.requireFits(request, conversation.id)
                     val response = collectAssistantResponse(
                         request = request,
                         provider = provider,
@@ -709,7 +817,7 @@ class ChatViewModel @Inject constructor(
                     response.errorMessage?.let { rawError ->
                         val message = ReplyPolicy.errorMessage(rawError, chinese)
                         val visible = ReplyPolicy.interruptedReply(content, chinese, toolResultCount, closingReason != null, message)
-                        chatRepository.updateMessage(assistant.id, visible, MessageStatus.Failed, reasoningContent)
+                        chatRepository.updateMessage(assistant.id, visible, MessageStatus.Failed, reasoningContent, replyPhase = ReplyPhase.Answer)
                         errorMessage.value = message
                         return@runCatching
                     }
@@ -725,7 +833,7 @@ class ChatViewModel @Inject constructor(
                             chatRepository.updateMessage(assistant.id, finalContent,
                                 if (content.isBlank()) MessageStatus.Failed else MessageStatus.Complete,
                                 reasoningContent, replyPhase = ReplyPhase.Answer)
-                            if (content.isNotBlank()) queueMemorySummary(rawText, provider, apiKey, freshConversation.modelName)
+                            if (content.isNotBlank()) queueMemorySummary(rawText, provider, apiKey, freshConversation.modelName, freshConversation.id)
                             return@runCatching
                         }
                     } else if (closingReason != null) {
@@ -794,7 +902,7 @@ class ChatViewModel @Inject constructor(
                 } else {
                     val message = ReplyPolicy.errorMessage(throwable.userFacingChatError(), chinese)
                     val visible = ReplyPolicy.interruptedReply(activeAssistantContent, chinese, toolResultCount, closingReason != null, message)
-                    chatRepository.updateMessage(assistant.id, visible, MessageStatus.Failed, activeAssistantReasoningContent)
+                    chatRepository.updateMessage(assistant.id, visible, MessageStatus.Failed, activeAssistantReasoningContent, replyPhase = ReplyPhase.Answer)
                     errorMessage.value = message
                 }
             }
@@ -968,7 +1076,7 @@ class ChatViewModel @Inject constructor(
         )
         return runCatching {
             if (call.name in UiAutomationToolNames + AgentToolDefinitions.OpenAppToolName) guardDeviceTask()
-            if (call.name !in TerminalToolDefinitions.Names + AgentToolDefinitions.WebSearchToolName && !appSettingsStore.state.value.powerModeEnabled) {
+            if (call.name !in TerminalToolDefinitions.Names + WorkspaceToolDefinitions.Names + AgentToolDefinitions.WebSearchToolName && !appSettingsStore.state.value.powerModeEnabled) {
                 return@runCatching ToolExecutionOutcome("Power mode is off. Device operation cancelled.", cancelled = true)
             }
             if (!loopGuard.allow(call)) {
@@ -979,6 +1087,14 @@ class ChatViewModel @Inject constructor(
             }
             when (call.name) {
                 TerminalToolDefinitions.Run -> executeTerminalTool(call, conversationId, toolMessage.id)
+                in WorkspaceToolDefinitions.Names -> {
+                    if (call.name in setOf(WorkspaceToolDefinitions.Import, WorkspaceToolDefinitions.Publish)) {
+                        check(appSettingsStore.state.value.commandExecutionEnabled) { "AI command execution is disabled." }
+                    }
+                    val location = requireNotNull(activeWorkspace) { "Select a workspace in Settings first." }
+                    val result = requireNotNull(workspaceManager).execute(call, conversationId, location)
+                    ToolExecutionOutcome(result, displayDetail = result.take(1500))
+                }
                 AgentToolDefinitions.WebSearchToolName -> ToolExecutionOutcome("Web search is currently disabled.", cancelled = true)
                 AgentToolDefinitions.AppUsageSummaryToolName -> executeAppUsageSummaryTool(call.arguments)
                 AgentToolDefinitions.RecentAppActivityToolName -> executeRecentAppActivityTool(call.arguments)
@@ -1087,6 +1203,7 @@ class ChatViewModel @Inject constructor(
         }
         val id: String
         val snapshot: CommandSnapshot
+        var workspaceResult = WorkspaceBatch()
         if (call.name == TerminalToolDefinitions.Run) {
             val command = requireNotNull(parseStringArgument(call.arguments, "command")) { "Command is required." }
             val environment = when (parseStringArgument(call.arguments, "environment")) {
@@ -1094,7 +1211,18 @@ class ChatViewModel @Inject constructor(
                 "android" -> CommandEnvironment.Android
                 else -> error("Choose linux or android as the environment.")
             }
-            val cwd = parseStringArgument(call.arguments, "working_directory") ?: if (environment == CommandEnvironment.Linux) "/workspace" else "/data/local/tmp"
+            val workspace = activeWorkspace
+            val args = toolJson.parseToJsonElement(call.arguments).jsonObject
+            val workspaceInputs = WorkspaceManager.argumentPaths(args, "workspace_inputs")
+            val workspaceOutputs = WorkspaceManager.argumentPaths(args, "workspace_outputs")
+            if (workspaceInputs.isNotEmpty() || workspaceOutputs.isNotEmpty()) {
+                check(environment == CommandEnvironment.Linux && workspace != null && workspaceManager != null) {
+                    "Workspace transfers require Linux and a selected phone folder."
+                }
+            }
+            val defaultDirectory = if (environment == CommandEnvironment.Linux && workspace != null)
+                workspaceManager?.executionDirectory(owner, workspace) ?: "/workspace" else if (environment == CommandEnvironment.Linux) "/workspace" else "/data/local/tmp"
+            val cwd = parseStringArgument(call.arguments, "working_directory") ?: defaultDirectory
             val timeout = parseStringArgument(call.arguments, "timeout_seconds")?.let { it.toIntOrNull() ?: error("Invalid timeout_seconds.") } ?: 120
             CommandValidation.validate(command, cwd, timeout)
             if (environment == CommandEnvironment.Android) {
@@ -1111,13 +1239,27 @@ class ChatViewModel @Inject constructor(
             }
             check(appSettingsStore.state.value.commandExecutionEnabled) { "AI command execution is disabled." }
             if (environment == CommandEnvironment.Android) check(appSettingsStore.state.value.powerModeEnabled) { "Power mode is off." }
+            if (environment == CommandEnvironment.Linux && workspace != null && workspaceManager != null) {
+                if (messageId != null && (workspaceInputs.isNotEmpty() || workspaceOutputs.isNotEmpty()))
+                    chatRepository.updateMessage(messageId, "${call.name}\nPreparing workspace files…", MessageStatus.Streaming)
+                workspaceManager.prepareCommand(owner, workspace, workspaceInputs, workspaceOutputs)
+            }
             val started = terminal.start(owner, environment, command, cwd, timeout, commandRunId)
             id = started.id
+            var progressJob: Job? = null
             if (messageId != null) {
                 commandMessages[id] = messageId
-                observeCommandProgress(id, owner, messageId)
+                progressJob = observeCommandProgress(id, owner, messageId)
             }
             snapshot = terminal.awaitCompletion(owner, id)
+            progressJob?.join()
+            if (workspaceOutputs.isNotEmpty() && workspace != null && workspaceManager != null &&
+                snapshot.status == CommandStatus.Exited && snapshot.exitCode == 0) {
+                if (messageId != null) chatRepository.updateMessage(messageId,
+                    "${call.name}\n${commandDetail(snapshot)}\nSaving workspace results…", MessageStatus.Streaming)
+                workspaceResult = workspaceManager.publish(owner, workspace, workspaceOutputs)
+            }
+            workspaceManager?.refresh()
         } else {
             id = requireNotNull(parseStringArgument(call.arguments, "command_id")) { "command_id is required." }
             if (call.name == TerminalToolDefinitions.Stop) snapshot = terminal.cancel(owner, id)
@@ -1133,9 +1275,11 @@ class ChatViewModel @Inject constructor(
             snapshot.isRunning -> MessageStatus.Streaming
             snapshot.status == CommandStatus.Cancelled -> MessageStatus.Cancelled
             snapshot.status != CommandStatus.Exited || snapshot.exitCode != 0 -> MessageStatus.Failed
+            workspaceResult.errors.isNotEmpty() -> MessageStatus.Failed
             else -> MessageStatus.Complete
         }
-        val detail = commandDetail(snapshot)
+        val detail = commandDetail(snapshot) + workspaceResult.saved.joinToString("") { "\nSaved: ${it.path}${if (it.conflict) " (conflict copy)" else ""}" } +
+            workspaceResult.errors.joinToString("") { "\nSave failed; local result retained: $it" }
         commandMessages[id]?.takeIf { it != messageId }?.let { existing ->
             chatRepository.updateMessage(existing, "${TerminalToolDefinitions.Run}\n$detail", status)
         }
@@ -1146,15 +1290,17 @@ class ChatViewModel @Inject constructor(
             put("output", page.output); put("output_offset", page.outputOffset); put("next_offset", page.nextOffset)
             put("has_more", page.nextOffset < snapshot.nextOffset); put("truncated", offset < snapshot.outputOffset)
             snapshot.error?.let { put("error", it) }
+            put("workspace_saved", kotlinx.serialization.json.buildJsonArray { workspaceResult.saved.forEach { add(WorkspaceManager.saveJson(it)) } })
+            put("workspace_errors", kotlinx.serialization.json.buildJsonArray { workspaceResult.errors.forEach { add(kotlinx.serialization.json.JsonPrimitive(it)) } })
         }.toString(), displayDetail = detail, toolStatus = status)
     }
 
     private fun commandDetail(snapshot: CommandSnapshot): String =
         "${snapshot.command}\n${snapshot.status.name} · elapsed=${snapshot.elapsedMillis() / 1000L}s${snapshot.exitCode?.let { " · exit=$it" }.orEmpty()}\n${snapshot.output.takeLast(8000)}${snapshot.error?.let { "\n$it" }.orEmpty()}"
 
-    private fun observeCommandProgress(id: String, owner: String, messageId: String) {
-        val terminal = terminalManager ?: return
-        viewModelScope.launch {
+    private fun observeCommandProgress(id: String, owner: String, messageId: String): Job {
+        val terminal = requireNotNull(terminalManager)
+        return viewModelScope.launch {
             try {
                 terminal.awaitCompletion(owner, id) { progress ->
                     val status = when {
@@ -1482,14 +1628,14 @@ class ChatViewModel @Inject constructor(
         }
     }
 
-    private fun queueMemorySummary(userMessage: String, provider: ProviderConfig, apiKey: String?, model: String) {
+    private fun queueMemorySummary(userMessage: String, provider: ProviderConfig, apiKey: String?, model: String, usageConversationId: String) {
         if (!appSettingsStore.state.value.memoryEnabled || !MemoryPolicy.shouldExtract(userMessage)) return
         invalidateMemoryUpdate()
         val epoch = memoryEpoch
         memoryUpdateJob = viewModelScope.launch {
             try {
                 val snapshot = memoryRepository.snapshot()
-                val drafts = memorySummaryGenerator.summarize(userMessage, snapshot.records, provider, apiKey, model)
+                val drafts = memorySummaryGenerator.summarize(userMessage, snapshot.records, provider, apiKey, model, usageConversationId)
                 val saved = memoryRepository.merge(drafts, snapshot.revision) {
                     epoch == memoryEpoch && appSettingsStore.state.value.memoryEnabled
                 }

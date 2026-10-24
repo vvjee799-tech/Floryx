@@ -9,15 +9,23 @@ import androidx.sqlite.db.SupportSQLiteDatabase
     entities = [
         ProviderConfigEntity::class,
         ConversationEntity::class,
-        MessageEntity::class
+        MessageEntity::class,
+        UsageRecord::class
     ],
-    version = 11,
+    version = 13,
     exportSchema = false
 )
 abstract class FlowChatDatabase : RoomDatabase() {
     abstract fun providerDao(): ProviderDao
     abstract fun conversationDao(): ConversationDao
     abstract fun messageDao(): MessageDao
+    abstract fun usageDao(): UsageDao
+}
+
+val MIGRATION_12_13 = object : Migration(12, 13) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE conversations ADD COLUMN workspaceJson TEXT")
+    }
 }
 
 val MIGRATION_1_2 = object : Migration(1, 2) {
@@ -83,5 +91,12 @@ val MIGRATION_9_10 = object : Migration(9, 10) {
 val MIGRATION_10_11 = object : Migration(10, 11) {
     override fun migrate(db: SupportSQLiteDatabase) {
         db.execSQL("ALTER TABLE conversations ADD COLUMN contextCheckpoint TEXT")
+    }
+}
+
+val MIGRATION_11_12 = object : Migration(11, 12) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("CREATE TABLE IF NOT EXISTS usage_records (id TEXT NOT NULL PRIMARY KEY, conversationId TEXT NOT NULL, model TEXT NOT NULL, createdAt INTEGER NOT NULL, inputTokens INTEGER, outputTokens INTEGER, cacheHitTokens INTEGER, costLowNanos INTEGER, costHighNanos INTEGER, pricingVersion TEXT NOT NULL, FOREIGN KEY(conversationId) REFERENCES conversations(id) ON DELETE CASCADE)")
+        db.execSQL("CREATE INDEX IF NOT EXISTS index_usage_records_conversationId ON usage_records(conversationId)")
     }
 }

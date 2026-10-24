@@ -17,7 +17,9 @@ data class AppSettings(
     val powerConnectionMode: PowerConnectionMode = PowerConnectionMode.Shizuku,
     val webSearchDisclosureAccepted: Boolean = false,
     val installId: String = "",
-    val commandExecutionEnabled: Boolean = false
+    val usageTrackingEnabled: Boolean = false,
+    val commandExecutionEnabled: Boolean = false,
+    val defaultWorkspace: com.flowchat.app.domain.workspace.WorkspaceLocation? = null
 )
 
 @Singleton
@@ -35,6 +37,13 @@ class AppSettingsStore private constructor(
 
     private val mutableState = MutableStateFlow(initial)
     val state: StateFlow<AppSettings> = mutableState.asStateFlow()
+
+    fun setUsageTrackingEnabled(enabled: Boolean) = update("usage_tracking_enabled", enabled) { copy(usageTrackingEnabled = enabled) }
+
+    fun setDefaultWorkspace(location: com.flowchat.app.domain.workspace.WorkspaceLocation?) {
+        mutableState.value = mutableState.value.copy(defaultWorkspace = location)
+        preferences?.edit()?.putString("default_workspace", com.flowchat.app.domain.workspace.WorkspaceCodec.encode(location))?.apply()
+    }
 
     fun setCommandExecutionEnabled(enabled: Boolean) = update(CommandExecutionKey, enabled) { copy(commandExecutionEnabled = enabled) }
 
@@ -87,13 +96,15 @@ class AppSettingsStore private constructor(
             }
             return AppSettings(
                 memoryEnabled = getBoolean(MemoryEnabledKey, true),
+                usageTrackingEnabled = getBoolean("usage_tracking_enabled", false),
                 powerModeEnabled = powerModeEnabled,
                 powerConnectionMode = PowerConnectionMode.entries.firstOrNull {
                     it.name == getString(PowerConnectionModeKey, null)
                 } ?: PowerConnectionMode.Shizuku,
                 webSearchDisclosureAccepted = getBoolean(WebSearchDisclosureKey, false),
                 installId = installId,
-                commandExecutionEnabled = getBoolean(CommandExecutionKey, false)
+                commandExecutionEnabled = getBoolean(CommandExecutionKey, false),
+                defaultWorkspace = com.flowchat.app.domain.workspace.WorkspaceCodec.decode(getString("default_workspace", null))
             )
         }
     }

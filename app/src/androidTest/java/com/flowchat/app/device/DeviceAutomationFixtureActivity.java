@@ -63,7 +63,20 @@ public class DeviceAutomationFixtureActivity extends Activity {
         }
         scroll.addView(rows);
         content.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1));
-        setContentView(content);
+        if (getIntent().getBooleanExtra("deep_tree", false)) {
+            FrameLayout root = new FrameLayout(this);
+            FrameLayout parent = root;
+            for (int depth = 0; depth < 48; depth++) {
+                FrameLayout nested = new FrameLayout(this);
+                nested.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_YES);
+                parent.addView(nested, new FrameLayout.LayoutParams(-1, -1));
+                parent = nested;
+            }
+            parent.addView(content, new FrameLayout.LayoutParams(-1, -1));
+            setContentView(root);
+        } else {
+            setContentView(content);
+        }
     }
 
     private void showOverlayProbe() {

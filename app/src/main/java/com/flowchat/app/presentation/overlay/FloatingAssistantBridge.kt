@@ -2,6 +2,7 @@ package com.flowchat.app.presentation.overlay
 
 import com.flowchat.app.domain.model.MessageRole
 import com.flowchat.app.domain.model.MessageStatus
+import com.flowchat.app.domain.terminal.CommandSnapshot
 import com.flowchat.app.presentation.chat.ChatUiState
 import com.flowchat.app.domain.device.DeviceTaskControl
 import javax.inject.Inject
@@ -23,10 +24,11 @@ data class FloatingAssistantState(
     val activeToolName: String? = null,
     val lastOpenedAppName: String? = null,
     val isStreaming: Boolean = false,
-    val canChat: Boolean = false
+    val canChat: Boolean = false,
+    val progress: FloatingTaskProgress? = null
 ) {
     companion object {
-        fun from(state: ChatUiState): FloatingAssistantState {
+        fun from(state: ChatUiState, commands: List<CommandSnapshot> = emptyList()): FloatingAssistantState {
             val conversation = state.currentConversation
             val currentTurn = state.messages.drop(state.messages.indexOfLast { it.role == MessageRole.User }.coerceAtLeast(0))
             val assistantText = currentTurn
@@ -34,18 +36,40 @@ data class FloatingAssistantState(
                 .firstOrNull { it.role == MessageRole.Assistant && it.content.isNotBlank() }
                 ?.content
                 .orEmpty()
-            val activeTool = currentTurn
+            val activeToolMessage = currentTurn
                 .asReversed()
                 .firstOrNull {
                     it.role == MessageRole.Tool &&
                         it.status == MessageStatus.Streaming
                 }
-                ?.content
+            val activeTool = activeToolMessage?.content
                 ?.lineSequence()
                 ?.firstOrNull()
                 ?.substringBefore(':')
                 ?.trim()
                 ?.takeIf { it.isNotEmpty() }
+            val latestAssistant = currentTurn.lastOrNull { it.role == MessageRole.Assistant }
+            val turnStartedAt = currentTurn.firstOrNull { it.role == MessageRole.User }?.createdAt
+            // The caller scopes commands to this conversation. Never show a previous turn's command.
+            val runningCommand = commands.firstOrNull {
+                it.isRunning && turnStartedAt != null && it.createdAt >= turnStartedAt
+            }
+            val commandTool = activeTool in setOf("run_command", "read_command_output")
+            val phase = when {
+                state.deviceTaskPaused -> FloatingTaskPhase.Paused
+                state.pendingDeviceActionConfirmation != null || state.usageAccessPermissionRequest != null -> FloatingTaskPhase.WaitingForUser
+                state.isStreaming && commandTool && runningCommand != null -> FloatingTaskPhase.RunningCommand
+                state.isStreaming && commandTool -> FloatingTaskPhase.PreparingCommand
+                state.isStreaming && activeTool != null -> FloatingTaskPhase.UsingTool
+                state.isStreaming && latestAssistant?.status == MessageStatus.Streaming && latestAssistant.content.isNotBlank() -> FloatingTaskPhase.Responding
+                state.isStreaming -> FloatingTaskPhase.Thinking
+                latestAssistant?.status == MessageStatus.Failed -> FloatingTaskPhase.Failed
+                latestAssistant?.status in setOf(MessageStatus.Stopped, MessageStatus.Cancelled) -> FloatingTaskPhase.Stopped
+                latestAssistant?.status == MessageStatus.Complete -> FloatingTaskPhase.Finished
+                else -> FloatingTaskPhase.Ready
+            }
+            val startedAt = if (phase == FloatingTaskPhase.RunningCommand) runningCommand?.createdAt
+                else activeToolMessage?.createdAt ?: latestAssistant?.createdAt ?: turnStartedAt
             val openedApp = currentTurn
                 .asReversed()
                 .firstOrNull { it.role == MessageRole.Tool && it.content.startsWith("open_app:") }
@@ -63,10 +87,11 @@ data class FloatingAssistantState(
                 assistantAvatarPath = conversation?.assistantAvatarPath,
                 modelName = conversation?.modelName.orEmpty(),
                 assistantText = assistantText,
-                activeToolName = activeTool,
+                activeToolName = activeTool.takeIf { state.isStreaming },
                 lastOpenedAppName = openedApp,
                 isStreaming = state.isStreaming,
-                canChat = conversation != null
+                canChat = conversation != null,
+                progress = FloatingTaskProgress(phase, startedAt.takeIf { phase.isActive })
             )
         }
     }

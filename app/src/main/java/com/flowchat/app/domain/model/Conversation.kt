@@ -17,5 +17,6 @@ data class Conversation(
     val maxTokens: Int? = null,
     val createdAt: Long = System.currentTimeMillis(),
     val updatedAt: Long = createdAt,
-    val thinkingEffort: ThinkingEffort = ThinkingEffort.Auto
+    val thinkingEffort: ThinkingEffort = ThinkingEffort.Auto,
+    val workspace: com.flowchat.app.domain.workspace.WorkspaceLocation? = null
 )

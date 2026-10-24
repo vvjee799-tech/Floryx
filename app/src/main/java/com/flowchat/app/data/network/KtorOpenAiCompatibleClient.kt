@@ -39,17 +39,28 @@ class KtorOpenAiCompatibleClient @Inject constructor(
     private val httpClient: HttpClient,
     private val json: Json
 ) : ChatCompletionClient {
+    @Inject lateinit var usageTracker: com.flowchat.app.data.usage.UsageTracker
+    private val meter get() = if (::usageTracker.isInitialized) usageTracker else null
+
     override fun streamChat(request: ChatRequest, provider: ProviderConfig, apiKey: String?): Flow<ChatDelta> = flow {
         val protocol = modelProtocol(provider, request.model)
         if (protocol != ModelProtocol.ChatCompletions) {
             emitAll(streamNative(request, provider, apiKey, protocol))
             return@flow
         }
+        val ticket = meter?.begin(request, provider)
+        var usageReported = false
+        var completed = false
+        var usageDeadline = 0L
         var sawOutput = false
         var sawError = false
         val toolCallAccumulator = OpenAiToolCallAccumulator()
         val reasoningMetadata = ChatReasoningMetadata(json)
-        val payload = request.toOpenAiRequest(provider, stream = true)
+        val payload = request.toOpenAiRequest(provider, stream = true).let {
+            if (ticket == null) it else it.copy(streamOptions = kotlinx.serialization.json.buildJsonObject {
+                put("include_usage", kotlinx.serialization.json.JsonPrimitive(true))
+            })
+        }
         if (BuildConfig.DEBUG) {
             Log.i(
                 TAG,
@@ -86,13 +97,23 @@ class KtorOpenAiCompatibleClient @Inject constructor(
             }
             val channel = response.bodyAsChannel()
             while (!channel.isClosedForRead) {
-                val line = channel.readUTF8Line() ?: break
+                val line = if (completed) {
+                    val remaining = (usageDeadline - android.os.SystemClock.elapsedRealtime()).coerceAtLeast(1L)
+                    kotlinx.coroutines.withTimeoutOrNull(remaining) { channel.readUTF8Line() }
+                } else channel.readUTF8Line()
+                if (line == null) break
+                usageReported = (meter?.report(ticket, line) == true) || usageReported
                 if (BuildConfig.DEBUG) {
                     OpenAiStreamParser.summarizeLine(line)?.let { Log.i(TAG, "stream $it") }
                 }
                 reasoningMetadata.readLine(line)
                 for (delta in OpenAiStreamParser.parseDeltas(line)) when (delta) {
                     ChatDelta.Done -> {
+                        if (ticket != null && !usageReported && line.trim() != "data: [DONE]") {
+                            if (!completed) usageDeadline = android.os.SystemClock.elapsedRealtime() + 1500L
+                            completed = true
+                            continue
+                        }
                         reasoningMetadata.event()?.let { emit(it) }
                         val toolCalls = toolCallAccumulator.build()
                         if (toolCalls.isNotEmpty()) {
@@ -129,6 +150,12 @@ class KtorOpenAiCompatibleClient @Inject constructor(
                         return@execute
                     }
                 }
+            }
+            if (completed) {
+                reasoningMetadata.event()?.let { emit(it) }
+                val calls = toolCallAccumulator.build()
+                if (calls.isNotEmpty()) emit(ChatDelta.ToolCalls(calls)) else if (sawOutput) emit(ChatDelta.Done)
+                return@execute
             }
             // EOF is not a successful finish: never execute a possibly truncated tool call.
             if (sawOutput || toolCallAccumulator.build().isNotEmpty()) {
@@ -207,6 +234,7 @@ class KtorOpenAiCompatibleClient @Inject constructor(
     }
 
     private suspend fun completeChat(request: ChatRequest, provider: ProviderConfig, apiKey: String?): List<ChatDelta> {
+        val ticket = meter?.begin(request, provider)
         val payload = request.toOpenAiRequest(provider, stream = false)
         val response = httpClient.preparePost {
             url(provider.baseUrl.trimEnd('/') + "/chat/completions")
@@ -231,6 +259,7 @@ class KtorOpenAiCompatibleClient @Inject constructor(
             return listOf(ChatDelta.Error(response.errorText()))
         }
         val body = response.bodyAsText()
+        meter?.report(ticket, body)
         val parsed = OpenAiStreamParser.parseCompletionBody(body)
         return buildList {
             ChatReasoningMetadata.fromCompletion(body, json)?.let { add(it) }

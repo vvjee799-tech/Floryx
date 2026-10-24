@@ -80,3 +80,17 @@ final result: passed
 ## Result
 
 final result: passed
+
+## 2026-10-25 · 输入框一体底栏（1.5.12）
+
+第三套去余额角标方案已完成；深浅色组件截图与三项 MuMu 回归通过。详细记录：[输入框一体底栏验收](docs/composer-footer-2026-10-25.md)。
+
+final result: passed
+
+## 2026-10-25 · 手机文件夹工作区
+
+沿用现有 Paper 设置样式，检查了 MuMu 真实组件的 `build/workspace-Light.png` 和 `build/workspace-Dark.png`：标题、说明、文件夹名称与路径、文字访问状态、操作按钮及默认值开关层级清晰，无截断、重叠或横向溢出；48 dp 操作区域和原生语义保留，错误和保存回执采用无障碍实时播报。
+
+真实系统文件夹选择、模型文件操作、脚本结果写回、停止后接续、授权失效恢复与会话关联验证通过。新增记录和实际验证范围见 [工作区说明与验证](docs/workspace-2026-10-25.md)。系统文件夹选择器沿用 Android 原生界面。
+
+final result: passed

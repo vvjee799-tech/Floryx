@@ -46,6 +46,9 @@ interface ConversationDao {
     @Query("UPDATE conversations SET providerId = :providerId, modelName = :modelName, updatedAt = :updatedAt WHERE id = :id")
     suspend fun updateModel(id: String, providerId: String, modelName: String, updatedAt: Long)
 
+    @Query("UPDATE conversations SET workspaceJson = :workspaceJson, updatedAt = :updatedAt WHERE id = :id")
+    suspend fun updateWorkspace(id: String, workspaceJson: String?, updatedAt: Long)
+
     @Query("UPDATE conversations SET providerId = :providerId, modelName = :modelName, updatedAt = :updatedAt")
     suspend fun pointAllToProvider(providerId: String, modelName: String, updatedAt: Long)
 

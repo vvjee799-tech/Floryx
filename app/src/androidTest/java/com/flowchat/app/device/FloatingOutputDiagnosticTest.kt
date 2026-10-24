@@ -110,7 +110,9 @@ class FloatingOutputDiagnosticTest {
                 AppAppearance.save(context, AppAppearance.Dark)
             }
             context.startForegroundService(Intent(context, FloatingAssistantService::class.java))
-            shell("am start -W -n ${instrumentation.context.packageName}/${DeviceAutomationFixtureActivity::class.java.name} --ez overlay_probe true")
+            // Each appearance run needs a fresh fixture; otherwise the previous run's touch
+            // counter survives in the separate test APK and makes pass-through checks fail.
+            shell("am start -W -f 0x10008000 -n ${instrumentation.context.packageName}/${DeviceAutomationFixtureActivity::class.java.name} --ez overlay_probe true")
             waitFor { !bridge.appInForeground.value }
             delay(500)
             val liveState = FloatingAssistantState(
@@ -145,8 +147,10 @@ class FloatingOutputDiagnosticTest {
             delay(300)
             checkCircleAndCapture("overlay-collapsed")
             var touchCount = 0
-            suspend fun assertTouch(count: Int, kind: String = "Tap") = assertTrue(
-                gateway.observeScreen().asToolContent().contains("Touch count: $count; $kind completed"))
+            suspend fun assertTouch(count: Int, kind: String = "Tap") {
+                val observed = gateway.observeScreen().asToolContent()
+                assertTrue(observed, observed.contains("Touch count: $count; $kind completed"))
+            }
             bridge.withExternalUiAction {
                 delay(300)
                 report("Collapsed bubble during an operation: shown=${bubble.isShown}, visibility=${bubble.visibility}, bounds=$bubbleBounds")

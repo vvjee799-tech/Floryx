@@ -14,6 +14,36 @@ class ThinkingCompatibilityTest {
     private fun body(model: String, on: Boolean = true, effort: ThinkingEffort = ThinkingEffort.Auto, url: String = "https://example.test/v1") =
         request(model, on, effort).toWireBody(provider(model, url), true, json)
 
+    @Test fun deepSeekThinkingToolsAttributeStoredHistoryAndKeepNativeReplayIntact() {
+        val p = provider("deepseek-flash")
+        val native = ChatRequestMessage("assistant", "Checking", reasoningContent = "original replay",
+            toolCalls = listOf(ChatToolCall("c1", "read_only", "{}")))
+        val history = ChatRequestMessage("assistant", "Previously confirmed result", historical = true)
+        val tool = ChatToolDefinition("read_only", "Read only", buildJsonObject { put("type", "object") })
+        val payload = request(p.defaultModel).copy(messages = listOf(history, native,
+            ChatRequestMessage("tool", "ok", toolCallId = "c1")), tools = listOf(tool)).toWireBody(p, true, json)
+        val messages = payload["messages"]!!.jsonArray.map { it.jsonObject }
+        assertEquals("user", messages[0]["role"]!!.jsonPrimitive.content)
+        assertTrue(messages[0]["content"]!!.jsonPrimitive.content.contains("not a new request or authorization"))
+        assertTrue(messages[0]["content"]!!.jsonPrimitive.content.contains(history.content!!))
+        assertFalse(messages[0].containsKey("reasoning_content"))
+        assertEquals("assistant", messages[1]["role"]!!.jsonPrimitive.content)
+        assertEquals("original replay", messages[1]["reasoning_content"]!!.jsonPrimitive.content)
+        assertEquals("c1", messages[1]["tool_calls"]!!.jsonArray.single().jsonObject["id"]!!.jsonPrimitive.content)
+        assertEquals("c1", messages[2]["tool_call_id"]!!.jsonPrimitive.content)
+        assertTrue(messages.none { it.containsKey("historical") || it.containsKey("localMessageId") })
+    }
+
+    @Test fun historyProjectionDoesNotChangeOtherProtocolsOrNonThinkingRequests() {
+        val history = ChatRequestMessage("assistant", "old answer", historical = true)
+        val tool = ChatToolDefinition("read_only", "Read", buildJsonObject { put("type", "object") })
+        for ((name, on, tools) in listOf(Triple("gpt-5.4", true, listOf(tool)),
+            Triple("deepseek-flash", false, listOf(tool)), Triple("deepseek-flash", true, emptyList()))) {
+            val payload = request(name, on).copy(messages = listOf(history), tools = tools).toWireBody(provider(name), true, json)
+            assertEquals("assistant", payload["messages"]!!.jsonArray.single().jsonObject["role"]!!.jsonPrimitive.content)
+        }
+    }
+
     @Test fun compatibleStreamKeepsAllChannelsAndEncryptedReasoningForTheNextToolRound() {
         val line = """data: {"choices":[{"delta":{"content":"Checking","reasoning":"summary","reasoning_details":[{"index":0,"type":"reasoning.encrypted","data":"first-"}],"tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"observe_screen","arguments":"{}"}}]}}]}"""
         val deltas = OpenAiStreamParser.parseDeltas(line)

@@ -51,6 +51,7 @@ import androidx.compose.material.icons.rounded.KeyboardArrowUp
 import androidx.compose.material.icons.automirrored.rounded.Reply
 import androidx.compose.material.icons.rounded.Stop
 import androidx.compose.material3.Icon
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -517,6 +518,8 @@ private fun FloatingAssistantBubble(
         ) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 FlowChatMark(modifier = Modifier.size(28.dp))
+                if (isStreaming) CircularProgressIndicator(
+                    modifier = Modifier.fillMaxSize().padding(3.dp), strokeWidth = 2.dp)
             }
         }
     }
@@ -548,14 +551,15 @@ private fun ExpandedAssistantPanel(
         tonalElevation = 0.dp
     ) {
         Column(modifier = Modifier.padding(10.dp)) {
-            if (watching) {
-                Text(
-                    text = stringResource(R.string.floating_assistant_watching),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(start = 8.dp, bottom = 6.dp)
-                )
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                FloatingProgressStatus(state, Modifier.weight(1f))
+                if (!watching) IconButton(onClick = onCollapse, modifier = Modifier.size(48.dp)) {
+                    Icon(Icons.Rounded.KeyboardArrowUp,
+                        contentDescription = stringResource(R.string.collapse_floating_assistant),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
             }
+            Spacer(Modifier.height(8.dp))
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -576,22 +580,9 @@ private fun ExpandedAssistantPanel(
                     color = MaterialTheme.colorScheme.onSurface,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(start = 14.dp, top = 14.dp, end = if (watching) 14.dp else 52.dp, bottom = 14.dp)
+                        .padding(14.dp)
                         .verticalScroll(messageScrollState)
                 )
-                if (!watching) IconButton(
-                    onClick = onCollapse,
-                    modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .size(48.dp)
-                ) {
-                    Icon(
-                        Icons.Rounded.KeyboardArrowUp,
-                        contentDescription = stringResource(R.string.collapse_floating_assistant),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(20.dp)
-                    )
-                }
             }
             if (!watching) {
                 Spacer(Modifier.height(8.dp))
@@ -602,6 +593,62 @@ private fun ExpandedAssistantPanel(
                 )
             }
         }
+    }
+}
+
+@Composable
+private fun FloatingProgressStatus(state: FloatingAssistantState, modifier: Modifier = Modifier) {
+    val progress = state.progress ?: FloatingTaskProgress(
+        if (state.isStreaming) FloatingTaskPhase.Thinking else FloatingTaskPhase.Ready)
+    val phase = progress.phase
+    // Tick locally even when a command prints nothing. Anchoring to monotonic time avoids
+    // clock changes while visible; reopening uses the actual persisted command start time.
+    var elapsedSeconds by remember(phase, progress.startedAt) {
+        mutableStateOf(((System.currentTimeMillis() - (progress.startedAt ?: System.currentTimeMillis())) / 1000).coerceAtLeast(0))
+    }
+    LaunchedEffect(phase, progress.startedAt) {
+        if (phase.isActive && progress.startedAt != null) {
+            val initial = (System.currentTimeMillis() - progress.startedAt).coerceAtLeast(0)
+            val anchor = android.os.SystemClock.elapsedRealtime()
+            while (true) {
+                elapsedSeconds = (initial + android.os.SystemClock.elapsedRealtime() - anchor) / 1000
+                kotlinx.coroutines.delay(1000)
+            }
+        }
+    }
+    val label = when (phase) {
+        FloatingTaskPhase.Ready -> R.string.floating_status_ready
+        FloatingTaskPhase.Thinking -> R.string.floating_status_thinking
+        FloatingTaskPhase.Responding -> R.string.floating_status_responding
+        FloatingTaskPhase.PreparingCommand -> R.string.floating_status_preparing
+        FloatingTaskPhase.RunningCommand -> R.string.floating_status_command
+        FloatingTaskPhase.UsingTool -> R.string.floating_status_tool
+        FloatingTaskPhase.WaitingForUser -> R.string.floating_status_confirmation
+        FloatingTaskPhase.Paused -> R.string.floating_status_paused
+        FloatingTaskPhase.Finished -> R.string.floating_status_finished
+        FloatingTaskPhase.Stopped -> R.string.floating_status_stopped
+        FloatingTaskPhase.Failed -> R.string.floating_status_failed
+    }
+    Column(modifier.padding(horizontal = 8.dp, vertical = 4.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            if (phase.isActive) {
+                CircularProgressIndicator(Modifier.size(16.dp), color = MaterialTheme.colorScheme.onSurface, strokeWidth = 2.dp)
+                Spacer(Modifier.width(8.dp))
+            }
+            Text(stringResource(label), style = MaterialTheme.typography.labelLarge,
+                color = if (phase == FloatingTaskPhase.Failed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface)
+        }
+        if (phase.isActive && progress.startedAt != null) {
+            Text(stringResource(R.string.floating_status_elapsed, elapsedSeconds),
+                style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        val hint = when (phase) {
+            FloatingTaskPhase.RunningCommand -> R.string.floating_status_command_hint
+            FloatingTaskPhase.WaitingForUser -> R.string.floating_status_confirmation_hint
+            else -> null
+        }
+        if (hint != null) Text(stringResource(hint), style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
@@ -628,8 +675,10 @@ private fun WatchingAssistantControls(
             )
         ) {
             if (isStreaming) {
-                IconButton(onClick = onStop, modifier = Modifier.size(48.dp)) {
-                    Icon(Icons.Rounded.Stop, contentDescription = stringResource(R.string.stop), tint = MaterialTheme.colorScheme.error)
+                TextButton(onClick = onStop, modifier = Modifier.heightIn(min = 48.dp)) {
+                    Icon(Icons.Rounded.Stop, contentDescription = null, tint = MaterialTheme.colorScheme.error)
+                    Spacer(Modifier.width(4.dp))
+                    Text(stringResource(R.string.stop), color = MaterialTheme.colorScheme.error)
                 }
             } else {
                 TextButton(onClick = onReply) {

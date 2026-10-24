@@ -27,12 +27,13 @@ class DeviceAutomationTest {
             RootDeviceConnection())
     }
 
-    private suspend fun startFixture(sensitive: Boolean = false) {
+    private suspend fun startFixture(sensitive: Boolean = false, deepTree: Boolean = false) {
         ensureService()
         context.startActivity(Intent().apply {
             component = ComponentName(instrumentation.context.packageName, DeviceAutomationFixtureActivity::class.java.name)
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
             putExtra("sensitive", sensitive)
+            putExtra("deep_tree", deepTree)
         })
         delay(800)
     }
@@ -65,6 +66,21 @@ class DeviceAutomationTest {
 
     private suspend fun screen(): DeviceScreenSnapshot =
         requireNotNull(gateway.observeScreen().screen)
+
+    @Test fun readsAndOperatesControlsInADeeplyNestedScreen() = runBlocking {
+        startFixture(deepTree = true)
+        val initial = screen()
+        assertFalse(initial.truncated)
+        val input = initial.elements.first { it.editable }
+        val typed = gateway.inputText(input.index, "Deep screen 中文", true, initial.screenId)
+        assertTrue(typed.asToolContent(), typed.success)
+        val current = requireNotNull(typed.screen)
+        assertTrue(current.elements.any { it.editable && it.text == "Deep screen 中文" })
+        val toggle = current.elements.first { it.text == "Test toggle" }
+        val tapped = gateway.tapUiElement(toggle.index, false, current.screenId)
+        assertTrue(tapped.asToolContent(), tapped.success)
+        assertTrue(tapped.screen!!.elements.any { it.text == "Test toggle" && it.checked == true })
+    }
 
     @Test fun observesInputsChecksStateRejectsStaleTargetsAndScrolls() = runBlocking {
         startFixture()

@@ -95,7 +95,7 @@ class TaskContextManagerTest {
             assertNull(prepared.checkpoint)
             assertEquals(rows, prepared.messages)
             assertEquals(0, repo.saves)
-            assertEquals(1, client.requests.size)
+            assertEquals(if (response.any { it is ChatDelta.Content }) 2 else 1, client.requests.size)
         }
     }
 
@@ -111,6 +111,227 @@ class TaskContextManagerTest {
             assertNull(prepared.checkpoint)
             assertEquals(repo.rows, prepared.messages)
         }
+    }
+
+    @Test fun anInvalidSummaryIsRepairedOnceUsingTheSameSourceRecords() = runTest {
+        for (invalid in listOf("not json", """{"objective":{"text":"unsourced","sources":[]}}""",
+            """{"objective":{"text":"invented","sources":["not-in-this-task"]}}""")) {
+            val rows = transcript()
+            val repo = Repo(rows)
+            var attempts = 0
+            val client = Client { request -> if (++attempts == 1) listOf(ChatDelta.Content(invalid), ChatDelta.Done) else validSummary(request) }
+            val manager = TaskContextManager(client, repo, limits)
+            val prepared = manager.prepare(conversation, rows, provider, null)
+            assertNotNull(prepared.checkpoint)
+            assertNull(manager.lastFailureCode)
+            assertEquals(2, client.requests.size)
+            assertEquals(client.requests[0].messages.last(), client.requests[1].messages.last())
+            assertTrue(client.requests[1].messages.first().content!!.contains("rejected by validation"))
+            assertTrue(client.requests.all { it.tools.isEmpty() && !it.enableThinking })
+            assertEquals(rows, repo.rows)
+        }
+    }
+
+    @Test fun repeatedMalformedSummariesStopRepairingAndRetainTheSpecificFailure() = runTest {
+        val rows = transcript().map { it.copy(content = it.content + "x".repeat(5_000)) }
+        val repo = Repo(rows)
+        val client = Client { listOf(ChatDelta.Content("""{"objective":{"text":"unsourced","sources":[]}}"""), ChatDelta.Done) }
+        val manager = TaskContextManager(client, repo, limits)
+        val prepared = manager.prepare(conversation, rows, provider, null)
+        assertEquals(2, client.requests.size)
+        assertEquals("invalid_summary_shape", manager.lastFailureCode)
+        assertEquals(rows, prepared.messages)
+        assertNull(prepared.checkpoint)
+        val failure = assertThrows(IllegalStateException::class.java) {
+            manager.requireFits(ChatRequestFactory.create(conversation, prepared.messages), conversation.id)
+        }
+        assertTrue(failure.message!!.contains("自动修复后仍未通过"))
+        manager.prepare(conversation, rows, provider, null, force = true)
+        assertEquals(2, client.requests.size)
+        assertEquals(rows, repo.rows)
+    }
+
+    @Test fun truncatedOrIncompleteSummariesAreRepairedOnceWithoutRepeatingActions() = runTest {
+        for (failure in listOf(
+            listOf(ChatDelta.Content("{\"objective\":"), ChatDelta.Error("The response reached the model output limit and is incomplete.")),
+            listOf(ChatDelta.Content("{\"objective\":"), ChatDelta.Error("The model stream ended before the response completed. Please retry.")),
+            listOf(ChatDelta.Error("Malformed stream event")),
+            listOf(ChatDelta.Content("{\"objective\":"))
+        )) {
+            val repo = Repo(transcript())
+            var attempts = 0
+            val client = Client { request -> if (++attempts == 1) failure else validSummary(request) }
+            val manager = TaskContextManager(client, repo, limits)
+            val prepared = manager.prepare(conversation, repo.rows, provider, null)
+            assertNotNull(prepared.checkpoint)
+            assertNull(manager.lastFailureCode)
+            assertEquals(2, client.requests.size)
+            assertEquals(4_096, client.requests[0].maxTokens)
+            assertEquals(8_192, client.requests[1].maxTokens)
+            assertEquals(client.requests[0].messages.last(), client.requests[1].messages.last())
+            assertTrue(client.requests.all { it.tools.isEmpty() && !it.enableThinking })
+            assertEquals(1, repo.saves)
+        }
+    }
+
+    @Test fun repeatedTruncationPreservesRecordsAndExplainsWhyTheTaskStopped() = runTest {
+        val rows = transcript().map { it.copy(content = it.content + "x".repeat(5_000)) }
+        val repo = Repo(rows)
+        val client = Client { listOf(ChatDelta.Error("The response reached the model output limit and is incomplete.")) }
+        val manager = TaskContextManager(client, repo, limits)
+        val prepared = manager.prepare(conversation, rows, provider, null)
+        assertEquals(2, client.requests.size)
+        assertEquals("summary_output_limit", manager.lastFailureCode)
+        assertNull(prepared.checkpoint)
+        assertEquals(rows, prepared.messages)
+        val failure = assertThrows(IllegalStateException::class.java) {
+            manager.requireFits(ChatRequestFactory.create(conversation, prepared.messages), conversation.id)
+        }
+        assertTrue(failure.message!!.contains("摘要输出达到长度限制"))
+        manager.prepare(conversation, rows, provider, null, force = true)
+        assertEquals(2, client.requests.size)
+        assertEquals(0, repo.saves)
+    }
+
+    @Test fun truncationFollowedByMissingProvenanceGetsOneDistinctCorrection() = runTest {
+        val repo = Repo(transcript())
+        var attempts = 0
+        val client = Client { request ->
+            when (++attempts) {
+                1 -> listOf(ChatDelta.Error("The response reached the model output limit and is incomplete."))
+                2 -> listOf(ChatDelta.Content(CheckpointCodec.json.encodeToString(TaskSummary(
+                    ContextNote("Continue the task", emptyList())
+                ))), ChatDelta.Done)
+                else -> validSummary(request)
+            }
+        }
+        val manager = TaskContextManager(client, repo, limits)
+        assertNotNull(manager.prepare(conversation, repo.rows, provider, null).checkpoint)
+        assertNull(manager.lastFailureCode)
+        assertEquals(3, client.requests.size)
+        assertTrue(client.requests.last().messages.first().content!!.contains("at least one exact source ID"))
+        assertEquals(1, client.requests.map { it.messages.last() }.distinct().size)
+        assertTrue(client.requests.all { it.tools.isEmpty() && !it.enableThinking })
+        assertEquals(1, repo.saves)
+    }
+
+    @Test fun oversizedNoteListsArePackedWithoutLosingTextOrderOrSources() = runTest {
+        val rows = transcript()
+        val findings = (1..52).map { index -> ContextNote("Recorded finding $index", listOf(rows[index % 8].id)) }
+        val repo = Repo(rows)
+        val client = Client { listOf(ChatDelta.Content(CheckpointCodec.json.encodeToString(TaskSummary(
+            ContextNote("Continue the task", listOf("u1")), findings = findings
+        ))), ChatDelta.Done) }
+        val manager = TaskContextManager(client, repo, limits)
+        val summary = manager.prepare(conversation, rows, provider, null).checkpoint!!.summary
+        assertNull(manager.lastFailureCode)
+        assertEquals(1, client.requests.size)
+        assertTrue(summary.notes().size < findings.size)
+        assertEquals(findings.joinToString("\n") { it.text }, summary.findings.joinToString("\n") { it.text })
+        assertEquals(findings.flatMap { it.sources }.distinct(), summary.findings.flatMap { it.sources }.distinct())
+        assertTrue(summary.notes().all { it.text.length <= 500 && it.sources.size in 1..16 })
+    }
+
+    @Test fun repeatedSourceIndexesArePackedEvenWhenTheNoteCountIsAlreadySmall() = runTest {
+        val rows = transcript(12).map { it.copy(id = it.id.padEnd(36, 'x')) }
+        val sources = rows.take(9).map { it.id }
+        val findings = (1..28).map { index -> ContextNote("Finding $index: " + "x".repeat(140), sources) }
+        val repo = Repo(rows)
+        val original = CheckpointCodec.json.encodeToString(TaskSummary(ContextNote("Continue the task", listOf(rows.first().id)), findings = findings))
+        assertTrue(original.length > 14_000 && original.length < 24_000)
+        val client = Client { listOf(ChatDelta.Content(original), ChatDelta.Done) }
+        val manager = TaskContextManager(client, repo, limits)
+        val summary = manager.prepare(conversation, rows, provider, null).checkpoint!!.summary
+        assertNull(manager.lastFailureCode)
+        assertEquals(1, client.requests.size)
+        assertTrue(summary.findings.size < findings.size)
+        assertEquals(findings.joinToString("\n") { it.text }, summary.findings.joinToString("\n") { it.text })
+        assertTrue(summary.findings.all { it.sources == sources })
+    }
+
+    @Test fun largeExistingCheckpointsDoNotStartWithTheSmallOutputLimitAgain() = runTest {
+        val rows = transcript()
+        val previous = TaskCheckpoint("c", "a2", CheckpointCodec.fingerprint(rows.take(4)),
+            TaskSummary(ContextNote("Continue the task", listOf("u1")), findings = (1..20).map {
+                ContextNote("Recorded finding $it " + "x".repeat(300), listOf("u1"))
+            }), ContextNote("Task", listOf("u1")), emptyList(), emptyList())
+        val repo = Repo(rows).also { it.checkpoint = previous }
+        val client = Client { listOf(ChatDelta.Content(CheckpointCodec.json.encodeToString(previous.summary)), ChatDelta.Done) }
+        val manager = TaskContextManager(client, repo, limits)
+        val prepared = manager.prepare(conversation, rows, provider, null, force = true)
+        assertNull(manager.lastFailureCode)
+        assertNotEquals(previous.throughMessageId, prepared.checkpoint!!.throughMessageId)
+        assertTrue(client.requests.isNotEmpty())
+        assertTrue(client.requests.all { it.maxTokens == 8_192 })
+    }
+
+    @Test fun validSourceRichSummariesAreMeasuredAgainstTheTokenBudgetInsteadOfACharacterCliff() = runTest {
+        val rows = transcript(12).map { it.copy(id = it.id.padEnd(36, 'x')) }
+        val sources = rows.take(9).map { it.id }
+        val findings = (1..20).map { index -> ContextNote("Finding $index: " + "x".repeat(350), sources) }
+        val original = CheckpointCodec.json.encodeToString(TaskSummary(ContextNote("Continue", listOf(rows.first().id)), findings = findings))
+        assertTrue(original.length > 12_000 && original.length < 24_000)
+        assertTrue(ContextBudget.text(original) < 8_000)
+        val repo = Repo(rows)
+        val client = Client { listOf(ChatDelta.Content(original), ChatDelta.Done) }
+        val manager = TaskContextManager(client, repo, limits)
+        val prepared = manager.prepare(conversation, rows, provider, null)
+        assertNull(manager.lastFailureCode)
+        assertEquals(findings, prepared.checkpoint!!.summary.findings)
+        assertEquals(1, client.requests.size)
+        assertEquals(rows, repo.rows)
+    }
+
+    @Test fun formattingTargetsDoNotDiscardValidBoundedEvidence() = runTest {
+        val rows = transcript(12).map { it.copy(id = it.id.padEnd(36, 'x')) }
+        val objective = ContextNote("Continue", listOf(rows.first().id))
+        val summaries = listOf(
+            TaskSummary(objective, findings = listOf(ContextNote("x".repeat(510), rows.take(17).map { it.id }))),
+            TaskSummary(objective, findings = (1..32).map { ContextNote("Finding $it: " + "x".repeat(260), objective.sources) })
+        )
+        for (summary in summaries) {
+            val encoded = CheckpointCodec.json.encodeToString(summary)
+            assertTrue(ContextBudget.text(encoded) < 8_000)
+            val repo = Repo(rows)
+            val client = Client { listOf(ChatDelta.Content(encoded), ChatDelta.Done) }
+            val manager = TaskContextManager(client, repo, limits)
+            val prepared = manager.prepare(conversation, rows, provider, null)
+            assertNull(manager.lastFailureCode)
+            assertEquals(summary, prepared.checkpoint!!.summary)
+            assertEquals(1, client.requests.size)
+            assertEquals(rows, repo.rows)
+        }
+    }
+
+    @Test fun serviceRejectionsAreNotRetriedAsSummaryFormattingProblems() = runTest {
+        for ((status, explanation) in listOf(402 to "额度不足", 429 to "请求频率", 503 to "503")) {
+            val rows = transcript().map { it.copy(content = it.content + "x".repeat(5_000)) }
+            val repo = Repo(rows)
+            val client = Client { listOf(ChatDelta.Error("HTTP $status: service error")) }
+            val manager = TaskContextManager(client, repo, limits)
+            val prepared = manager.prepare(conversation, rows, provider, null)
+            assertEquals(1, client.requests.size)
+            assertEquals("service_$status", manager.lastFailureCode)
+            assertEquals(rows, prepared.messages)
+            val failure = assertThrows(IllegalStateException::class.java) {
+                manager.requireFits(ChatRequestFactory.create(conversation, prepared.messages), conversation.id)
+            }
+            assertTrue(failure.message!!, failure.message!!.contains(explanation))
+        }
+    }
+
+    @Test fun compactionProgressIsReportedOnlyWhenCompactionActuallyStarts() = runTest {
+        val repo = Repo(transcript())
+        val client = Client { listOf(ChatDelta.Error("offline")) }
+        val manager = TaskContextManager(client, repo, limits)
+        var notifications = 0
+        manager.prepare(conversation, transcript(1), provider, null, onCompacting = { notifications++ })
+        assertEquals(0, notifications)
+        manager.prepare(conversation, repo.rows, provider, null, onCompacting = { notifications++ })
+        assertEquals(1, notifications)
+        manager.prepare(conversation, repo.rows, provider, null, force = true, onCompacting = { notifications++ })
+        assertEquals(1, notifications)
+        assertEquals(1, client.requests.size)
     }
 
     @Test fun cancellingCompactionDoesNotDeleteHistoryOrCommitPartialSummary() = runTest {

@@ -9,7 +9,7 @@ import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.*
 
 class MemorySummaryGenerator @Inject constructor(private val client: ChatCompletionClient) {
-    suspend fun summarize(text: String, existing: List<MemoryRecord>, provider: ProviderConfig, apiKey: String?, model: String): List<MemoryDraft> {
+    suspend fun summarize(text: String, existing: List<MemoryRecord>, provider: ProviderConfig, apiKey: String?, model: String, conversationId: String? = null): List<MemoryDraft> {
         if (!MemoryPolicy.shouldExtract(text)) return emptyList()
         val input = buildJsonObject {
             put("user_message", text)
@@ -20,6 +20,7 @@ class MemorySummaryGenerator @Inject constructor(private val client: ChatComplet
             }
         }
         val request = ChatRequest(
+            usageConversationId = conversationId,
             model = model, temperature = 0.0, topP = 1.0, maxTokens = 1024, enableThinking = false,
             messages = listOf(ChatRequestMessage("system", Instructions), ChatRequestMessage("user", input.toString()))
         )
