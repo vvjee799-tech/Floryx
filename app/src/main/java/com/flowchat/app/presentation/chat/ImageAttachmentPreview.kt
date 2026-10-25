@@ -72,8 +72,9 @@ internal fun ImageAttachmentPreview(name: String, path: String, compact: Boolean
 @Composable
 private fun StoredImage(path: String, description: String, modifier: Modifier, large: Boolean = false) {
     val context = LocalContext.current.applicationContext
-    val state by produceState<Pair<Boolean, ImageBitmap?>>(false to null, path, large) {
-        value = true to withContext(Dispatchers.IO) {
+    var state by remember(path, large) { mutableStateOf<Pair<Boolean, ImageBitmap?>>(false to null) }
+    LaunchedEffect(path, large) {
+        val bitmap = withContext(Dispatchers.IO) {
             runCatching {
                 val file = ImageAttachmentStore.resolve(context, path)
                 val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
@@ -84,6 +85,7 @@ private fun StoredImage(path: String, description: String, modifier: Modifier, l
                 BitmapFactory.decodeFile(file.path, BitmapFactory.Options().apply { inSampleSize = sample })?.asImageBitmap()
             }.getOrNull()
         }
+        state = true to bitmap
     }
     Box(modifier.background(MaterialTheme.colorScheme.surfaceContainerHighest), contentAlignment = Alignment.Center) {
         state.second?.let { bitmap ->

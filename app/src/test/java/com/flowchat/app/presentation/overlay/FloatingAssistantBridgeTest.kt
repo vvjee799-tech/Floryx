@@ -21,6 +21,16 @@ import org.junit.Test
 
 class FloatingAssistantBridgeTest {
 
+    @Test fun cancellingScreenCaptureRestoresOverlayVisibilityState() = runTest {
+        val bridge = FloatingAssistantBridge()
+        val gate = CompletableDeferred<Unit>()
+        val capture = async(start = CoroutineStart.UNDISPATCHED) { bridge.withScreenCapture { gate.await() } }
+        assertEquals(1, bridge.screenCaptureCount.value)
+        capture.cancelAndJoin()
+        assertEquals(0, bridge.screenCaptureCount.value)
+        assertEquals(0, bridge.uiInteractionCount.value)
+    }
+
     private fun commandState() = ChatUiState(isStreaming = true, messages = listOf(
         Message(conversationId = "c", role = MessageRole.User, content = "run", createdAt = 1000),
         Message(conversationId = "c", role = MessageRole.Assistant, content = "Starting now", createdAt = 1100),

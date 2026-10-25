@@ -15,6 +15,7 @@ class DeviceSnapshotGuard {
             if (targetIndex == null) previous.hasSameUi(current) else {
                 val oldTarget = previous.elements.firstOrNull { it.index == targetIndex }
                 previous.packageName == current.packageName && previous.activityName == current.activityName &&
+                    previous.windowId == current.windowId &&
                     oldTarget != null && oldTarget == current.elements.firstOrNull { it.index == targetIndex }
             }
     }

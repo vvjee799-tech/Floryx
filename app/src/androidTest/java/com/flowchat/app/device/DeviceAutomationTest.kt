@@ -39,7 +39,8 @@ class DeviceAutomationTest {
     }
 
     private suspend fun ensureService() {
-        if (FlowChatAccessibilityService.current() != null) return
+        instrumentation.getUiAutomation(UiAutomation.FLAG_DONT_SUPPRESS_ACCESSIBILITY_SERVICES)
+        if (FlowChatAccessibilityService.current()?.observeScreen() != null) return
         context.startActivity(Intent(context, com.flowchat.app.MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
         delay(500)
         val existing = Settings.Secure.getString(context.contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES).orEmpty()
@@ -61,7 +62,7 @@ class DeviceAutomationTest {
         } finally {
             automation.dropShellPermissionIdentity()
         }
-        withTimeout(10_000) { while (FlowChatAccessibilityService.current() == null) delay(200) }
+        withTimeout(10_000) { while (FlowChatAccessibilityService.current()?.observeScreen() == null) delay(200) }
     }
 
     private suspend fun screen(): DeviceScreenSnapshot =

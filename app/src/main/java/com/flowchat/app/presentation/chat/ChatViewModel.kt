@@ -132,6 +132,7 @@ class ChatViewModel @Inject constructor(
     private var activeDeviceTask: DeviceTaskControl.Task? = null
     private var activeTaskInstruction = ""
     private var activeTaskConversationId: String? = null
+    private var activeTaskProvider: ProviderConfig? = null
     private var activeWorkspace: WorkspaceLocation? = null
     private val activeDeviceResults = mutableListOf<String>()
     private val errorMessage = MutableStateFlow<String?>(null)
@@ -665,6 +666,7 @@ class ChatViewModel @Inject constructor(
                 isStreaming.value = false
                 return@launch
             }
+            activeTaskProvider = provider
             if (ProviderConfigValidator.validate(provider).isNotEmpty()) {
                 errorMessage.value = "Provider configuration is invalid."
                 isStreaming.value = false
@@ -861,7 +863,7 @@ class ChatViewModel @Inject constructor(
                             allowedTools = request.tools.map { it.name }.toSet()
                         )
                         toolResultCount += toolResultMessages.size
-                        request = request.copy(
+                        request = com.flowchat.app.domain.chat.ScreenVisionContext.retainRecent(request.copy(
                             messages = request.messages +
                                 ChatRequestMessage(
                                     role = MessageRole.Assistant.apiRole,
@@ -872,7 +874,7 @@ class ChatViewModel @Inject constructor(
                                     localMessageId = assistant.id
                                 ) +
                                 toolResultMessages
-                        )
+                        ))
                         toolRounds += 1
                         closingReason = when {
                             toolCallLoopGuard.shouldStopAutomation -> "Repeated attempts failed, made no progress, or permission was refused."
@@ -1004,13 +1006,13 @@ class ChatViewModel @Inject constructor(
             // Even cancellation or process death leaves an explicit unconfirmed action to inspect.
             evidence += TaskExecutionHistory.pending(call)
             chatRepository.updateExecutionContext(assistantId, TaskExecutionHistory.encode(evidence))
-            val result = try { if (loopGuard.shouldStopAutomation) {
-                "cancelled: tool execution has stopped for this turn. Do not retry."
+            val outcome = try { if (loopGuard.shouldStopAutomation) {
+                ToolExecutionOutcome("cancelled: tool execution has stopped for this turn. Do not retry.")
             } else if (call.name !in allowedTools) {
                 loopGuard.recordOutcome(false)
-                "failed: tool_unavailable. This tool is not enabled for this request."
+                ToolExecutionOutcome("failed: tool_unavailable. This tool is not enabled for this request.")
             } else if (uiChanged && call.name in UiAutomationToolNames + AgentToolDefinitions.OpenAppToolName) {
-                "failed: sequential_ui_required. Inspect the previous action result and request the next action in a new response."
+                ToolExecutionOutcome("failed: sequential_ui_required. Inspect the previous action result and request the next action in a new response.")
             } else executeSingleToolCall(
                 call,
                 conversationId,
@@ -1024,6 +1026,7 @@ class ChatViewModel @Inject constructor(
                 }
                 throw cancelled
             }
+            val result = outcome.content
             evidence[evidence.lastIndex] = TaskExecutionHistory.completed(evidence.last(), result)
             withContext(NonCancellable) {
                 chatRepository.updateExecutionContext(assistantId, TaskExecutionHistory.encode(evidence))
@@ -1036,7 +1039,9 @@ class ChatViewModel @Inject constructor(
             ChatRequestMessage(
                 role = "tool",
                 content = result,
-                toolCallId = call.id
+                toolCallId = call.id,
+                images = listOfNotNull(outcome.screenImage?.image),
+                screenImageId = outcome.screenImage?.screenId
             )
         }
     }
@@ -1046,24 +1051,24 @@ class ChatViewModel @Inject constructor(
         conversationId: String,
         modelName: String?,
         loopGuard: ToolCallLoopGuard
-    ): String {
+    ): ToolExecutionOutcome {
         if (call.name == TaskContextTools.Read) {
-            if (!loopGuard.allow(call)) return "Stopped a repeated identical history lookup."
+            if (!loopGuard.allow(call)) return ToolExecutionOutcome("Stopped a repeated identical history lookup.")
             val result = TaskContextTools.read(call.arguments, conversationId, chatRepository.getMessages(conversationId))
             loopGuard.recordOutcome(!result.startsWith("failed:"))
-            return result
+            return ToolExecutionOutcome(result)
         }
         if (call.name in setOf(TerminalToolDefinitions.Status, TerminalToolDefinitions.Read, TerminalToolDefinitions.Stop)) {
-            if (!loopGuard.allow(call)) return "Stopped a repeated identical tool loop. No more tools are available."
+            if (!loopGuard.allow(call)) return ToolExecutionOutcome("Stopped a repeated identical tool loop. No more tools are available.")
             return runCatching {
                 check(appSettingsStore.state.value.commandExecutionEnabled) { "AI command execution is disabled." }
                 val result = executeTerminalTool(call, conversationId, null)
                 loopGuard.recordOutcome(result.errorDetail == null && result.toolStatus != MessageStatus.Failed, result.cancelled)
-                result.content
+                result
             }.getOrElse { error ->
                 if (error is CancellationException) throw error
                 loopGuard.recordOutcome(false)
-                "Command tool failed: ${error.message}"
+                ToolExecutionOutcome("Command tool failed: ${error.message}")
             }
         }
         val toolName = call.displayName()
@@ -1104,13 +1109,10 @@ class ChatViewModel @Inject constructor(
                 AgentToolDefinitions.SetBrightnessToolName -> executeSetBrightnessTool(call.arguments)
                 AgentToolDefinitions.SetMediaVolumeToolName -> executeSetMediaVolumeTool(call.arguments)
                 AgentToolDefinitions.ForceStopAppToolName -> executeForceStopAppTool(call)
-                AgentToolDefinitions.ObserveScreenToolName ->
-                    prepareForExternalUiAction {
-                        deviceAssistantGateway.observeScreen().toToolOutcome()
-                    }
+                AgentToolDefinitions.ObserveScreenToolName -> observeScreenForModel(call, modelName)
                 AgentToolDefinitions.WaitForScreenToolName -> prepareForExternalUiAction {
                     delay(700)
-                    deviceAssistantGateway.observeScreen().toToolOutcome()
+                    observeScreenForModel(call, modelName)
                 }
                 AgentToolDefinitions.TapUiElementToolName -> executeTapUiElementTool(call.arguments)
                 AgentToolDefinitions.InputTextToolName -> executeInputTextTool(call.arguments)
@@ -1151,7 +1153,7 @@ class ChatViewModel @Inject constructor(
                         MessageStatus.Failed
                     )
                 }
-                outcome.content
+                outcome
             },
             onFailure = { throwable ->
                 if (throwable is CancellationException) {
@@ -1167,9 +1169,25 @@ class ChatViewModel @Inject constructor(
                     failedToolMessageContent(toolName, message),
                     MessageStatus.Failed
                 )
-                "Tool call failed: $message"
+                ToolExecutionOutcome("Tool call failed: $message", errorDetail = message)
             }
         )
+    }
+
+    private suspend fun observeScreenForModel(call: ChatToolCall, modelName: String?): ToolExecutionOutcome = prepareForExternalUiAction {
+        val includeImage = parseBooleanArgument(call.arguments, "include_image") ?: true
+        if (!includeImage) return@prepareForExternalUiAction deviceAssistantGateway.observeScreen().toToolOutcome()
+        val region = try { com.flowchat.app.domain.device.ScreenImageRegion.fromToolArguments(call.arguments) }
+        catch (_: IllegalArgumentException) { return@prepareForExternalUiAction invalidDeviceToolArguments(call.name, "image_region (percent bounds)") }
+        if (com.flowchat.app.domain.provider.ScreenVisionSupport.knownTextOnly(activeTaskProvider, modelName)) {
+            return@prepareForExternalUiAction deviceAssistantGateway.observeScreen().copy(
+                summary = "Only UI elements were read. The selected model is text-only; choose a model with image input, such as DeepSeek Flash, for visual analysis.",
+                imageErrorCode = "model_vision_unsupported").toToolOutcome()
+        }
+        floatingAssistantBridge.withScreenCapture {
+            guardDeviceTask()
+            deviceAssistantGateway.captureScreen(region).toToolOutcome()
+        }
     }
 
     private suspend fun ensureVisibleAssistantSegmentBeforeToolCall(
@@ -1468,8 +1486,10 @@ class ChatViewModel @Inject constructor(
     private fun DeviceToolResult.toToolOutcome(): ToolExecutionOutcome =
         ToolExecutionOutcome(
             content = asToolContent(),
-            errorDetail = if (success) null else errorCode ?: summary,
-            screenProgress = screen?.progressKey()
+            errorDetail = if (!success) errorCode ?: summary else imageErrorCode,
+            screenProgress = screen?.progressKey(),
+            screenImage = screenImage,
+            displayDetail = screenImage?.let { "image_size=${it.width}x${it.height}\nscreen_id=${it.screenId}" }
         )
 
     private fun invalidDeviceToolArguments(toolName: String, field: String) = ToolExecutionOutcome(
@@ -1744,7 +1764,8 @@ private data class ToolExecutionOutcome(
     val cancelled: Boolean = false,
     val screenProgress: String? = null,
     val displayDetail: String? = null,
-    val toolStatus: MessageStatus? = null
+    val toolStatus: MessageStatus? = null,
+    val screenImage: com.flowchat.app.domain.device.DeviceScreenImage? = null
 )
 
 internal class ToolCallLoopGuard(

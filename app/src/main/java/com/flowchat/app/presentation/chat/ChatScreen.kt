@@ -1090,6 +1090,8 @@ internal fun DeviceAssistantDialog(
                                 Text(stringResource(R.string.device_accessibility_settings))
                             }
                         }
+                        Text(stringResource(R.string.screen_vision_description), style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     HorizontalDivider()
                     Text(stringResource(R.string.device_usage_hint), style = MaterialTheme.typography.bodySmall,
@@ -1372,6 +1374,14 @@ private fun UsageAccessPermissionDialog(
 
 @Composable
 private fun localizedDeviceToolDetail(detail: String): String = when (detail) {
+    "model_vision_unsupported" -> stringResource(R.string.screen_vision_model_unsupported)
+    "screen_capture_requires_android_11" -> stringResource(R.string.screen_vision_android_required)
+    "screen_capture_permission_required" -> stringResource(R.string.screen_vision_permission)
+    "secure_window_blocked" -> stringResource(R.string.screen_vision_secure)
+    "screen_changed_during_capture" -> stringResource(R.string.screen_vision_changed)
+    "screen_capture_rate_limited" -> stringResource(R.string.screen_vision_rate_limited)
+    "screen_capture_failed", "screen_capture_empty", "screen_window_unavailable", "screen_display_unavailable",
+    "screen_image_too_large", "screen_capture_timeout", "screen_capture_unavailable" -> stringResource(R.string.screen_vision_unavailable)
     "stale_screen" -> stringResource(R.string.device_error_stale)
     "ui_action_failed" -> stringResource(R.string.device_error_action)
     "ui_no_change" -> stringResource(R.string.device_error_no_change)

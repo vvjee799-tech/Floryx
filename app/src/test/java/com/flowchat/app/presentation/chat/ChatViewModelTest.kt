@@ -293,7 +293,7 @@ class ChatViewModelTest {
     fun alternatingObservationWaitLoopStopsAndRequestsAToolFreeExplanation() = runTest(dispatcher) {
         val responses = (0 until 7).map { index ->
             listOf(ChatDelta.ToolCalls(listOf(ChatToolCall("$index",
-                if (index % 2 == 0) AgentToolDefinitions.ObserveScreenToolName else AgentToolDefinitions.WaitForScreenToolName, "{}"))))
+                if (index % 2 == 0) AgentToolDefinitions.ObserveScreenToolName else AgentToolDefinitions.WaitForScreenToolName, """{"include_image":false}"""))))
         } + listOf(listOf(ChatDelta.Content("页面没有变化，已停止重试。"), ChatDelta.Done))
         val client = FakeChatCompletionClient(responses)
         val gateway = FakeDeviceAssistantGateway()
@@ -573,6 +573,85 @@ class ChatViewModelTest {
         collection.cancel()
     }
 
+    @Test fun screenshotIsCarriedIntoToolContinuationWithoutPersistingItsBytes() = runTest(dispatcher) {
+        val image = com.flowchat.app.domain.model.ChatImage("image/jpeg", "SYNTHETIC_SCREEN_BYTES")
+        val gateway = FakeDeviceAssistantGateway().apply { screenshot = image }
+        val client = FakeChatCompletionClient(listOf(
+            listOf(ChatDelta.ToolCalls(listOf(ChatToolCall("screen", AgentToolDefinitions.ObserveScreenToolName, "{}")))),
+            listOf(ChatDelta.Content("看到了画面。"), ChatDelta.Done)))
+        val vm = deviceTestViewModel(client, gateway, memoryEnabled = false)
+        val collection = backgroundScope.launch { vm.uiState.collect {} }
+        advanceUntilIdle(); vm.updateInput("看看屏幕上的图片"); vm.send(); advanceUntilIdle()
+        assertEquals(1, gateway.captureCount)
+        val result = client.requests.last().messages.last { it.role == "tool" }
+        assertEquals(image, result.images.single())
+        assertTrue(result.content!!.contains("image_available=true"))
+        assertEquals(1, client.requests.last().messages.count { it.screenImageId != null })
+        assertFalse(vm.uiState.value.messages.any { it.content.contains(image.base64) || it.executionContext.orEmpty().contains(image.base64) })
+        collection.cancel()
+    }
+
+    @Test fun detailRegionReachesTheCaptureAndModelWithoutPersistingPixels() = runTest(dispatcher) {
+        val gateway = FakeDeviceAssistantGateway().apply { screenshot = com.flowchat.app.domain.model.ChatImage("image/png", "DETAIL_BYTES") }
+        val client = FakeChatCompletionClient(listOf(
+            listOf(ChatDelta.ToolCalls(listOf(ChatToolCall("detail", AgentToolDefinitions.ObserveScreenToolName,
+                """{"image_region":{"left":0,"top":50,"right":100,"bottom":100}}""")))),
+            listOf(ChatDelta.Content("已查看局部细节。"), ChatDelta.Done)))
+        val vm = deviceTestViewModel(client, gateway, memoryEnabled = false)
+        val collection = backgroundScope.launch { vm.uiState.collect {} }
+        advanceUntilIdle(); vm.updateInput("看清底部小字"); vm.send(); advanceUntilIdle()
+        assertEquals(listOf(com.flowchat.app.domain.device.ScreenImageRegion(0, 50, 100, 100)), gateway.captureRegions)
+        val result = client.requests.last().messages.last { it.role == "tool" }
+        assertEquals("image/png", result.images.single().mimeType)
+        assertTrue(result.content!!.contains("image_region_percent=0,50,100,100"))
+        assertFalse(vm.uiState.value.messages.any { it.content.contains("DETAIL_BYTES") || it.executionContext.orEmpty().contains("DETAIL_BYTES") })
+        collection.cancel()
+    }
+
+    @Test fun invalidImageRegionDoesNotTakeAScreenshot() = runTest(dispatcher) {
+        val gateway = FakeDeviceAssistantGateway()
+        val client = FakeChatCompletionClient(listOf(
+            listOf(ChatDelta.ToolCalls(listOf(ChatToolCall("detail", AgentToolDefinitions.ObserveScreenToolName,
+                """{"image_region":{"left":80,"top":0,"right":20,"bottom":100}}""")))),
+            listOf(ChatDelta.Content("区域参数无效。"), ChatDelta.Done)))
+        val vm = deviceTestViewModel(client, gateway, memoryEnabled = false)
+        val collection = backgroundScope.launch { vm.uiState.collect {} }
+        advanceUntilIdle(); vm.updateInput("查看细节"); vm.send(); advanceUntilIdle()
+        assertEquals(0, gateway.captureCount)
+        assertTrue(client.requests.last().messages.last { it.role == "tool" }.images.isEmpty())
+        collection.cancel()
+    }
+
+    @Test fun controlsOnlyObservationDoesNotCaptureAnImage() = runTest(dispatcher) {
+        val gateway = FakeDeviceAssistantGateway()
+        val client = FakeChatCompletionClient(listOf(
+            listOf(ChatDelta.ToolCalls(listOf(ChatToolCall("screen", AgentToolDefinitions.ObserveScreenToolName, """{"include_image":false}""")))),
+            listOf(ChatDelta.Content("已读取控件文字。"), ChatDelta.Done)))
+        val vm = deviceTestViewModel(client, gateway, memoryEnabled = false)
+        val collection = backgroundScope.launch { vm.uiState.collect {} }
+        advanceUntilIdle(); vm.updateInput("读取控件"); vm.send(); advanceUntilIdle()
+        assertEquals(0, gateway.captureCount)
+        assertEquals(1, gateway.observeCount)
+        assertTrue(client.requests.last().messages.last { it.role == "tool" }.images.isEmpty())
+        collection.cancel()
+    }
+
+    @Test fun knownTextOnlyModelExplainsVisionLimitationWithoutCapturing() = runTest(dispatcher) {
+        val gateway = FakeDeviceAssistantGateway()
+        val client = FakeChatCompletionClient(listOf(
+            listOf(ChatDelta.ToolCalls(listOf(ChatToolCall("screen", AgentToolDefinitions.ObserveScreenToolName, "{}")))),
+            listOf(ChatDelta.Content("请切换到支持图片的模型。"), ChatDelta.Done)))
+        val vm = deviceTestViewModel(client, gateway, model = "deepseek-v4-pro", memoryEnabled = false,
+            providerBaseUrl = "https://api.deepseek.com")
+        val collection = backgroundScope.launch { vm.uiState.collect {} }
+        advanceUntilIdle(); vm.updateInput("看屏幕"); vm.send(); advanceUntilIdle()
+        assertEquals(0, gateway.captureCount)
+        val result = client.requests.last().messages.last { it.role == "tool" }
+        assertTrue(result.images.isEmpty())
+        assertTrue(result.content!!.contains("model_vision_unsupported"))
+        collection.cancel()
+    }
+
     private fun deviceTestViewModel(
         client: ChatCompletionClient,
         gateway: FakeDeviceAssistantGateway,
@@ -581,9 +660,10 @@ class ChatViewModelTest {
         launcher: FakeAppLauncher = FakeAppLauncher(),
         model: String = "test",
         memory: FakeMemoryRepository = FakeMemoryRepository(),
-        memoryEnabled: Boolean = true
+        memoryEnabled: Boolean = true,
+        providerBaseUrl: String = "https://example.test"
     ): ChatViewModel {
-        val provider = ProviderConfig(id = "provider-1", displayName = "Test", baseUrl = "https://example.test", defaultModel = model)
+        val provider = ProviderConfig(id = "provider-1", displayName = "Test", baseUrl = providerBaseUrl, defaultModel = model)
         val conversation = Conversation(id = "device-test", title = "Device test", providerId = provider.id, modelName = model)
         return ChatViewModel(
             chatRepository = FakeChatRepository(listOf(conversation), conversation),
@@ -1452,6 +1532,9 @@ class ChatViewModelTest {
         val forceStoppedApps = mutableListOf<String>()
         val brightnessValues = mutableListOf<Int>()
         var observeCount = 0
+        var captureCount = 0
+        val captureRegions = mutableListOf<com.flowchat.app.domain.device.ScreenImageRegion?>()
+        var screenshot: com.flowchat.app.domain.model.ChatImage? = null
         var observationGate: kotlinx.coroutines.CompletableDeferred<Unit>? = null
         val tappedIndexes = mutableListOf<Int>()
         var backCount = 0
@@ -1471,6 +1554,14 @@ class ChatViewModelTest {
             observeCount += 1
             observationGate?.await()
             return DeviceToolResult(true, "screen", screen = testScreen())
+        }
+        override suspend fun captureScreen(region: com.flowchat.app.domain.device.ScreenImageRegion?): DeviceToolResult {
+            captureCount++
+            captureRegions += region
+            val observed = observeScreen()
+            return observed.copy(screenImage = screenshot?.let {
+                com.flowchat.app.domain.device.DeviceScreenImage(it, observed.screen!!.screenId, 400, 800, region = region)
+            }, imageErrorCode = if (screenshot == null) "screen_capture_unavailable" else null)
         }
         override suspend fun tapUiElement(index: Int, longPress: Boolean, screenId: String?): DeviceToolResult {
             tappedIndexes += index

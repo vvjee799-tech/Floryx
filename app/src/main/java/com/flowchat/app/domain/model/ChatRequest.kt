@@ -29,7 +29,9 @@ data class ChatRequestMessage(
     /** Local linking metadata only; never serialized to a provider. */
     val localMessageId: String? = null,
     /** Stored text/checkpoint projection, not a native model message from the active tool chain. */
-    val historical: Boolean = false
+    val historical: Boolean = false,
+    /** Ephemeral screen frame attribution; never persisted as a chat attachment. */
+    val screenImageId: String? = null
 )
 
 data class ChatImage(val mimeType: String, val base64: String) {

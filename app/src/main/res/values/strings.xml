@@ -449,4 +449,12 @@
     <string name="workspace_saved">Saved to %1$s: %2$s</string>
     <string name="workspace_saved_copy">The original changed. Saved a copy in %1$s: %2$s</string>
     <string name="workspace_error">Could not complete the operation: %1$s</string>
+    <string name="screen_vision_model_unsupported">This model does not support image input. Select a model with vision and try again.</string>
+    <string name="screen_vision_android_required">Screen images require Android 11 or later. UI text remains available.</string>
+    <string name="screen_vision_permission">Re-enable the Floryx accessibility service in system settings to enable screen capture.</string>
+    <string name="screen_vision_secure">This window is protected against screenshots. Its image is unavailable.</string>
+    <string name="screen_vision_changed">The screen changed during capture. The image was discarded. Observe again.</string>
+    <string name="screen_vision_rate_limited">Screenshot requests are too frequent. Wait briefly and try again.</string>
+    <string name="screen_vision_unavailable">The screen image is unavailable. Keep the target app in the foreground and try again.</string>
+    <string name="screen_vision_description">Screen observation can return images and UI controls. Images are sent to the current model, which must support image input. Password, payment, and system-protected windows are not captured.</string>
 </resources>

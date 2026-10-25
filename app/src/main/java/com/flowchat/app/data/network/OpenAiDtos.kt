@@ -127,7 +127,7 @@ fun ChatRequest.toOpenAiRequest(provider: ProviderConfig? = null, stream: Boolea
     val completionLimit = support.style == ThinkingStyle.OpenAI || name.startsWith("kimi-k3")
     return OpenAiChatCompletionRequest(
         model = model,
-        messages = messages.map { it.toOpenAiMessage(
+        messages = messages.withChatCompletionToolImages().map { it.toOpenAiMessage(
             replayReasoning = enabled && support.style !in setOf(ThinkingStyle.OpenAI, ThinkingStyle.Gemini, ThinkingStyle.ClaudeAdaptive, ThinkingStyle.ClaudeBudget),
             historyAsData = enabled && support.style == ThinkingStyle.DeepSeek && tools.isNotEmpty()
         ) },

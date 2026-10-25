@@ -92,7 +92,8 @@ internal object AccessibilityScreenReader {
                 elements = if (detection.sensitive) emptyList() else elements.take(MaxObservedElements),
                 sensitive = detection.sensitive,
                 sensitivityReason = detection.reason,
-                truncated = truncated || elements.size > MaxObservedElements
+                truncated = truncated || elements.size > MaxObservedElements,
+                windowId = root.windowId
             ),
             indexedNodes = indexedNodes
         )

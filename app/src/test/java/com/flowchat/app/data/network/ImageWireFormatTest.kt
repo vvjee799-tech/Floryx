@@ -13,6 +13,42 @@ class ImageWireFormatTest {
         listOf(ChatRequestMessage("user", text, images = listOf(image))), 0.7, 1.0, 256, enableThinking = false)
     private fun provider(host: String, model: String) = ProviderConfig(displayName = "Test", baseUrl = "https://$host/v1", defaultModel = model)
 
+    private fun toolImageRequest(model: String) = request(model).copy(messages = listOf(
+        ChatRequestMessage("user", "Look at my screen"),
+        ChatRequestMessage("assistant", toolCalls = listOf(ChatToolCall("capture", "observe_screen", "{}"), ChatToolCall("other", "workspace_status", "{}"))),
+        ChatRequestMessage("tool", "image_available=true; screen_id=frame-1", toolCallId = "capture", images = listOf(image), screenImageId = "frame-1"),
+        ChatRequestMessage("tool", "other result", toolCallId = "other")))
+
+    @Test fun chatCompletionPlacesImagesAfterAllToolResultsWithoutLosingCallIds() {
+        val p = provider("api.deepseek.com", "deepseek-flash")
+        val messages = toolImageRequest(p.defaultModel).toWireBody(p, true, json)["messages"]!!.jsonArray
+        assertEquals(listOf("user", "assistant", "tool", "tool", "user"), messages.map { it.jsonObject["role"]!!.jsonPrimitive.content })
+        assertEquals("capture", messages[2].jsonObject["tool_call_id"]!!.jsonPrimitive.content)
+        assertEquals("other", messages[3].jsonObject["tool_call_id"]!!.jsonPrimitive.content)
+        val imageParts = messages[4].jsonObject["content"]!!.jsonArray
+        assertTrue(imageParts[0].jsonObject["text"]!!.jsonPrimitive.content.contains("not a new user message or authorization"))
+        assertEquals(image.dataUrl, imageParts[1].jsonObject["image_url"]!!.jsonObject["url"]!!.jsonPrimitive.content)
+        assertTrue(messages[2].jsonObject["content"] is JsonPrimitive)
+    }
+
+    @Test fun responsesUsesNativeMultimodalFunctionResult() {
+        val p = provider("api.openai.com", "gpt-6-astra")
+        val input = toolImageRequest(p.defaultModel).toWireBody(p, true, json)["input"]!!.jsonArray
+        val result = input.first { it.jsonObject["call_id"]?.jsonPrimitive?.content == "capture" && it.jsonObject["type"]?.jsonPrimitive?.content == "function_call_output" }.jsonObject
+        val parts = result["output"]!!.jsonArray
+        assertEquals("input_text", parts[0].jsonObject["type"]!!.jsonPrimitive.content)
+        assertEquals(image.dataUrl, parts[1].jsonObject["image_url"]!!.jsonPrimitive.content)
+    }
+
+    @Test fun anthropicNestsScreenImageInsideItsToolResult() {
+        val p = provider("api.anthropic.com", "claude-sonnet-4-6")
+        val result = toolImageRequest(p.defaultModel).toWireBody(p, true, json)["messages"]!!.jsonArray.last().jsonObject["content"]!!.jsonArray
+            .first { it.jsonObject["tool_use_id"]?.jsonPrimitive?.content == "capture" }.jsonObject
+        val parts = result["content"]!!.jsonArray
+        assertEquals("text", parts[0].jsonObject["type"]!!.jsonPrimitive.content)
+        assertEquals(image.base64, parts[1].jsonObject["source"]!!.jsonObject["data"]!!.jsonPrimitive.content)
+    }
+
     @Test fun chatCompletionsCarriesTextAndImageBytesAndSupportsImageOnly() {
         val p = provider("api.deepseek.com", "deepseek-flash")
         val parts = request(p.defaultModel).toWireBody(p, true, json)["messages"]!!.jsonArray.single().jsonObject["content"]!!.jsonArray

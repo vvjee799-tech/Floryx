@@ -15,6 +15,7 @@ class DeviceSnapshotGuardTest {
         assertTrue(guard.matches("first", current, targetIndex = 0))
         assertFalse(guard.matches("first", current.copy(elements = listOf(element.copy(text = "Delete"), clock)), targetIndex = 0))
         assertFalse(guard.matches("first", current.copy(packageName = "other.app"), targetIndex = 0))
+        assertFalse(guard.matches("first", current.copy(windowId = 7), targetIndex = 0))
     }
 
     @Test fun progressIgnoresPlaybackClocksCountersAndBoundsButDetectsNewContent() {

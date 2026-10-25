@@ -264,21 +264,26 @@ class FloatingAssistantService : Service(), LifecycleOwner, ViewModelStoreOwner,
 
     private fun observeVisibility() {
         visibilityJob = serviceScope.launch {
-            combine(bridge.state, bridge.appInForeground, bridge.uiInteractionCount) { state, appInForeground, interactions ->
-                Triple(!appInForeground && state.canChat, state.isStreaming, interactions > 0)
-            }.distinctUntilChanged().collect { (shouldShow, streaming, busy) ->
+            combine(bridge.state, bridge.appInForeground, bridge.uiInteractionCount, bridge.screenCaptureCount) { state, appInForeground, interactions, captures ->
+                OverlayVisibility(!appInForeground && state.canChat, state.isStreaming, interactions > 0,
+                    Build.VERSION.SDK_INT < 34 && captures > 0)
+            }.distinctUntilChanged().collect { (shouldShow, streaming, busy, captureHidden) ->
                 automationBusy = busy
                 // Viewing output never needs keyboard focus, including after the task finishes.
                 if (expanded && (streaming || busy)) watching = true
                 if (shouldShow && FloatingAssistantPermission.isGranted(this@FloatingAssistantService)) {
                     showOverlay()
                     updateOverlayWindows()
+                    overlayView.visibility = if (captureHidden) View.INVISIBLE else View.VISIBLE
+                    if (captureHidden && controlsAttached) controlsView.visibility = View.INVISIBLE
                 } else {
                     removeOverlay()
                 }
             }
         }
     }
+
+    private data class OverlayVisibility(val show: Boolean, val streaming: Boolean, val busy: Boolean, val captureHidden: Boolean)
 
     private fun showOverlay() {
         if (overlayAttached) return

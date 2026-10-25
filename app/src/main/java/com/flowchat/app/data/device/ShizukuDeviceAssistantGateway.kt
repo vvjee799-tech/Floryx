@@ -287,10 +287,31 @@ class ShizukuDeviceAssistantGateway @Inject constructor(
         observeScreenLocked()
     }
 
-    private suspend fun observeScreenLocked(): DeviceToolResult {
+    override suspend fun captureScreen(region: com.flowchat.app.domain.device.ScreenImageRegion?): DeviceToolResult = uiActionMutex.withLock {
+        val observed = observeScreenLocked(waitForSettledUi = false)
+        val before = observed.screen
+        if (!observed.success || before == null || before.sensitive) return@withLock observed.copy(
+            imageErrorCode = observed.errorCode ?: "screen_unavailable")
+        val accessibility = requireAccessibilityService() ?: return@withLock accessibilityUnavailable()
+        try {
+            val image = accessibility.captureScreenImage(before, region)
+            val after = accessibility.observeScreen()
+            val result = com.flowchat.app.domain.device.ScreenCapturePolicy.complete(before, after, image)
+            snapshotGuard.remember(result.screen)
+            result
+        } catch (error: kotlinx.coroutines.TimeoutCancellationException) {
+            kotlinx.coroutines.currentCoroutineContext().ensureActive()
+            observed.copy(imageErrorCode = "screen_capture_timeout")
+        } catch (error: CancellationException) { throw error }
+        catch (error: Exception) {
+            observed.copy(imageErrorCode = (error as? ScreenCaptureFailure)?.code ?: "screen_capture_failed")
+        }
+    }
+
+    private suspend fun observeScreenLocked(waitForSettledUi: Boolean = true): DeviceToolResult {
         snapshotGuard.remember(null)
         val accessibility = requireAccessibilityService() ?: return accessibilityUnavailable()
-        val screen = accessibility.observeSettledScreen()
+        val screen = (if (waitForSettledUi) accessibility.observeSettledScreen() else accessibility.observeScreen())
             ?: return DeviceToolResult(
                 success = false,
                 summary = "The current screen could not be read.",

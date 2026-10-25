@@ -143,6 +143,18 @@ class FloatingAssistantBridge @Inject constructor(
         }
     }
 
+    private val mutableScreenCaptureCount = MutableStateFlow(0)
+    val screenCaptureCount = mutableScreenCaptureCount.asStateFlow()
+
+    suspend fun <T> withScreenCapture(action: suspend () -> T): T {
+        mutableScreenCaptureCount.update { it + 1 }
+        return try {
+            // Full-display capture on Android 11–13 must not include Floryx's floating output.
+            kotlinx.coroutines.delay(120)
+            action()
+        } finally { mutableScreenCaptureCount.update { it - 1 } }
+    }
+
     fun setAppInForeground(inForeground: Boolean) {
         deviceTaskControl.setAppInForeground(inForeground)
         mutableAppInForeground.value = inForeground

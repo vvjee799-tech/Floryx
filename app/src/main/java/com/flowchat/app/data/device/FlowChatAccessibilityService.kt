@@ -3,24 +3,35 @@ package com.flowchat.app.data.device
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.GestureDescription
 import android.graphics.Path
+import android.graphics.Bitmap
+import android.os.Build
+import android.os.SystemClock
+import android.view.Display
 import android.os.Bundle
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import com.flowchat.app.domain.device.DeviceScreenSnapshot
+import com.flowchat.app.domain.device.DeviceScreenImage
 import com.flowchat.app.domain.device.DeviceSwipeDirection
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
 
 class FlowChatAccessibilityService : AccessibilityService() {
     private val indexedNodes = linkedMapOf<Int, AccessibilityNodeInfo>()
     private var cachedSnapshot: DeviceScreenSnapshot? = null
     private var snapshotInvalidated = true
+    private val screenshotMutex = Mutex()
+    private var lastScreenshotAt = -1_000L
 
     override fun onServiceConnected() {
         instance = this
@@ -84,6 +95,57 @@ class FlowChatAccessibilityService : AccessibilityService() {
             previous = current
         }
         return previous
+    }
+
+    suspend fun captureScreenImage(screen: DeviceScreenSnapshot, region: com.flowchat.app.domain.device.ScreenImageRegion? = null): DeviceScreenImage = screenshotMutex.withLock {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) throw ScreenCaptureFailure("screen_capture_requires_android_11")
+        val remaining = 500L - (SystemClock.elapsedRealtime() - lastScreenshotAt)
+        if (remaining > 0) delay(remaining)
+        var bitmap: Bitmap? = null
+        try {
+            withContext(Dispatchers.Main.immediate) {
+                lastScreenshotAt = SystemClock.elapsedRealtime()
+                bitmap = withTimeout(3_000) { captureBitmap(screen.windowId) }
+            }
+            val capturedAt = System.currentTimeMillis()
+            withContext(Dispatchers.Default) { ScreenImageEncoder.encode(requireNotNull(bitmap), screen.screenId, capturedAt, region) }
+        } finally { bitmap?.recycle() }
+    }
+
+    @android.annotation.TargetApi(30)
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    private suspend fun captureBitmap(windowId: Int?): Bitmap = suspendCancellableCoroutine { continuation ->
+        val callback = object : TakeScreenshotCallback {
+            override fun onSuccess(result: ScreenshotResult) {
+                var wrapped: Bitmap? = null
+                try {
+                    result.hardwareBuffer.use { buffer ->
+                        if (!continuation.isActive) return
+                        wrapped = Bitmap.wrapHardwareBuffer(buffer, result.colorSpace)
+                        val copy = wrapped?.copy(Bitmap.Config.ARGB_8888, false) ?: throw ScreenCaptureFailure("screen_capture_empty")
+                        continuation.resume(copy) { _, value, _ -> value.recycle() }
+                    }
+                } catch (error: Exception) {
+                    if (continuation.isActive) continuation.resumeWithException(error)
+                } finally { wrapped?.recycle() }
+            }
+            override fun onFailure(errorCode: Int) {
+                if (continuation.isActive) continuation.resumeWithException(ScreenCaptureFailure(when (errorCode) {
+                    ERROR_TAKE_SCREENSHOT_NO_ACCESSIBILITY_ACCESS -> "screen_capture_permission_required"
+                    ERROR_TAKE_SCREENSHOT_INTERVAL_TIME_SHORT -> "screen_capture_rate_limited"
+                    ERROR_TAKE_SCREENSHOT_INVALID_DISPLAY -> "screen_display_unavailable"
+                    ERROR_TAKE_SCREENSHOT_INVALID_WINDOW -> "screen_window_unavailable"
+                    ERROR_TAKE_SCREENSHOT_SECURE_WINDOW -> "secure_window_blocked"
+                    else -> "screen_capture_failed"
+                }))
+            }
+        }
+        try {
+            if (Build.VERSION.SDK_INT >= 34) {
+                if (windowId == null || windowId < 0) throw ScreenCaptureFailure("screen_window_unavailable")
+                takeScreenshotOfWindow(windowId, mainExecutor, callback)
+            } else takeScreenshot(Display.DEFAULT_DISPLAY, mainExecutor, callback)
+        } catch (error: Exception) { if (continuation.isActive) continuation.resumeWithException(error) }
     }
 
     suspend fun tapUiElement(index: Int, longPress: Boolean): Boolean =

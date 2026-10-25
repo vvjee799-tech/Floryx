@@ -54,7 +54,13 @@ private fun ChatRequest.toResponsesBody(provider: ProviderConfig, stream: Boolea
             if (message.role == "assistant" && message.providerData != null) {
                 message.providerData.forEach { add(it) }
             } else if (message.role == "tool") {
-                add(buildJsonObject { put("type", "function_call_output"); put("call_id", message.toolCallId); put("output", message.content.orEmpty()) })
+                add(buildJsonObject {
+                    put("type", "function_call_output"); put("call_id", message.toolCallId)
+                    if (message.images.isEmpty()) put("output", message.content.orEmpty()) else putJsonArray("output") {
+                        add(buildJsonObject { put("type", "input_text"); put("text", message.content.orEmpty()) })
+                        message.images.forEach { image -> add(buildJsonObject { put("type", "input_image"); put("image_url", image.dataUrl) }) }
+                    }
+                })
             } else {
                 if (!message.content.isNullOrBlank() || message.images.isNotEmpty()) add(buildJsonObject {
                     put("role", message.role)
@@ -109,7 +115,17 @@ private fun ChatRequest.toAnthropicBody(provider: ProviderConfig, stream: Boolea
         val role = if (message.role == "tool") "user" else message.role
         val blocks = if (message.role == "assistant" && message.providerData != null) message.providerData else buildJsonArray {
             if (message.role == "tool") {
-                add(buildJsonObject { put("type", "tool_result"); put("tool_use_id", message.toolCallId); put("content", message.content.orEmpty()) })
+                add(buildJsonObject {
+                    put("type", "tool_result"); put("tool_use_id", message.toolCallId)
+                    if (message.images.isEmpty()) put("content", message.content.orEmpty()) else putJsonArray("content") {
+                        add(buildJsonObject { put("type", "text"); put("text", message.content.orEmpty()) })
+                        message.images.forEach { image -> add(buildJsonObject {
+                            put("type", "image"); putJsonObject("source") {
+                                put("type", "base64"); put("media_type", image.mimeType); put("data", image.base64)
+                            }
+                        }) }
+                    }
+                })
             } else {
                 message.images.forEach { image -> add(buildJsonObject {
                     put("type", "image")
