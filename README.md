@@ -1,7 +1,7 @@
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/floryx-title-dark.svg" />
-    <img src="docs/assets/floryx-title.svg" alt="Floryx — 让想法生长，让任务落地" width="900" />
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/floryx-title-dark-v2.svg" />
+    <img src="docs/assets/floryx-title-v2.svg" alt="Floryx — 让想法生长，让任务落地" width="900" />
   </picture>
 </p>
 
