@@ -28,8 +28,8 @@ Floryx 将多模型对话、手机操作与命令执行放进同一个会话。�
 
 | | 版本与入口 |
 | --- | --- |
-| **已发布安装包** | [下载 Floryx 1.5.8 APK](https://github.com/vvjee799-tech/FlowChat/releases/download/v1.5.8/Floryx-1.5.8-retain-config.apk) · [发布页与校验文件](https://github.com/vvjee799-tech/FlowChat/releases/latest) |
-| **当前源码** | **1.5.15** · [查看更新记录](CHANGELOG.md) · [自行构建](#开发与构建) |
+| **已发布安装包** | [下载 Floryx 1.5.16 APK](https://github.com/vvjee799-tech/FlowChat/releases/download/v1.5.16/Floryx-1.5.16-retain-config.apk) · [发布页与校验文件](https://github.com/vvjee799-tech/FlowChat/releases/latest) |
+| **当前源码** | **1.5.16** · [查看更新记录](CHANGELOG.md) · [自行构建](#开发与构建) |
 
 安装包与源码版本分开标注；最新源码中的能力不一定已包含在上方发布的 APK 中。
 
@@ -145,15 +145,16 @@ Debug APK 位于 `app/build/outputs/apk/debug/app-debug.apk`，名称为 **Flory
 仓库不包含模型密钥和发布签名配置。已停用的搜索代理源码保留在 `search-proxy/`，供后续开发使用。
 
 <details>
-<summary><b>1.5.15 验证记录</b> · 388 项单元测试通过 · 14 项联合设备回归通过</summary>
+<summary><b>1.5.16 验证记录</b> · 438 项单元测试通过 · 上下文与可靠性回归通过</summary>
 
-- 共 389 项单元测试：388 项通过，1 项因 Windows 符号链接权限限制跳过。
+- 共 439 项单元测试：438 项通过，1 项因 Windows 符号链接权限限制跳过。
 - Debug、设备测试包及 Release 构建通过，包含 Release lint / R8 检查。
 - MuMu 验证浮窗深浅色显示、连续触摸穿透、操作失败与取消后的恢复、反复展开收起及前后台切换。
 - 屏幕视觉、基础控件、工作区、输入框一体底栏、余额与用量共 14 项联合设备回归通过；包含原始尺寸、无损细线、局部裁剪、持续动画与零可读控件的自绘画面。
 - 设备回归使用合成画面、真实共享存储与本地模拟模型，验证传输、保护拦截、写回和停止后接续。
+- 新增上下文圆环、详情浮层与会话切换验证；28 步任务 7 次整理均观测到占用回落，23 轮短对话未增加摘要请求。会话并行、附件分页和中断恢复已通过 MuMu 回归。
 - 上下文压缩和续问使用本地模拟接口与 DeepSeek 合成会话验证；模型验证不包含所有服务商的真实接口。
-- V2302A 已覆盖更新至正式版 1.5.15，保留原安装身份和应用数据。
+- 正式包沿用既有安装的包名与签名，支持覆盖更新并保留配置及聊天记录。
 
 </details>
 
