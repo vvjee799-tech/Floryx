@@ -127,22 +127,39 @@ object AttachmentDocumentParser {
         val sheets = entries.keys
             .filter { it.startsWith("xl/worksheets/sheet") && it.endsWith(".xml") }
             .sortedBy(::numericSuffix)
-        return sheets.mapIndexedNotNull { index, name ->
-            val rows = parseXml(entries.getValue(name)).elements("row").mapNotNull { row ->
-                val values = row.childElements("c").map { cell ->
-                    when (cell.getAttribute("t")) {
+        val output = StringBuilder()
+        for ((index, name) in sheets.withIndex()) {
+            var hasRows = false
+            for (row in parseXml(entries.getValue(name)).elements("row")) {
+                val values = sortedMapOf<Int, String>()
+                var nextColumn = 0
+                row.childElements("c").forEach { cell ->
+                    val reference = cell.getAttribute("r")
+                    val column = if (reference.isBlank()) nextColumn else columnIndex(reference)
+                    if (column == null || column >= MaxSpreadsheetColumns) return@forEach
+                    values[column] = when (cell.getAttribute("t")) {
                         "s" -> cell.firstText("v")?.toIntOrNull()?.let(sharedStrings::getOrNull).orEmpty()
                         "inlineStr" -> inlineText(cell)
                         else -> cell.firstText("v").orEmpty()
                     }
+                    nextColumn = column + 1
                 }
-                values.joinToString("\t").trimEnd().takeIf { it.isNotBlank() }
+                val lastColumn = values.keys.lastOrNull() ?: continue
+                val text = (0..lastColumn).joinToString("\t") { values[it].orEmpty() }
+                    .trimEnd().takeIf { it.isNotBlank() } ?: continue
+                if (!hasRows) {
+                    if (output.isNotEmpty()) output.append("\n\n")
+                    output.append("Sheet ${index + 1}\n")
+                    hasRows = true
+                } else {
+                    output.append('\n')
+                }
+                output.append(text)
+                if (output.length > MaxExtractedCharacters) break
             }
-            rows.takeIf { it.isNotEmpty() }?.joinToString(
-                separator = "\n",
-                prefix = "Sheet ${index + 1}\n"
-            )
-        }.joinToString("\n\n")
+            if (output.length > MaxExtractedCharacters) break
+        }
+        return output.toString()
     }
 
     private fun extractPptx(bytes: ByteArray): String {
@@ -305,7 +322,18 @@ object AttachmentDocumentParser {
     private fun numericSuffix(name: String): Int =
         Regex("(\\d+)(?=\\.xml$)").find(name)?.value?.toIntOrNull() ?: Int.MAX_VALUE
 
+    private fun columnIndex(reference: String): Int? {
+        val match = CellReference.matchEntire(reference) ?: return null
+        var column = 0
+        for (letter in match.groupValues[1].uppercase()) {
+            column = column * 26 + (letter - 'A' + 1)
+        }
+        return (column - 1).takeIf { it in 0 until MaxSpreadsheetColumns }
+    }
+
     private const val MaxOfficeXmlBytes = 32 * 1024 * 1024
+    private const val MaxSpreadsheetColumns = 16_384
+    private val CellReference = Regex("([A-Za-z]{1,3})([1-9][0-9]*)")
     private const val DocxMimeType = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
     private const val XlsxMimeType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     private const val PptxMimeType = "application/vnd.openxmlformats-officedocument.presentationml.presentation"

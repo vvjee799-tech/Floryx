@@ -2,6 +2,7 @@ package com.flowchat.app.presentation.chat
 
 import com.flowchat.app.data.preferences.AppSettings
 import com.flowchat.app.domain.model.Conversation
+import com.flowchat.app.domain.model.ContextWindowUsage
 import com.flowchat.app.domain.model.MemoryRecord
 import com.flowchat.app.domain.model.Message
 import com.flowchat.app.domain.model.ProviderConfig
@@ -17,13 +18,16 @@ data class ChatUiState(
     val pendingAttachment: PendingAttachment? = null,
     val isAttachmentLoading: Boolean = false,
     val isStreaming: Boolean = false,
+    val contextWindow: ContextWindowUsage? = null,
     val deviceTaskPaused: Boolean = false,
+    val interruptedTask: Boolean = false,
     val appSettings: AppSettings = AppSettings(),
     val memories: List<MemoryRecord> = emptyList(),
     val usageAccessPermissionRequest: UsageAccessPermissionRequestUi? = null,
     val shizukuState: ShizukuConnectionState = ShizukuConnectionState(),
     val accessibilityState: AccessibilityConnectionState = AccessibilityConnectionState(),
     val pendingDeviceActionConfirmation: DeviceActionConfirmationUi? = null,
+    val awaitingConfirmationConversationId: String? = null,
     val errorMessage: String? = null
 )
 

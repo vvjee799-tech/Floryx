@@ -132,6 +132,7 @@ import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -391,6 +392,7 @@ fun ChatScreen(
                     onStop = viewModel::stop,
                     onThinkingEnabledChange = viewModel::setThinkingEnabled,
                     onThinkingEffortChange = viewModel::setThinkingEffort,
+                    contextWindow = state.contextWindow,
                     onPickAttachment = {
                         attachmentPicker.launch(AttachmentDocumentParser.PickerMimeTypes)
                     },
@@ -410,6 +412,19 @@ fun ChatScreen(
                     .widthIn(max = FlowLayout.ContentWidth)
                     .padding(horizontal = FlowLayout.Gutter)
             ) {
+                state.awaitingConfirmationConversationId?.let { owner ->
+                    Surface(color = MaterialTheme.colorScheme.secondaryContainer, shape = MaterialTheme.shapes.medium) {
+                        Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically) {
+                            Text(stringResource(R.string.other_task_confirmation), Modifier.weight(1f),
+                                style = MaterialTheme.typography.bodySmall)
+                            TextButton(onClick = { viewModel.selectConversation(owner) }) {
+                                Text(stringResource(R.string.review_task_confirmation))
+                            }
+                        }
+                    }
+                    Spacer(Modifier.height(8.dp))
+                }
                 if (state.deviceTaskPaused) {
                     Card(
                         modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
@@ -424,9 +439,24 @@ fun ChatScreen(
                                 TextButton(onClick = viewModel::resumeDeviceTask, enabled = !state.isStreaming) {
                                     Text(stringResource(R.string.device_task_resume))
                                 }
-                                TextButton(onClick = viewModel::stop) {
+                                TextButton(onClick = viewModel::endInterruptedTask) {
                                     Text(stringResource(R.string.device_task_end))
                                 }
+                            }
+                        }
+                    }
+                }
+                if (state.interruptedTask && !state.deviceTaskPaused) {
+                    Card(
+                        modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)
+                    ) {
+                        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text(stringResource(R.string.interrupted_task_title), style = MaterialTheme.typography.titleSmall)
+                            Text(stringResource(R.string.interrupted_task_description), style = MaterialTheme.typography.bodySmall)
+                            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                TextButton(onClick = viewModel::resumeInterruptedTask) { Text(stringResource(R.string.device_task_resume)) }
+                                TextButton(onClick = viewModel::endInterruptedTask) { Text(stringResource(R.string.device_task_end)) }
                             }
                         }
                     }
@@ -634,6 +664,9 @@ internal fun MessageList(
 
     LaunchedEffect(lastMessage?.content, activeReasoning?.reasoningContent) {
         if (displayMessages.isNotEmpty() && lastAnimatedMessageId == lastMessage?.id) {
+            // A resumed Scaffold can compose this list during measurement. Wait for a
+            // frame before scrollToItem forces another measure of the same hierarchy.
+            androidx.compose.runtime.withFrameNanos { }
             listState.scrollToItem(displayMessages.size)
         }
     }
@@ -1921,7 +1954,8 @@ internal fun MessageComposer(
     onSelectModel: (ProviderConfig, String) -> Unit,
     usageRecords: List<com.flowchat.app.data.db.UsageRecord>? = null,
     balanceState: com.flowchat.app.data.usage.BalanceState = com.flowchat.app.data.usage.BalanceState(),
-    onRefreshBalance: () -> Unit = {}
+    onRefreshBalance: () -> Unit = {},
+    contextWindow: com.flowchat.app.domain.model.ContextWindowUsage? = null
 ) {
     val focusRequester = remember { FocusRequester() }
     val keyboardController = LocalSoftwareKeyboardController.current
@@ -2047,13 +2081,18 @@ internal fun MessageComposer(
                     Icon(Icons.Default.Add, stringResource(R.string.upload_file), Modifier.size(22.dp),
                         tint = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-                ThinkingModeControl(
-                    support = ThinkingSupport.resolve(currentProvider, currentConversation?.modelName.orEmpty()),
-                    enabled = currentConversation?.enableThinking == true,
-                    effort = currentConversation?.thinkingEffort ?: ThinkingEffort.Auto,
-                    interactive = enabled && !isStreaming,
-                    onEnabledChange = onThinkingEnabledChange, onEffortChange = onThinkingEffortChange
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    ThinkingModeControl(
+                        support = ThinkingSupport.resolve(currentProvider, currentConversation?.modelName.orEmpty()),
+                        enabled = currentConversation?.enableThinking == true,
+                        effort = currentConversation?.thinkingEffort ?: ThinkingEffort.Auto,
+                        interactive = enabled && !isStreaming,
+                        onEnabledChange = onThinkingEnabledChange, onEffortChange = onThinkingEffortChange
+                    )
+                    key(currentConversation?.id) {
+                        ContextWindowIndicator(contextWindow, enabled = enabled)
+                    }
+                }
             }
             IconButton(onClick = if (isStreaming) onStop else ::submitMessage,
                 enabled = (enabled && hasInput && !isAttachmentLoading) || isStreaming,

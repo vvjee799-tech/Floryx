@@ -1,4 +1,14 @@
 <resources>
+    <string name="context_window_title">Context window</string>
+    <string name="context_window_percent">About %1$d%% used</string>
+    <string name="context_window_tokens">Estimated %1$s tokens used, %2$s total</string>
+    <string name="context_window_budget_hint">Based on this conversation’s context budget</string>
+    <string name="context_window_unknown">Context estimate not available yet</string>
+    <string name="context_window_compacting">Compacting context…</string>
+    <string name="interrupted_task_title">This task was interrupted</string>
+    <string name="other_task_confirmation">Another conversation is waiting for your confirmation.</string>
+    <string name="review_task_confirmation">Review</string>
+    <string name="interrupted_task_description">Progress and tool records were retained. Continue to verify unfinished steps, or end this task.</string>
     <string name="app_name">Floryx</string>
     <string name="new_chat">New chat</string>
     <string name="conversations">Conversations</string>

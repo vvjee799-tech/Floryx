@@ -63,6 +63,70 @@ class TaskContextManagerTest {
         }
     }
 
+    @Test fun restoringDisplayWindowUsesCommittedCheckpointWithoutAnyModelOrWrite() = runTest {
+        val rows = transcript()
+        val repo = Repo(rows)
+        val prepared = TaskContextManager(Client(), repo, limits).prepare(conversation, rows, provider, null)
+        val saves = repo.saves
+        val client = Client { error("A display estimate must not contact the model") }
+        val manager = TaskContextManager(client, repo, limits)
+        val foreign = Message(id = "foreign", conversationId = "other", role = MessageRole.User, content = "PRIVATE")
+        val restored = manager.restoreWindow(conversation.id, rows + foreign)
+        assertEquals(prepared, restored)
+        assertEquals(saves, repo.saves)
+        assertTrue(client.requests.isEmpty())
+        assertEquals(limits.hardTokens, manager.contextWindow(ChatRequestFactory.create(conversation,
+            restored.messages, checkpoint = restored.checkpoint), provider).totalTokens)
+    }
+
+    @Test fun restoringDisplayWindowRejectsChangedSourcesAndDoesNotCompactEvenOverBudget() = runTest {
+        val repo = Repo(transcript())
+        TaskContextManager(Client(), repo, limits).prepare(conversation, repo.rows, provider, null)
+        val checkpoint = repo.checkpoint
+        val saves = repo.saves
+        repo.rows = repo.rows.map { if (it.id == "u1") it.copy(content = "Changed " + "大".repeat(40_000)) else it }
+        val client = Client { error("Reading the context meter must be free of model requests") }
+        val manager = TaskContextManager(client, repo, limits)
+        val restored = manager.restoreWindow(conversation.id, repo.rows)
+        assertNull(restored.checkpoint)
+        assertEquals(repo.rows, restored.messages)
+        assertEquals(checkpoint, repo.checkpoint)
+        assertEquals(saves, repo.saves)
+        assertTrue(manager.contextWindow(ChatRequestFactory.create(conversation, restored.messages), provider).usedTokens > limits.hardTokens)
+        assertTrue(client.requests.isEmpty())
+    }
+
+    @Test fun displayWindowPreservesLatestUserAnchorAfterSingleTurnCompaction() = runTest {
+        val goal = Message(id = "goal", conversationId = "c", role = MessageRole.User, content = "Finish the original task")
+        val rows = listOf(goal) + (1..12).map { Message(id = "step$it", conversationId = "c", role = MessageRole.Assistant,
+            content = "step $it " + "x".repeat(500), replyPhase = ReplyPhase.Commentary) }
+        val repo = Repo(rows)
+        val prepared = TaskContextManager(Client(), repo, limits).prepare(conversation, rows, provider, null,
+            protectedMessageId = "step11", force = true)
+        val manager = TaskContextManager(Client { error("unused") }, repo, limits)
+        val restored = manager.restoreWindow(conversation.id, rows)
+        assertEquals(prepared, restored)
+        assertEquals(goal, restored.messages.first())
+        val request = ChatRequestFactory.create(conversation, restored.messages, checkpoint = restored.checkpoint)
+        assertEquals(ContextBudget.request(request, provider), manager.contextWindow(request, provider).usedTokens)
+    }
+
+    @Test fun aShortFollowUpToALongAttachmentDoesNotSpendASummaryRequest() = runTest {
+        val body = "长".repeat(80_000)
+        val rows = listOf(
+            Message(id = "file", conversationId = "c", role = MessageRole.User, content = "查看文件",
+                attachmentName = "long.txt", attachmentText = body),
+            Message(id = "follow-up", conversationId = "c", role = MessageRole.User, content = "请读取最后一页")
+        )
+        val client = Client { error("An attachment preview that fits must not require compaction") }
+        val manager = TaskContextManager(client, Repo(rows))
+        val prepared = manager.prepare(conversation, rows, provider, null)
+        assertTrue(client.requests.isEmpty())
+        assertEquals(body, prepared.messages.first().attachmentText)
+        assertNull(prepared.checkpoint)
+        manager.requireFits(AttachmentTools.attach(ChatRequestFactory.create(conversation, prepared.messages)))
+    }
+
     @Test fun compactsOldTurnsKeepsSourcesAndCorrectionsAndReusesCheckpointAfterRecreation() = runTest {
         val rows = transcript()
         val repo = Repo(rows)

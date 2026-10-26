@@ -16,6 +16,8 @@ import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 @Singleton
 class RoomChatRepository @Inject constructor(
@@ -24,6 +26,13 @@ class RoomChatRepository @Inject constructor(
     private val imageAttachmentStore: ImageAttachmentStore? = null,
     private val appSettingsStore: com.flowchat.app.data.preferences.AppSettingsStore? = null
 ) : ChatRepository {
+    private val recoveryMutex = Mutex()
+    private var recoveryResult: Set<String>? = null
+
+    override suspend fun recoverInterruptedTasks(): Set<String> = recoveryMutex.withLock {
+        recoveryResult ?: messageDao.recoverInterruptedTasks(System.currentTimeMillis()).also { recoveryResult = it }
+    }
+
     override fun observeConversations(): Flow<List<Conversation>> =
         conversationDao.observeConversations().map { rows -> rows.map { it.toDomain() } }
 

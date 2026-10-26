@@ -7,6 +7,7 @@ import androidx.room.Query
 import androidx.room.Transaction
 import com.flowchat.app.domain.chat.CheckpointCodec
 import com.flowchat.app.domain.chat.TaskCheckpoint
+import com.flowchat.app.domain.chat.TaskRecovery
 import kotlinx.coroutines.flow.Flow
 
 @Dao
@@ -19,6 +20,46 @@ interface MessageDao {
 
     @Query("SELECT * FROM messages WHERE id = :id")
     suspend fun getMessage(id: String): MessageEntity?
+
+    @Query("SELECT * FROM messages WHERE (role IN ('Assistant', 'Tool') AND status IN ('Pending', 'Streaming')) " +
+        "OR (role = 'Assistant' AND executionContext IS NOT NULL AND executionContext != '')")
+    suspend fun getRecoveryCandidates(): List<MessageEntity>
+
+    @Query("SELECT content FROM messages WHERE conversationId = :conversationId AND role = 'User' " +
+        "ORDER BY createdAt DESC, updatedAt DESC LIMIT 1")
+    suspend fun getLatestUserText(conversationId: String): String?
+
+    @Query("UPDATE messages SET content = :content, status = :status, executionContext = :context, " +
+        "updatedAt = :updatedAt WHERE id = :id AND status = :oldStatus AND content = :oldContent " +
+        "AND executionContext IS :oldContext")
+    suspend fun updateRecoveredMessage(
+        id: String,
+        content: String,
+        status: String,
+        context: String?,
+        updatedAt: Long,
+        oldStatus: String,
+        oldContent: String,
+        oldContext: String?
+    ): Int
+
+    @Transaction
+    suspend fun recoverInterruptedTasks(now: Long): Set<String> {
+        val userText = mutableMapOf<String, String?>()
+        val changed = linkedSetOf<String>()
+        for (row in getRecoveryCandidates()) {
+            val previous = row.toDomain()
+            val latestUser = if (userText.containsKey(row.conversationId)) userText[row.conversationId]
+                else getLatestUserText(row.conversationId).also { userText[row.conversationId] = it }
+            val recovered = TaskRecovery.recover(previous, latestUser, now)
+            if (recovered == previous) continue
+            if (updateRecoveredMessage(row.id, recovered.content, recovered.status.name,
+                    recovered.executionContext, recovered.updatedAt, row.status, row.content, row.executionContext) == 1) {
+                changed += row.conversationId
+            }
+        }
+        return changed
+    }
 
     @Query("UPDATE messages SET executionContext = :context WHERE id = :id")
     suspend fun updateExecutionContext(id: String, context: String)

@@ -14,39 +14,74 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.*
+import java.util.concurrent.ConcurrentHashMap
 
 data class ContextLimits(
-    val softTokens: Int = 16_000,
+    val softTokens: Int = 24_000,
     val hardTokens: Int = 32_000,
-    val triggerTurns: Int = 16,
+    val triggerTurns: Int = Int.MAX_VALUE,
     val keepTurns: Int = 4,
-    val batchTokens: Int = 20_000
+    val batchTokens: Int = 20_000,
+    val targetTokens: Int = softTokens / 2,
+    val minGrowthTokens: Int = softTokens / 6
 )
 
 data class PreparedTaskContext(val messages: List<Message>, val checkpoint: TaskCheckpoint?)
-
-/** Conservative estimates, not a provider tokenizer or a claim about a model's exact context window. */
-object ContextBudget {
-    fun text(text: String): Int = (text.toByteArray(Charsets.UTF_8).size + 2) / 3
-    fun request(request: ChatRequest): Int = 1_024 + request.tools.sumOf { text(it.name + it.description + it.parameters) } +
-        request.messages.sumOf { message -> text(message.content.orEmpty() + message.reasoningContent.orEmpty() +
-            message.toolCalls.joinToString { it.name + it.arguments } + message.providerData.orEmpty().toString()) + message.images.size * 1_024 }
-}
 
 class TaskContextManager(
     private val client: ChatCompletionClient,
     private val repository: ChatRepository,
     private val limits: ContextLimits = ContextLimits()
 ) {
-    private val mutex = Mutex()
-    private val failedUntil = mutableMapOf<String, Long>()
-    private val failureCodes = mutableMapOf<String, String>()
+    private val mutexes = ConcurrentHashMap<String, Mutex>()
+    private val failedUntil = ConcurrentHashMap<String, Long>()
+    private val failureCodes = ConcurrentHashMap<String, String>()
+    private data class WindowKey(val conversation: String, val model: String, val provider: String?)
+    private val nextCompactionTokens = ConcurrentHashMap<WindowKey, Int>()
     var lastFailureCode: String? = null
         private set
 
     private class SummaryFailure(val code: String, val correction: String = "") : Exception(code)
 
-    fun shouldCompact(request: ChatRequest) = ContextBudget.request(request) >= limits.softTokens
+    fun contextWindow(request: ChatRequest, provider: ProviderConfig? = null) =
+        ContextWindowUsage(ContextBudget.request(request, provider), limits.hardTokens)
+
+    /** Restore only the persisted model window for display; never summarize or write from an estimate. */
+    suspend fun restoreWindow(conversationId: String, history: List<Message>): PreparedTaskContext {
+        val all = history.filter { it.conversationId == conversationId }
+        val checkpoint = repository.getContextCheckpoint(conversationId)?.takeIf { it.matches(all) }
+        val boundary = checkpoint?.let { saved -> all.indexOfFirst { it.id == saved.throughMessageId } } ?: -1
+        return PreparedTaskContext(tail(all, boundary), checkpoint)
+    }
+
+    fun shouldCompact(request: ChatRequest, provider: ProviderConfig? = null): Boolean {
+        val tokens = ContextBudget.request(request, provider)
+        val emergency = limits.hardTokens - limits.minGrowthTokens / 2
+        val next = request.usageConversationId?.let { nextCompactionTokens[windowKey(request, it, provider)] }
+            ?: limits.softTokens
+        return tokens >= minOf(next, emergency)
+    }
+
+    /** A fresh window needs meaningful growth before the next soft-limit summary. */
+    fun recordCompaction(request: ChatRequest, provider: ProviderConfig? = null) {
+        val owner = request.usageConversationId ?: return
+        val next = (ContextBudget.request(request, provider).toLong() + limits.minGrowthTokens)
+            .coerceAtLeast(limits.softTokens.toLong()).coerceAtMost(limits.hardTokens.toLong()).toInt()
+        nextCompactionTokens[windowKey(request, owner, provider)] = next
+    }
+
+    private fun windowKey(request: ChatRequest, owner: String, provider: ProviderConfig?) =
+        WindowKey(owner, request.model, provider?.let { it.id + "|" + it.baseUrl })
+
+    /** Keep recent native calls atomic; very large replay state can leave room for only one group. */
+    fun retainedNativeStart(request: ChatRequest, provider: ProviderConfig? = null): Int? {
+        val groups = request.messages.indices.filter { request.messages[it].toolCalls.isNotEmpty() }.takeLast(2)
+        if (groups.isEmpty()) return null
+        if (groups.size == 1) return groups.first()
+        val tail = request.copy(messages = request.messages.drop(groups.first()), tools = emptyList())
+        val replayTokens = (ContextBudget.request(tail, provider) - 1_024).coerceAtLeast(0)
+        return if (replayTokens > limits.targetTokens * 2 / 3) groups.last() else groups.first()
+    }
 
     suspend fun prepare(
         conversation: Conversation,
@@ -55,16 +90,23 @@ class TaskContextManager(
         apiKey: String?,
         protectedMessageId: String? = null,
         force: Boolean = false,
-        onCompacting: suspend () -> Unit = {}
-    ): PreparedTaskContext = mutex.withLock {
+        onCompacting: suspend () -> Unit = {},
+        projectWindow: ((PreparedTaskContext) -> ChatRequest)? = null
+    ): PreparedTaskContext = mutexes.computeIfAbsent(conversation.id) { Mutex() }.withLock {
         val all = history.filter { it.conversationId == conversation.id }
         var stored = repository.getContextCheckpoint(conversation.id)
         var checkpoint = stored?.takeIf { it.matches(all) }
         var boundary = checkpoint?.let { old -> all.indexOfFirst { it.id == old.throughMessageId } } ?: -1
         fun window() = PreparedTaskContext(tail(all, boundary), checkpoint)
         val remaining = all.drop(boundary + 1)
-        val size = estimate(remaining) + checkpoint?.let { ContextBudget.text(it.asContext()) }.orZero()
-        if (!force && size < limits.softTokens && remaining.count { it.role == MessageRole.User } <= limits.triggerTurns) return@withLock window()
+        fun sizeOf(cut: Int): Int {
+            val candidate = PreparedTaskContext(tail(all, cut), checkpoint)
+            return projectWindow?.let { ContextBudget.request(it(candidate), provider) }
+                ?: (estimate(candidate.messages) + checkpoint?.let { ContextBudget.text(it.asContext()) }.orZero())
+        }
+        val size = sizeOf(boundary)
+        val underWatermark = projectWindow?.let { !shouldCompact(it(window()), provider) } ?: (size < limits.softTokens)
+        if (!force && underWatermark && remaining.count { it.role == MessageRole.User } <= limits.triggerTurns) return@withLock window()
 
         val protectedIndex = protectedMessageId?.let { id -> all.indexOfFirst { it.id == id } }?.takeIf { it >= 0 }
         val latestUserIndex = all.indexOfLast { it.role == MessageRole.User }
@@ -73,7 +115,7 @@ class TaskContextManager(
         val users = all.mapIndexedNotNull { index, message -> index.takeIf { message.role == MessageRole.User } }
         var cut = if (users.size > limits.keepTurns) users[users.size - limits.keepTurns] - 1 else (all.size - 7)
         cut = cut.coerceIn(boundary + 1, maxCut)
-        while (cut < maxCut && estimate(all.drop(cut + 1)) > limits.softTokens / 2) cut++
+        while (cut < maxCut && sizeOf(cut) > limits.targetTokens) cut++
 
         if (System.currentTimeMillis() < failedUntil.getOrDefault(conversation.id, 0L)) return@withLock window()
         try {
@@ -131,7 +173,7 @@ class TaskContextManager(
         window()
     }
 
-    fun requireFits(request: ChatRequest, conversationId: String? = null) {
+    fun requireFits(request: ChatRequest, conversationId: String? = null, provider: ProviderConfig? = null) {
         val code = if (conversationId == null) lastFailureCode else failureCodes[conversationId]
         val reason = when {
             code?.startsWith("invalid_summary_") == true -> "摘要格式校验失败，自动修复后仍未通过。"
@@ -146,7 +188,7 @@ class TaskContextManager(
             code?.startsWith("service_") == true -> "摘要服务未返回可用结果。"
             else -> "任务记录尚未整理到可用长度。"
         }
-        check(ContextBudget.request(request) <= limits.hardTokens) {
+        check(ContextBudget.request(request, provider) <= limits.hardTokens) {
             "上下文整理未完成：$reason 本轮已停止，完整任务记录已保留，可稍后在本会话继续。"
         }
     }
@@ -157,7 +199,13 @@ class TaskContextManager(
         return if (latestUser != null && suffix.none { it.id == latestUser.id }) listOf(latestUser) + suffix else suffix
     }
 
-    private fun estimate(messages: List<Message>) = messages.sumOf { ContextBudget.text(CheckpointCodec.source(it).toString()) }
+    private fun estimate(messages: List<Message>) = messages.sumOf { message ->
+        // Budget the actual inline projection. The full attachment remains stored for read_attachment
+        // and source fingerprints; it must not trigger a summary request before a short follow-up.
+        val projected = message.copy(attachmentText = message.attachmentText?.take(ChatRequestFactory.MaxInlineAttachmentCharacters))
+        ContextBudget.text(CheckpointCodec.source(projected).toString()) +
+            if ((message.attachmentText?.length ?: 0) > ChatRequestFactory.MaxInlineAttachmentCharacters) 200 else 0
+    }
 
     private fun summarySource(message: Message): JsonObject = buildJsonObject {
         put("id", message.id); put("role", message.role.name); put("status", message.status.name)

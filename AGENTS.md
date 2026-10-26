@@ -4,6 +4,8 @@
 - Use a connected physical phone only when the user explicitly requests it. Do not automatically select a phone if multiple ADB devices are available.
 - Before running device commands, identify the MuMu emulator's ADB serial and target that serial explicitly.
 - If the MuMu emulator is unavailable, report the issue and troubleshoot it instead of switching to a phone.
+- If the existing MuMu instance is stopped, start it with the installed MuMuManager, wait for Android to boot, and reconnect to its verified ADB endpoint without asking the user to start it.
+- App behavior fixes require actual MuMu device testing before completion; a stopped instance or passing unit tests is not a reason to skip device verification.
 - Before native computer-use interactions, obtain the user's explicit confirmation for the planned scope, as required by the user's standing computer-use instructions. This does not require confirmation for ordinary shell commands or file edits.
 
 # Local Android build tools

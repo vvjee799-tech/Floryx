@@ -216,7 +216,9 @@ class TerminalAgentDiagnosticTest {
         }
     }
 
-    private class LocalTerminalModel : AutoCloseable {
+    internal class LocalTerminalModel(private val holdRootRequests: Boolean = false) : AutoCloseable {
+        private val backgroundRequests = java.util.concurrent.Semaphore(0)
+        fun releaseBackgroundRequest() { backgroundRequests.release() }
         private val socket = ServerSocket(0, 8, InetAddress.getByName("127.0.0.1"))
         val port get() = socket.localPort
         @Volatile var failure: String? = null
@@ -241,18 +243,28 @@ class TerminalAgentDiagnosticTest {
                         val bytes = ByteArray(length); var offset = 0
                         while (offset < length) { val size = input.read(bytes, offset, length-offset); check(size > 0); offset += size }
                         val request = Json.parseToJsonElement(bytes.toString(Charsets.UTF_8)).jsonObject
-                        sawCommandTools = request["tools"]!!.jsonArray.any { it.jsonObject["function"]!!.jsonObject["name"]!!.jsonPrimitive.content == "run_command" }
+                        val tools = request["tools"]?.jsonArray.orEmpty()
+                        sawCommandTools = sawCommandTools || tools.any { it.jsonObject["function"]!!.jsonObject["name"]!!.jsonPrimitive.content == "run_command" }
                         val messages = request["messages"]!!.jsonArray
                         val user = messages.last { it.jsonObject["role"]!!.jsonPrimitive.content == "user" }.jsonObject["content"]!!.jsonPrimitive.content
                         val last = messages.last().jsonObject
                         val lastText = last["content"]?.jsonPrimitive?.content.orEmpty()
                         val tool = last["role"]!!.jsonPrimitive.content == "tool"
+                        if (holdRootRequests && tools.isNotEmpty() && !tool && user.startsWith("ROOT_")) {
+                            check(backgroundRequests.tryAcquire(20, java.util.concurrent.TimeUnit.SECONDS)) { "App did not enter the background" }
+                        }
                         val parsed = if (tool) runCatching { Json.parseToJsonElement(lastText).jsonObject }.getOrNull() else null
                         if (user.contains("LINUX_AGENT_QA")) linuxRequests++
                         if (user.contains("CANCEL_AGENT_QA")) cancelRequests++
                         val reply = when {
+                            tools.isEmpty() && user.contains("ROOT_DECLINE_QA") -> {
+                                val refusal = messages.last { it.jsonObject["role"]!!.jsonPrimitive.content == "tool" }.jsonObject["content"]!!.jsonPrimitive.content
+                                check(refusal.contains("declined", true))
+                                answer("ROOT_DECLINE_LOCAL_OK")
+                            }
                             !tool -> if (user.contains("LINUX_AGENT_QA")) call("run_command", """{"environment":"linux","command":"printf INITIAL_OUTPUT; sleep 20; python3 -c 'print(42)'; node -e 'console.log(63)'; printf AGENT_TERMINAL_OK"}""")
                                 else if (user.contains("CANCEL_AGENT_QA")) call("run_command", """{"environment":"linux","command":"printf CANCEL_READY; sleep 30; printf MUST_NOT_REACH"}""")
+                                else if (user.contains("ROOT_TAKEOVER_QA")) call("run_command", """{"environment":"android","command":"printf TAKEOVER_READY; sleep 30; printf MUST_NOT_REACH"}""")
                                 else call("run_command", """{"environment":"android","command":"id -u; printf ROOT_SYSTEM_OK"}""")
                             parsed?.get("status")?.jsonPrimitive?.content == "Running" -> call("read_command_output", """{"command_id":"${parsed["command_id"]!!.jsonPrimitive.content}","offset":0,"wait_seconds":2}""")
                             user.contains("LINUX_AGENT_QA") -> {

@@ -1,10 +1,14 @@
 package com.flowchat.app.domain
 
+import com.flowchat.app.domain.chat.AttachmentTools
 import com.flowchat.app.domain.chat.ChatRequestFactory
 import com.flowchat.app.domain.model.Conversation
 import com.flowchat.app.domain.model.Message
 import com.flowchat.app.domain.model.MessageRole
 import com.flowchat.app.domain.model.MessageStatus
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -378,6 +382,60 @@ class ChatRequestFactoryTest {
             """.trimIndent(),
             request.messages.last().content
         )
+    }
+
+    @Test
+    fun previewsLongChineseAttachmentAndPointsToTheStoredMessage() {
+        val fullText = "资料".repeat(19_999) + "结束"
+        val message = Message(
+            id = "attachment-1",
+            conversationId = "c1",
+            role = MessageRole.User,
+            content = "请分析全文",
+            attachmentName = "长文.txt",
+            attachmentText = fullText
+        )
+
+        val request = ChatRequestFactory.create(
+            conversation = Conversation(id = "c1", providerId = "p1", modelName = "gpt-test"),
+            messages = listOf(message)
+        )
+        val content = request.messages.last().content.orEmpty()
+
+        assertTrue(content.length < 7_000)
+        assertTrue(content.contains("message_id=\"attachment-1\""))
+        assertTrue(content.contains(fullText.take(6_000)))
+        assertTrue(content.contains("Call read_attachment with message_id=\"attachment-1\" and offset=6000"))
+        assertTrue(!content.contains(fullText.takeLast(6_000)))
+        assertEquals(fullText, message.attachmentText)
+    }
+
+    @Test
+    fun previewOffsetReconstructsStoredWhitespaceAndSurrogatePair() {
+        val fullText = " \n" + "字".repeat(5_997) + "😀 结束 \n"
+        val message = Message(
+            id = "m-surrogate",
+            conversationId = "c1",
+            role = MessageRole.User,
+            content = "读附件",
+            attachmentName = "notes.txt",
+            attachmentText = fullText
+        )
+        val request = ChatRequestFactory.create(
+            conversation = Conversation(id = "c1", providerId = "p1", modelName = "gpt-test"),
+            messages = listOf(message)
+        )
+        val content = request.messages.last().content.orEmpty()
+        val preview = content.substringAfter("<attached-file").substringAfter(">\n")
+            .substringBefore("\n</attached-file>")
+        val remainder = Json.parseToJsonElement(
+            AttachmentTools.read("""{"message_id":"m-surrogate","offset":${preview.length}}""", "c1", listOf(message))
+        ).jsonObject["text"]!!.jsonPrimitive.content
+
+        assertEquals(5_999, preview.length)
+        assertTrue(content.contains("preview_chars=\"5999\""))
+        assertTrue(content.contains("offset=5999"))
+        assertEquals(fullText, preview + remainder)
     }
 
 

@@ -1,4 +1,14 @@
 <resources>
+    <string name="context_window_title">上下文窗口</string>
+    <string name="context_window_percent">约 %1$d%% 已用</string>
+    <string name="context_window_tokens">估算已用 %1$s 标记，共 %2$s</string>
+    <string name="context_window_budget_hint">按当前会话上下文预算计算</string>
+    <string name="context_window_unknown">尚无上下文估算</string>
+    <string name="context_window_compacting">正在整理上下文…</string>
+    <string name="interrupted_task_title">上次任务未完成</string>
+    <string name="other_task_confirmation">另一个会话正在等待你的确认。</string>
+    <string name="review_task_confirmation">查看确认</string>
+    <string name="interrupted_task_description">已保留进度和操作记录。继续时会先核验未确认的步骤，也可以结束该任务。</string>
     <string name="app_name">Floryx</string>
     <string name="new_chat">新建会话</string>
     <string name="conversations">会话</string>

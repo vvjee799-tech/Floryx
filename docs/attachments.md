@@ -12,6 +12,8 @@ DeepSeek 的快捷模型菜单已补充 `deepseek-flash`，本次使用这个型
 
 文档维持文字提取方式：TXT、Markdown、CSV、JSON、普通文字 PDF、DOCX、XLSX、PPTX、OpenDocument。扫描 PDF 不提供 OCR；图片的文字理解由视觉模型完成。附件内容不会作为摘要记忆提取输入。
 
+开发版本中，XLSX 提取保留空列位置。长文档在模型请求中先展示最多 6,000 字符，模型可通过只读 `read_attachment` 分页读取本会话保存的其余文本，避免单个长附件超过上下文预算。原有 80,000 字符提取上限继续保留，超过上限会标明截断；分页不能恢复提取时已经截去的内容。详见[本轮优化记录](reliability-2026-10-26.md)。
+
 协议参考：[OpenAI 图片输入](https://developers.openai.com/api/docs/guides/images-vision)、[Claude Vision](https://platform.claude.com/docs/en/build-with-claude/vision)、[DeepSeek 图像理解](https://api-docs.deepseek.com/zh-cn/guides/vision/)。
 
 验证：三种协议的请求结构、图片历史、工具调用延续和缺图保护均有自动化检查；MuMu 使用本机模拟 HTTP 服务验证真实读文件、原生选择器、Compose 界面、持久化及图片字节。另经用户授权，使用应用内已有 DeepSeek 配置进行了少量真实文本和合成图片识图请求；未导出密钥或用户聊天。

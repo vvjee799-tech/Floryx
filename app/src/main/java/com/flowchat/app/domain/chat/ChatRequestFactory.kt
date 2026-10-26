@@ -141,23 +141,42 @@ object ChatRequestFactory {
     }
 
     private fun String.withAttachment(message: Message): String {
-        val attachment = message.attachmentText?.trim().orEmpty()
-        if (attachment.isEmpty()) return this
-        val safeName = message.attachmentName.orEmpty()
-            .replace("&", "&amp;")
-            .replace("\"", "&quot;")
-            .replace("<", "&lt;")
-            .replace(">", "&gt;")
+        val attachment = message.attachmentText.orEmpty()
+        if (attachment.isBlank()) return this
+        val safeName = message.attachmentName.orEmpty().escapeXmlAttribute()
+        val preview = if (attachment.length > MaxInlineAttachmentCharacters) {
+            val end = MaxInlineAttachmentCharacters -
+                if (attachment[MaxInlineAttachmentCharacters - 1].isHighSurrogate() &&
+                    attachment[MaxInlineAttachmentCharacters].isLowSurrogate()) 1 else 0
+            attachment.substring(0, end)
+        } else attachment
+        val isPreview = preview.length < attachment.length
+        val safeId = message.id.escapeXmlAttribute()
         return buildString {
             if (this@withAttachment.isNotBlank()) {
                 appendLine(this@withAttachment)
                 appendLine()
             }
-            appendLine("<attached-file name=\"$safeName\">")
-            appendLine(attachment)
+            if (isPreview) {
+                appendLine("<attached-file name=\"$safeName\" message_id=\"$safeId\" preview_chars=\"${preview.length}\" total_chars=\"${attachment.length}\">")
+            } else {
+                appendLine("<attached-file name=\"$safeName\">")
+            }
+            appendLine(preview)
             append("</attached-file>")
+            if (isPreview) {
+                append("\nOnly the first ${preview.length} of ${attachment.length} stored characters are shown. ")
+                append("Call read_attachment with message_id=\"$safeId\" and offset=${preview.length} to read more.")
+            }
         }
     }
 
+    private fun String.escapeXmlAttribute(): String = this
+            .replace("&", "&amp;")
+            .replace("\"", "&quot;")
+            .replace("<", "&lt;")
+            .replace(">", "&gt;")
+
     private const val MaxRelevantMemories = 5
+    internal const val MaxInlineAttachmentCharacters = 6_000
 }

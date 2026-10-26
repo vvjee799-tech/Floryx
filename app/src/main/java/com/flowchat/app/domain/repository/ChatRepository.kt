@@ -12,6 +12,8 @@ interface ChatRepository {
     fun observeMessages(conversationId: String): Flow<List<Message>>
     suspend fun getConversation(id: String): Conversation?
     suspend fun getMessages(conversationId: String): List<Message>
+    /** Reconcile unfinished messages from a previous process before starting a new task. */
+    suspend fun recoverInterruptedTasks(): Set<String> = emptySet()
     suspend fun updateExecutionContext(id: String, context: String)
     suspend fun getContextCheckpoint(conversationId: String): TaskCheckpoint?
     suspend fun saveContextCheckpoint(checkpoint: TaskCheckpoint, expected: TaskCheckpoint?): Boolean

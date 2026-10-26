@@ -77,6 +77,63 @@ class AttachmentDocumentParserTest {
     }
 
     @Test
+    fun preservesSparseXlsxColumnsIncludingMultiLetterReferences() {
+        val bytes = zipOf(
+            "xl/worksheets/sheet1.xml" to """
+                <worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+                  <sheetData><row r="2">
+                    <c r="A2"><v>left</v></c><c r="C2"><v>middle</v></c>
+                    <c r="AA2"><v>far</v></c><c r="AB2"><v>last</v></c>
+                  </row></sheetData>
+                </worksheet>
+            """.trimIndent()
+        )
+
+        val text = AttachmentDocumentParser.extract("sparse.xlsx", XlsxMimeType, bytes)
+        val columns = text.substringAfter('\n').split('\t')
+
+        assertEquals(28, columns.size)
+        assertEquals("left", columns[0])
+        assertEquals("", columns[1])
+        assertEquals("middle", columns[2])
+        assertTrue(columns.subList(3, 26).all { it.isEmpty() })
+        assertEquals("far", columns[26])
+        assertEquals("last", columns[27])
+    }
+
+    @Test
+    fun ignoresOutOfRangeXlsxColumnsWithoutExpandingOutput() {
+        val bytes = zipOf(
+            "xl/worksheets/sheet1.xml" to """
+                <worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+                  <sheetData><row r="1">
+                    <c r="A1"><v>left</v></c><c r="XFE1"><v>ignored</v></c>
+                    <c r="C1"><v>right</v></c>
+                  </row></sheetData>
+                </worksheet>
+            """.trimIndent()
+        )
+
+        assertEquals("Sheet 1\nleft\t\tright", AttachmentDocumentParser.extract("sparse.xlsx", XlsxMimeType, bytes))
+    }
+
+    @Test
+    fun boundsOutputFromValidLastColumnAcrossManyRows() {
+        val rows = (1..7).joinToString("") { row ->
+            "<row r=\"$row\"><c r=\"XFD$row\"><v>x</v></c></row>"
+        }
+        val bytes = zipOf(
+            "xl/worksheets/sheet1.xml" to
+                "<worksheet xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\"><sheetData>$rows</sheetData></worksheet>"
+        )
+
+        val text = AttachmentDocumentParser.extract("wide.xlsx", XlsxMimeType, bytes)
+
+        assertTrue(text.length <= AttachmentDocumentParser.MaxExtractedCharacters + 24)
+        assertTrue(text.endsWith("<content-truncated />"))
+    }
+
+    @Test
     fun extractsSlidesInNumericOrder() {
         val bytes = zipOf(
             "ppt/slides/slide2.xml" to slideXml("Second slide"),

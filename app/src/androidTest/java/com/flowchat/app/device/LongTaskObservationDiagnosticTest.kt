@@ -318,6 +318,7 @@ class LongTaskObservationDiagnosticTest {
             assertEquals(8, tools)
             assertTrue("Compaction should not leave a blank assistant placeholder", model.compactionProgressSeen)
             if (repair || truncated) assertTrue(model.summaries >= 2)
+            else assertTrue("Eight synthetic steps must not repeatedly summarize: ${model.summaries}", model.summaries <= 2)
         } finally {
             environment.settings().setCommandExecutionEnabled(original.commandExecutionEnabled)
             environment.settings().setPowerModeEnabled(original.powerModeEnabled)
