@@ -243,7 +243,7 @@ class ProviderSettingsViewModelTest {
         val savedPreset = providerRepository.getProvider("provider-deepseek")
         assertEquals("DeepSeek", savedPreset?.displayName)
         assertEquals("https://api.deepseek.com", savedPreset?.baseUrl)
-        assertEquals("deepseek-v4-flash", savedPreset?.defaultModel)
+        assertEquals("deepseek-flash", savedPreset?.defaultModel)
         assertEquals("sk-deepseek", providerRepository.getApiKey(requireNotNull(savedPreset)))
         assertEquals("Custom configuration", viewModel.uiState.value.selected?.displayName)
         assertEquals(null, viewModel.uiState.value.pendingPreset)

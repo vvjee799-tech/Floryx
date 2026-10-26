@@ -21,7 +21,7 @@ object ProviderTemplates {
             id = "preset-deepseek",
             displayName = "DeepSeek",
             baseUrl = "https://api.deepseek.com",
-            defaultModel = "deepseek-v4-flash"
+            defaultModel = "deepseek-flash"
         ),
         ProviderPreset(
             id = "preset-gemini",

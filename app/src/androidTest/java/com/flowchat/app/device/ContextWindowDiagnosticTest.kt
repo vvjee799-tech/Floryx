@@ -75,6 +75,44 @@ class ContextWindowDiagnosticTest {
         InstrumentationRegistry.getArguments().getString("runContextWindowDiagnostics") == "true"
     )
 
+    @Test fun deepSeekPopupSeparatesModelCapacityInputBudgetAndOutputReserve() {
+        enabled()
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val usage = mutableStateOf(ContextWindowUsage(100_000, 884_464, modelWindowTokens = 1_000_000, outputReserveTokens = 65_536))
+        val appearance = mutableStateOf(AppAppearance.Light)
+        val fontScale = mutableStateOf(1f)
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { activity -> activity.setContent {
+                CompositionLocalProvider(LocalDensity provides Density(LocalDensity.current.density, fontScale.value)) {
+                    FlowChatTheme(appearance.value) {
+                        Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background), contentAlignment = Alignment.BottomCenter) {
+                            Box(Modifier.width(320.dp)) {
+                                com.flowchat.app.presentation.chat.ContextWindowIndicator(usage.value, enabled = true)
+                            }
+                        }
+                    }
+                }
+            } }
+            compose.onNodeWithTag("context_window_indicator").performClick()
+            compose.onNodeWithText(context.getString(R.string.context_window_model, "1M")).assertIsDisplayed()
+            compose.onNodeWithText(context.getString(R.string.context_window_output_reserve, "65.5k")).assertIsDisplayed()
+            compose.onNodeWithText("884.5k", substring = true).assertIsDisplayed()
+            screenshot("deepseek-light-popup.png")
+            compose.runOnIdle {
+                appearance.value = AppAppearance.Dark
+                fontScale.value = 1.3f
+                usage.value = usage.value.copy(totalTokens = 818_928, outputReserveTokens = 131_072)
+            }
+            compose.onNodeWithText(context.getString(R.string.context_window_model, "1M")).assertIsDisplayed()
+            compose.onNodeWithText(context.getString(R.string.context_window_output_reserve, "131.1k")).assertIsDisplayed()
+            compose.onNodeWithText("818.9k", substring = true).assertIsDisplayed()
+            screenshot("deepseek-dark-large-font-popup.png")
+            compose.runOnIdle { usage.value = usage.value.copy(totalTokens = 941_808, outputReserveTokens = 8_192) }
+            compose.onNodeWithText(context.getString(R.string.context_window_output_reserve, "8.2k")).assertIsDisplayed()
+            compose.onNodeWithText("941.8k", substring = true).assertIsDisplayed()
+        }
+    }
+
     @Test fun composerRingDetailsThemesAndConversationSwitch() {
         enabled()
         val instrumentation = InstrumentationRegistry.getInstrumentation()

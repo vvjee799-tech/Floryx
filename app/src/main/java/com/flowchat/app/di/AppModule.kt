@@ -63,6 +63,10 @@ import kotlinx.serialization.json.Json
 @InstallIn(SingletonComponent::class)
 object AppModule {
     @Provides
+    @ContextDispatcher
+    fun provideContextDispatcher(): kotlinx.coroutines.CoroutineDispatcher = kotlinx.coroutines.Dispatchers.Default
+
+    @Provides
     @Singleton
     fun provideJson(): Json = Json {
         ignoreUnknownKeys = true

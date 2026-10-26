@@ -1,8 +1,11 @@
 <resources>
     <string name="context_window_title">上下文窗口</string>
     <string name="context_window_percent">约 %1$d%% 已用</string>
-    <string name="context_window_tokens">估算已用 %1$s 标记，共 %2$s</string>
-    <string name="context_window_budget_hint">按当前会话上下文预算计算</string>
+    <string name="context_window_tokens">估算输入 %1$s / 预算 %2$s 标记</string>
+    <string name="context_window_budget_hint">按本地会话上下文预算计算</string>
+    <string name="context_window_model">模型上下文 %1$s 标记</string>
+    <string name="context_window_output_reserve">输出预留 %1$s 标记</string>
+    <string name="context_window_reserve_hint">已预留输出空间与估算余量</string>
     <string name="context_window_unknown">尚无上下文估算</string>
     <string name="context_window_compacting">正在整理上下文…</string>
     <string name="interrupted_task_title">上次任务未完成</string>

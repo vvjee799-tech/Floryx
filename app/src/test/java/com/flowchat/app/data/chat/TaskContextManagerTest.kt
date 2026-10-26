@@ -497,6 +497,92 @@ class TaskContextManagerTest {
         assertEquals(6, prepared.checkpoint!!.summary.findings.single().sources.size)
     }
 
+    @Test fun officialDeepSeekRetainsHundredThousandTokensWithoutPrematureSummary() = runTest {
+        val official = provider.copy(baseUrl = "https://api.deepseek.com", defaultModel = "deepseek-flash")
+        val chat = conversation.copy(modelName = official.defaultModel)
+        val rows = (1..20).flatMap { index -> listOf(
+            Message(id = "long-u$index", conversationId = chat.id, role = MessageRole.User, content = "Q $index"),
+            Message(id = "long-a$index", conversationId = chat.id, role = MessageRole.Assistant, content = "x".repeat(15_000))) }
+        val client = Client { error("100k must not summarize") }
+        val repo = Repo(rows)
+        val manager = TaskContextManager(client, repo)
+        val prepared = manager.prepare(chat, rows, official, null,
+            projectWindow = { ChatRequestFactory.create(chat, it.messages, checkpoint = it.checkpoint) })
+        val request = ChatRequestFactory.create(chat, prepared.messages)
+        val usage = manager.contextWindow(request, official)
+        assertEquals(rows, prepared.messages)
+        assertNull(prepared.checkpoint)
+        assertTrue(usage.usedTokens > 100_000)
+        assertEquals(1_000_000, usage.modelWindowTokens)
+        assertEquals(65_536, usage.outputReserveTokens)
+        assertEquals(884_464, usage.totalTokens)
+        assertFalse(manager.shouldCompact(request, official))
+        manager.requireFits(request, chat.id, official)
+        assertTrue(client.requests.isEmpty())
+        assertThrows(IllegalStateException::class.java) { manager.requireFits(request, chat.id, provider) }
+    }
+
+    @Test fun deepSeekWatermarksFollowOutputAndThinkingChangesAndHardBudgetIsEnforced() {
+        val official = provider.copy(baseUrl = "https://api.deepseek.com", defaultModel = "deepseek-flash")
+        val manager = TaskContextManager(Client(), Repo(emptyList()))
+        fun near(tokens: Int) = ChatRequest(official.defaultModel,
+            listOf(ChatRequestMessage("user", "x".repeat((tokens - 1_024) * 3))), 0.7, 1.0, null, usageConversationId = "c")
+        manager.recordCompaction(near(800_000), official)
+        val at720k = near(720_000)
+        assertFalse(manager.shouldCompact(at720k, official))
+        assertTrue(manager.shouldCompact(at720k.copy(thinkingEffort = ThinkingEffort.Max), official))
+        assertTrue(manager.shouldCompact(at720k.copy(maxTokens = 393_216), official))
+        assertFalse(manager.shouldCompact(at720k.copy(enableThinking = false), official))
+        assertThrows(IllegalStateException::class.java) { manager.requireFits(near(900_000), "c", official) }
+        manager.requireFits(near(900_000).copy(enableThinking = false), "c", official)
+        assertTrue(manager.shouldCompact(near(845_000), official))
+        assertEquals(120_000L, manager.limitsFor(at720k, official).summaryTimeoutMillis)
+    }
+
+    @Test fun deepSeekCompactsByTokenSuffixWithBoundedLargeBatchesAndPreservesMoreThanFourTurns() = runTest {
+        val official = provider.copy(baseUrl = "https://api.deepseek.com", defaultModel = "deepseek-flash")
+        val chat = conversation.copy(modelName = official.defaultModel)
+        val rows = (1..100).flatMap { index -> listOf(
+            Message(id = "large-u$index", conversationId = chat.id, role = MessageRole.User, content = "Q$index " + "u".repeat(15_000)),
+            Message(id = "large-a$index", conversationId = chat.id, role = MessageRole.Assistant, content = "a".repeat(15_000))) }
+        val repo = Repo(rows)
+        val client = Client()
+        val manager = TaskContextManager(client, repo)
+        val prepared = manager.prepare(chat, rows, official, null,
+            projectWindow = { ChatRequestFactory.create(chat, it.messages, checkpoint = it.checkpoint) })
+        assertNotNull(prepared.checkpoint)
+        assertTrue(prepared.checkpoint!!.matches(rows))
+        assertTrue("Token suffix must retain substantially more than four short turns", prepared.messages.count { it.role == MessageRole.User } > 40)
+        assertTrue(client.requests.size in 1..4)
+        client.requests.forEach { summary ->
+            assertFalse(summary.enableThinking)
+            assertTrue(ContextBudget.request(summary, official) <= 128_000)
+            assertEquals(summary.maxTokens, manager.limitsFor(summary, official).outputReserveTokens)
+        }
+        val after = ChatRequestFactory.create(chat, prepared.messages, checkpoint = prepared.checkpoint)
+        assertTrue(manager.contextWindow(after, official).usedTokens <= manager.limitsFor(after, official).targetTokens)
+        manager.recordCompaction(after, official)
+        assertFalse(manager.shouldCompact(after, official))
+        assertEquals(rows, repo.rows)
+    }
+
+    @Test fun officialSummaryAllowsMoreThanThirtySecondsAndStillCancelsWithoutSavingPartialState() = runTest {
+        val official = provider.copy(baseUrl = "https://api.deepseek.com", defaultModel = "deepseek-flash")
+        val chat = conversation.copy(modelName = official.defaultModel)
+        val rows = transcript()
+        val repo = Repo(rows)
+        val slow = Client { delay(31_000); validSummary(it) }
+        val result = TaskContextManager(slow, repo).prepare(chat, rows, official, null, force = true)
+        assertNotNull(result.checkpoint)
+        val cancelledRepo = Repo(rows)
+        val blocked = Client { awaitCancellation() }
+        val job = launch { TaskContextManager(blocked, cancelledRepo).prepare(chat, rows, official, null, force = true) }
+        runCurrent()
+        job.cancelAndJoin()
+        assertNull(cancelledRepo.checkpoint)
+        assertEquals(rows, cancelledRepo.rows)
+    }
+
     private companion object {
         fun validSummary(request: ChatRequest): List<ChatDelta> {
             val input = Json.parseToJsonElement(request.messages.last().content!!).jsonObject

@@ -4,6 +4,7 @@ import com.flowchat.app.data.network.ChatCompletionClient
 import com.flowchat.app.domain.chat.*
 import com.flowchat.app.domain.model.*
 import com.flowchat.app.domain.repository.ChatRepository
+import com.flowchat.app.domain.provider.DeepSeekContextProfile
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.currentCoroutineContext
@@ -23,7 +24,11 @@ data class ContextLimits(
     val keepTurns: Int = 4,
     val batchTokens: Int = 20_000,
     val targetTokens: Int = softTokens / 2,
-    val minGrowthTokens: Int = softTokens / 6
+    val minGrowthTokens: Int = softTokens / 6,
+    val modelWindowTokens: Int? = null,
+    val outputReserveTokens: Int = 0,
+    val summaryTimeoutMillis: Long = 30_000,
+    val tokenBoundary: Boolean = false
 )
 
 data class PreparedTaskContext(val messages: List<Message>, val checkpoint: TaskCheckpoint?)
@@ -31,20 +36,33 @@ data class PreparedTaskContext(val messages: List<Message>, val checkpoint: Task
 class TaskContextManager(
     private val client: ChatCompletionClient,
     private val repository: ChatRepository,
-    private val limits: ContextLimits = ContextLimits()
+    private val limits: ContextLimits? = null
 ) {
     private val mutexes = ConcurrentHashMap<String, Mutex>()
     private val failedUntil = ConcurrentHashMap<String, Long>()
     private val failureCodes = ConcurrentHashMap<String, String>()
-    private data class WindowKey(val conversation: String, val model: String, val provider: String?)
+    private data class WindowKey(val conversation: String, val model: String, val provider: String?, val limits: ContextLimits)
+    private val estimator = ContextBudget.Estimator()
     private val nextCompactionTokens = ConcurrentHashMap<WindowKey, Int>()
     var lastFailureCode: String? = null
         private set
 
     private class SummaryFailure(val code: String, val correction: String = "") : Exception(code)
 
-    fun contextWindow(request: ChatRequest, provider: ProviderConfig? = null) =
-        ContextWindowUsage(ContextBudget.request(request, provider), limits.hardTokens)
+    fun limitsFor(request: ChatRequest, provider: ProviderConfig? = null): ContextLimits {
+        limits?.let { return it }
+        val profile = DeepSeekContextProfile.resolve(provider, request) ?: return ContextLimits()
+        val hard = profile.inputTokens
+        return ContextLimits(softTokens = hard * 85 / 100, hardTokens = hard, batchTokens = 128_000,
+            targetTokens = hard * 60 / 100, minGrowthTokens = hard / 10, modelWindowTokens = profile.windowTokens,
+            outputReserveTokens = profile.outputTokens, summaryTimeoutMillis = 120_000, tokenBoundary = true)
+    }
+
+    fun contextWindow(request: ChatRequest, provider: ProviderConfig? = null): ContextWindowUsage {
+        val limits = limitsFor(request, provider)
+        return ContextWindowUsage(estimator.request(request, provider), limits.hardTokens,
+            modelWindowTokens = limits.modelWindowTokens, outputReserveTokens = limits.outputReserveTokens)
+    }
 
     /** Restore only the persisted model window for display; never summarize or write from an estimate. */
     suspend fun restoreWindow(conversationId: String, history: List<Message>): PreparedTaskContext {
@@ -55,7 +73,8 @@ class TaskContextManager(
     }
 
     fun shouldCompact(request: ChatRequest, provider: ProviderConfig? = null): Boolean {
-        val tokens = ContextBudget.request(request, provider)
+        val limits = limitsFor(request, provider)
+        val tokens = estimator.request(request, provider)
         val emergency = limits.hardTokens - limits.minGrowthTokens / 2
         val next = request.usageConversationId?.let { nextCompactionTokens[windowKey(request, it, provider)] }
             ?: limits.softTokens
@@ -64,22 +83,24 @@ class TaskContextManager(
 
     /** A fresh window needs meaningful growth before the next soft-limit summary. */
     fun recordCompaction(request: ChatRequest, provider: ProviderConfig? = null) {
+        val limits = limitsFor(request, provider)
         val owner = request.usageConversationId ?: return
-        val next = (ContextBudget.request(request, provider).toLong() + limits.minGrowthTokens)
+        val next = (estimator.request(request, provider).toLong() + limits.minGrowthTokens)
             .coerceAtLeast(limits.softTokens.toLong()).coerceAtMost(limits.hardTokens.toLong()).toInt()
         nextCompactionTokens[windowKey(request, owner, provider)] = next
     }
 
     private fun windowKey(request: ChatRequest, owner: String, provider: ProviderConfig?) =
-        WindowKey(owner, request.model, provider?.let { it.id + "|" + it.baseUrl })
+        WindowKey(owner, request.model, provider?.let { it.id + "|" + it.baseUrl }, limitsFor(request, provider))
 
     /** Keep recent native calls atomic; very large replay state can leave room for only one group. */
     fun retainedNativeStart(request: ChatRequest, provider: ProviderConfig? = null): Int? {
+        val limits = limitsFor(request, provider)
         val groups = request.messages.indices.filter { request.messages[it].toolCalls.isNotEmpty() }.takeLast(2)
         if (groups.isEmpty()) return null
         if (groups.size == 1) return groups.first()
         val tail = request.copy(messages = request.messages.drop(groups.first()), tools = emptyList())
-        val replayTokens = (ContextBudget.request(tail, provider) - 1_024).coerceAtLeast(0)
+        val replayTokens = (estimator.request(tail, provider) - 1_024).coerceAtLeast(0)
         return if (replayTokens > limits.targetTokens * 2 / 3) groups.last() else groups.first()
     }
 
@@ -98,10 +119,12 @@ class TaskContextManager(
         var checkpoint = stored?.takeIf { it.matches(all) }
         var boundary = checkpoint?.let { old -> all.indexOfFirst { it.id == old.throughMessageId } } ?: -1
         fun window() = PreparedTaskContext(tail(all, boundary), checkpoint)
+        val initialRequest = projectWindow?.invoke(window()) ?: ChatRequestFactory.create(conversation, emptyList())
+        val limits = limitsFor(initialRequest, provider)
         val remaining = all.drop(boundary + 1)
         fun sizeOf(cut: Int): Int {
             val candidate = PreparedTaskContext(tail(all, cut), checkpoint)
-            return projectWindow?.let { ContextBudget.request(it(candidate), provider) }
+            return projectWindow?.let { estimator.request(it(candidate), provider) }
                 ?: (estimate(candidate.messages) + checkpoint?.let { ContextBudget.text(it.asContext()) }.orZero())
         }
         val size = sizeOf(boundary)
@@ -113,9 +136,24 @@ class TaskContextManager(
         val maxCut = (protectedIndex ?: latestUserIndex) - 1
         if (maxCut <= boundary) return@withLock window()
         val users = all.mapIndexedNotNull { index, message -> index.takeIf { message.role == MessageRole.User } }
-        var cut = if (users.size > limits.keepTurns) users[users.size - limits.keepTurns] - 1 else (all.size - 7)
-        cut = cut.coerceIn(boundary + 1, maxCut)
-        while (cut < maxCut && sizeOf(cut) > limits.targetTokens) cut++
+        val target = if (limits.tokenBoundary) (limits.targetTokens - 16_000).coerceAtLeast(0) else limits.targetTokens
+        var cut: Int
+        if (limits.tokenBoundary) {
+            // Find the shortest archive that leaves the desired token suffix. Full projections
+            // are logarithmic in record count rather than one per record or a four-turn cliff.
+            var low = boundary + 1
+            var high = maxCut
+            while (low < high) {
+                currentCoroutineContext().ensureActive()
+                val mid = low + (high - low) / 2
+                if (sizeOf(mid) > target) low = mid + 1 else high = mid
+            }
+            cut = low
+        } else {
+            cut = (if (users.size > limits.keepTurns) users[users.size - limits.keepTurns] - 1 else all.size - 7)
+                .coerceIn(boundary + 1, maxCut)
+        }
+        while (cut < maxCut && sizeOf(cut) > target) { currentCoroutineContext().ensureActive(); cut++ }
 
         if (System.currentTimeMillis() < failedUntil.getOrDefault(conversation.id, 0L)) return@withLock window()
         try {
@@ -123,6 +161,9 @@ class TaskContextManager(
             while (boundary < cut) {
                 val batch = mutableListOf<Message>()
                 var batchSize = checkpoint?.let { ContextBudget.text(CheckpointCodec.encode(it)) }.orZero() + 1_000
+                if (limits.tokenBoundary) {
+                    batchSize = estimator.request(summaryRequest(checkpoint, emptyList(), conversation.modelName, 8_192), provider) + 2_048
+                }
                 for (message in all.subList(boundary + 1, cut + 1)) {
                     val next = ContextBudget.text(summarySource(message).toString())
                     if (batch.isNotEmpty() && batchSize + next > limits.batchTokens) break
@@ -174,6 +215,7 @@ class TaskContextManager(
     }
 
     fun requireFits(request: ChatRequest, conversationId: String? = null, provider: ProviderConfig? = null) {
+        val limits = limitsFor(request, provider)
         val code = if (conversationId == null) lastFailureCode else failureCodes[conversationId]
         val reason = when {
             code?.startsWith("invalid_summary_") == true -> "摘要格式校验失败，自动修复后仍未通过。"
@@ -188,7 +230,7 @@ class TaskContextManager(
             code?.startsWith("service_") == true -> "摘要服务未返回可用结果。"
             else -> "任务记录尚未整理到可用长度。"
         }
-        check(ContextBudget.request(request, provider) <= limits.hardTokens) {
+        check(estimator.request(request, provider) <= limits.hardTokens) {
             "上下文整理未完成：$reason 本轮已停止，完整任务记录已保留，可稍后在本会话继续。"
         }
     }
@@ -217,21 +259,29 @@ class TaskContextManager(
         message.executionContext?.let { put("tool_evidence", CheckpointCodec.excerpt(it, 8_000)) }
     }
 
-    private suspend fun summarize(previous: TaskCheckpoint?, batch: List<Message>, sources: List<Message>, provider: ProviderConfig, key: String?, model: String): TaskSummary {
+    private fun summaryRequest(previous: TaskCheckpoint?, batch: List<Message>, model: String, output: Int,
+        correction: String? = null): ChatRequest {
         val input = buildJsonObject {
             previous?.let { put("previous_checkpoint", CheckpointCodec.json.encodeToJsonElement(it)) }
             putJsonArray("new_records") { batch.forEach { add(summarySource(it)) } }
         }
+        val instructions = Instructions + correction?.let {
+            "\nYour previous summary was rejected by validation. Return a corrected summary of the same source records. $it"
+        }.orEmpty()
+        return ChatRequest(model, listOf(ChatRequestMessage("system", instructions), ChatRequestMessage("user", input.toString())),
+            temperature = 0.0, topP = 1.0, maxTokens = output, enableThinking = false,
+            usageConversationId = batch.firstOrNull()?.conversationId)
+    }
+
+    private suspend fun summarize(previous: TaskCheckpoint?, batch: List<Message>, sources: List<Message>, provider: ProviderConfig, key: String?, model: String): TaskSummary {
         var correction: String? = null
         val rejectedCodes = mutableSetOf<String>()
         val largeCheckpoint = previous?.summary?.let { CheckpointCodec.json.encodeToString(it).length > 6_000 } == true
         repeat(3) { attempt ->
-            val instructions = Instructions + correction?.let {
-                "\nYour previous summary was rejected by validation. Return a corrected summary of the same source records. $it"
-            }.orEmpty()
-            val request = ChatRequest(
-            model = model, usageConversationId = batch.firstOrNull()?.conversationId, messages = listOf(ChatRequestMessage("system", instructions), ChatRequestMessage("user", input.toString())),
-                temperature = 0.0, topP = 1.0, maxTokens = if (attempt == 0 && !largeCheckpoint) 4_096 else 8_192, enableThinking = false)
+            val request = summaryRequest(previous, batch, model, if (attempt == 0 && !largeCheckpoint) 4_096 else 8_192, correction)
+            val summaryLimits = limitsFor(request, provider)
+            if (summaryLimits.tokenBoundary && estimator.request(request, provider) > minOf(summaryLimits.batchTokens, summaryLimits.hardTokens))
+                throw SummaryFailure("summary_too_large")
             val rejection = try {
                 return readSummary(request, provider, key, sources)
             } catch (error: kotlinx.serialization.SerializationException) {
@@ -251,7 +301,7 @@ class TaskContextManager(
     private suspend fun readSummary(request: ChatRequest, provider: ProviderConfig, key: String?, sources: List<Message>): TaskSummary {
         val output = StringBuilder()
         var done = false
-        withTimeout(30_000) {
+        withTimeout(limitsFor(request, provider).summaryTimeoutMillis) {
             client.streamChat(request, provider, key).collect { delta ->
                 when (delta) {
                     is ChatDelta.Content -> output.append(delta.text)

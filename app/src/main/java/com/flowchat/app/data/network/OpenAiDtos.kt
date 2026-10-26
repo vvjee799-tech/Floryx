@@ -90,6 +90,7 @@ data class OpenAiToolCallFunction(
 )
 
 fun ChatRequest.toOpenAiRequest(provider: ProviderConfig? = null, stream: Boolean = true): OpenAiChatCompletionRequest {
+    val effectiveMaxTokens = com.flowchat.app.domain.provider.DeepSeekContextProfile.resolve(provider, this)?.outputTokens ?: maxTokens
     val support = ThinkingSupport.resolve(provider, model)
     val enabled = support.isEnabled(enableThinking)
     val effort = support.normalize(thinkingEffort).takeUnless { it == ThinkingEffort.Auto }?.wireValue
@@ -134,8 +135,8 @@ fun ChatRequest.toOpenAiRequest(provider: ProviderConfig? = null, stream: Boolea
         stream = stream,
         temperature = temperature.takeUnless { omitSampling },
         topP = topP.takeUnless { omitSampling },
-        maxTokens = maxTokens.takeUnless { completionLimit },
-        maxCompletionTokens = maxTokens.takeIf { completionLimit },
+        maxTokens = effectiveMaxTokens.takeUnless { completionLimit },
+        maxCompletionTokens = effectiveMaxTokens.takeIf { completionLimit },
         thinking = thinking,
         reasoningEffort = wireEffort,
         enableThinking = enabled.takeIf { booleanSwitch },

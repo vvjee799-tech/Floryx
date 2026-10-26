@@ -137,7 +137,8 @@ internal fun ContextWindowIndicator(
                     dismissOnClickOutside = true
                 )
             ) {
-                val budgetHint = stringResource(R.string.context_window_budget_hint)
+                val budgetHint = stringResource(if (usage?.modelWindowTokens != null)
+                    R.string.context_window_reserve_hint else R.string.context_window_budget_hint)
                 val compactionHint = if (usage?.isCompacting == true) {
                     stringResource(R.string.context_window_compacting)
                 } else {
@@ -169,8 +170,25 @@ internal fun ContextWindowIndicator(
                             textAlign = TextAlign.Center
                         )
                     } else {
+                        usage.modelWindowTokens?.let { capacity ->
+                            Text(
+                                text = stringResource(R.string.context_window_model,
+                                    compactContextWindowTokens(capacity).uppercase(Locale.ROOT)),
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                color = Color.White,
+                                textAlign = TextAlign.Center
+                            )
+                        }
                         Text(
                             text = stringResource(R.string.context_window_percent, usage.usedPercent),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color.White,
+                            textAlign = TextAlign.Center
+                        )
+                        if (usage.modelWindowTokens != null) Text(
+                            text = stringResource(R.string.context_window_output_reserve,
+                                compactContextWindowTokens(usage.outputReserveTokens)),
                             style = MaterialTheme.typography.bodySmall,
                             color = Color.White,
                             textAlign = TextAlign.Center

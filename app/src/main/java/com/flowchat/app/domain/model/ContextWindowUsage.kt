@@ -4,10 +4,15 @@ package com.flowchat.app.domain.model
 data class ContextWindowUsage(
     val usedTokens: Int,
     val totalTokens: Int,
-    val isCompacting: Boolean = false
+    val isCompacting: Boolean = false,
+    /** Null means a local fallback budget, not an identified model capability. */
+    val modelWindowTokens: Int? = null,
+    val outputReserveTokens: Int = 0
 ) {
     init {
         require(usedTokens >= 0 && totalTokens > 0)
+        require(modelWindowTokens == null || modelWindowTokens >= totalTokens)
+        require(outputReserveTokens >= 0)
     }
 
     val fraction: Float get() = (usedTokens.toDouble() / totalTokens).coerceIn(0.0, 1.0).toFloat()

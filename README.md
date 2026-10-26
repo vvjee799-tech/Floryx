@@ -28,8 +28,8 @@ Floryx 将多模型对话、手机操作与命令执行放进同一个会话。�
 
 | | 版本与入口 |
 | --- | --- |
-| **已发布安装包** | [下载 Floryx 1.5.16 APK](https://github.com/vvjee799-tech/FlowChat/releases/download/v1.5.16/Floryx-1.5.16-retain-config.apk) · [发布页与校验文件](https://github.com/vvjee799-tech/FlowChat/releases/latest) |
-| **当前源码** | **1.5.16** · [查看更新记录](CHANGELOG.md) · [自行构建](#开发与构建) |
+| **已发布安装包** | [下载 Floryx 1.5.17 APK](https://github.com/vvjee799-tech/FlowChat/releases/download/v1.5.17/Floryx-1.5.17-retain-config.apk) · [发布页与校验文件](https://github.com/vvjee799-tech/FlowChat/releases/latest) |
+| **当前源码** | **1.5.17** · [查看更新记录](CHANGELOG.md) · [自行构建](#开发与构建) |
 
 安装包与源码版本分开标注；最新源码中的能力不一定已包含在上方发布的 APK 中。
 
@@ -143,6 +143,19 @@ Windows 下运行：
 Debug APK 位于 `app/build/outputs/apk/debug/app-debug.apk`，名称为 **Floryx Dev**，包名为 `com.flowchat.app.debug`。标准 Release 的包名为 `com.flowchat.app`；当前发布的保留配置包沿用历史包名。
 
 仓库不包含模型密钥和发布签名配置。已停用的搜索代理源码保留在 `search-proxy/`，供后续开发使用。
+
+<details>
+<summary><b>1.5.17 验证记录</b> · 448 项单元测试通过 · DeepSeek 百万窗口与设备回归通过</summary>
+
+- 共 449 项单元测试：448 项通过，1 项既有 Windows 环境用例跳过。
+- DeepSeek 官方 Flash、Pro 及兼容旧别名适配 1M 上下文，统一输出预留、自动整理与界面预算；默认思考模式可用输入约 884k Token。
+- MuMu 11 项设备验证通过，覆盖大窗口、工具配对、摘要修复、停止接续、重新打开会话以及深浅色和窄屏大字体。
+- Debug、设备测试包、Release/R8 构建与 Release lint 通过。模型链路采用合成数据和严格本地服务；未向真实 DeepSeek 接口提交百万输入测试。
+- vivo V2302A 已从 1.5.16 覆盖更新至 1.5.17，同包名、同签名，应用身份保持一致，冷启动成功；正式包已核对签名与校验值。
+
+详细记录：[DeepSeek 上下文适配与验证](docs/deepseek-context-2026-10-26.md)。
+
+</details>
 
 <details>
 <summary><b>1.5.16 验证记录</b> · 438 项单元测试通过 · 上下文与可靠性回归通过</summary>

@@ -759,7 +759,8 @@ class ChatViewModelTest {
             appUsageReader = FakeAppUsageReader(), appLauncher = launcher, deviceAssistantGateway = gateway,
             promptProfileRepository = FakePromptProfileRepository(), memoryRepository = memory,
             appSettingsStore = AppSettingsStore(AppSettings(powerModeEnabled = enabled, memoryEnabled = memoryEnabled, installId = "test-install")),
-            floatingAssistantBridge = bridge
+            floatingAssistantBridge = bridge,
+            contextDispatcher = dispatcher
         ).also { testModels += it }
     }
 
@@ -796,7 +797,8 @@ class ChatViewModelTest {
             appUsageReader = FakeAppUsageReader(),
             appLauncher = FakeAppLauncher(),
             promptProfileRepository = FakePromptProfileRepository(),
-            memoryRepository = FakeMemoryRepository()
+            memoryRepository = FakeMemoryRepository(),
+            contextDispatcher = dispatcher
         ).also { testModels += it }
         val collection = backgroundScope.launch { viewModel.uiState.collect {} }
         advanceUntilIdle()
@@ -843,7 +845,8 @@ class ChatViewModelTest {
             appUsageReader = FakeAppUsageReader(),
             appLauncher = FakeAppLauncher(),
             promptProfileRepository = FakePromptProfileRepository(),
-            memoryRepository = FakeMemoryRepository()
+            memoryRepository = FakeMemoryRepository(),
+            contextDispatcher = dispatcher
         ).also { testModels += it }
         val collection = backgroundScope.launch { viewModel.uiState.collect {} }
         advanceUntilIdle()
@@ -883,7 +886,8 @@ class ChatViewModelTest {
             appUsageReader = FakeAppUsageReader(),
             appLauncher = FakeAppLauncher(),
             promptProfileRepository = FakePromptProfileRepository(),
-            memoryRepository = FakeMemoryRepository()
+            memoryRepository = FakeMemoryRepository(),
+            contextDispatcher = dispatcher
         ).also { testModels += it }
         val collection = backgroundScope.launch { viewModel.uiState.collect {} }
         advanceUntilIdle()
@@ -944,7 +948,8 @@ class ChatViewModelTest {
             appUsageReader = FakeAppUsageReader(),
             appLauncher = FakeAppLauncher(),
             promptProfileRepository = FakePromptProfileRepository(),
-            memoryRepository = FakeMemoryRepository()
+            memoryRepository = FakeMemoryRepository(),
+            contextDispatcher = dispatcher
         ).also { testModels += it }
         val collection = backgroundScope.launch { viewModel.uiState.collect {} }
         advanceUntilIdle()
@@ -1004,7 +1009,8 @@ class ChatViewModelTest {
             appUsageReader = FakeAppUsageReader(),
             appLauncher = appLauncher,
             promptProfileRepository = FakePromptProfileRepository(),
-            memoryRepository = FakeMemoryRepository()
+            memoryRepository = FakeMemoryRepository(),
+            contextDispatcher = dispatcher
         ).also { testModels += it }
         val collection = backgroundScope.launch { viewModel.uiState.collect {} }
         advanceUntilIdle()
@@ -1069,7 +1075,8 @@ class ChatViewModelTest {
                     powerModeEnabled = true,
                     installId = "test-install"
                 )
-            )
+            ),
+            contextDispatcher = dispatcher
         ).also { testModels += it }
         val collection = backgroundScope.launch { viewModel.uiState.collect {} }
         advanceUntilIdle()
@@ -1137,7 +1144,8 @@ class ChatViewModelTest {
                     powerModeEnabled = true,
                     installId = "test-install"
                 )
-            )
+            ),
+            contextDispatcher = dispatcher
         ).also { testModels += it }
         val collection = backgroundScope.launch { viewModel.uiState.collect {} }
         advanceUntilIdle()
@@ -1186,7 +1194,8 @@ class ChatViewModelTest {
                     powerModeEnabled = false,
                     installId = "test-install"
                 )
-            )
+            ),
+            contextDispatcher = dispatcher
         ).also { testModels += it }
         val collection = backgroundScope.launch { viewModel.uiState.collect {} }
         advanceUntilIdle()
@@ -1257,7 +1266,8 @@ class ChatViewModelTest {
             memoryRepository = FakeMemoryRepository(),
             appSettingsStore = AppSettingsStore(
                 AppSettings(powerModeEnabled = true, installId = "test-install")
-            )
+            ),
+            contextDispatcher = dispatcher
         ).also { testModels += it }
         val collection = backgroundScope.launch { viewModel.uiState.collect {} }
         advanceUntilIdle()
@@ -1309,7 +1319,8 @@ class ChatViewModelTest {
             memoryRepository = FakeMemoryRepository(),
             appSettingsStore = AppSettingsStore(
                 AppSettings(powerModeEnabled = true, installId = "test-install")
-            )
+            ),
+            contextDispatcher = dispatcher
         ).also { testModels += it }
         val collection = backgroundScope.launch { viewModel.uiState.collect {} }
         advanceUntilIdle()
@@ -1368,7 +1379,8 @@ class ChatViewModelTest {
             memoryRepository = FakeMemoryRepository(),
             appSettingsStore = AppSettingsStore(
                 AppSettings(powerModeEnabled = true, installId = "test-install")
-            )
+            ),
+            contextDispatcher = dispatcher
         ).also { testModels += it }
         val collection = backgroundScope.launch { viewModel.uiState.collect {} }
         advanceUntilIdle()
@@ -1405,7 +1417,8 @@ class ChatViewModelTest {
             appUsageReader = FakeAppUsageReader(),
             appLauncher = FakeAppLauncher(),
             promptProfileRepository = FakePromptProfileRepository(),
-            memoryRepository = FakeMemoryRepository()
+            memoryRepository = FakeMemoryRepository(),
+            contextDispatcher = dispatcher
         ).also { testModels += it }
         val collection = backgroundScope.launch { viewModel.uiState.collect {} }
         advanceUntilIdle()
@@ -1431,7 +1444,7 @@ class ChatViewModelTest {
         ))
         val vm = ChatViewModel(repository, FakeProviderRepository(provider), client, FakeAppUsageReader(),
             FakeAppLauncher(), gateway, FakePromptProfileRepository(), FakeMemoryRepository(),
-            AppSettingsStore(AppSettings(powerModeEnabled = true, memoryEnabled = false, installId = "test"))).also { testModels += it }
+            AppSettingsStore(AppSettings(powerModeEnabled = true, memoryEnabled = false, installId = "test")), contextDispatcher = dispatcher).also { testModels += it }
         val collection = backgroundScope.launch { vm.uiState.collect {} }
         advanceUntilIdle()
         vm.selectConversation(a.id)
@@ -1469,7 +1482,8 @@ class ChatViewModelTest {
             promptProfileRepository = FakePromptProfileRepository(),
             memoryRepository = FakeMemoryRepository(),
             appSettingsStore = AppSettingsStore(AppSettings(powerModeEnabled = false, memoryEnabled = false, installId = "test-install")),
-            floatingAssistantBridge = FloatingAssistantBridge()
+            floatingAssistantBridge = FloatingAssistantBridge(),
+            contextDispatcher = dispatcher
         ).also { testModels += it }
     }
 
@@ -1549,6 +1563,41 @@ class ChatViewModelTest {
         finish.complete(Unit)
         advanceUntilIdle()
         assertEquals(3, requests.size)
+        collection.cancel()
+    }
+
+    @Test fun deepSeekPreviewRecalculatesAfterThinkingOutputAndModelChangesWithoutNetworkRequests() = runTest(dispatcher) {
+        val provider = ProviderConfig(id = "provider-1", displayName = "Custom", baseUrl = "https://api.deepseek.com", defaultModel = "deepseek-flash")
+        val chat = Conversation(id = "capacity-chat", providerId = provider.id, modelName = provider.defaultModel)
+        val repository = FakeChatRepository(listOf(chat), chat)
+        val client = FakeChatCompletionClient()
+        val vm = ChatViewModel(repository, FakeProviderRepository(provider), client, FakeAppUsageReader(), FakeAppLauncher(),
+            promptProfileRepository = FakePromptProfileRepository(), memoryRepository = FakeMemoryRepository(),
+            appSettingsStore = AppSettingsStore(AppSettings(powerModeEnabled = false, memoryEnabled = false, installId = "test")),
+            contextDispatcher = dispatcher).also { testModels += it }
+        val collection = backgroundScope.launch { vm.uiState.collect {} }
+        advanceUntilIdle()
+        vm.selectConversation(chat.id)
+        vm.updateInput("Draft " + "x".repeat(120_000))
+        advanceUntilIdle()
+        assertEquals(1_000_000, vm.uiState.value.contextWindow!!.modelWindowTokens)
+        assertEquals(884_464, vm.uiState.value.contextWindow!!.totalTokens)
+        assertTrue(vm.uiState.value.contextWindow!!.usedTokens > 40_000)
+        vm.setThinkingEffort(com.flowchat.app.domain.model.ThinkingEffort.Max)
+        advanceUntilIdle()
+        assertEquals(818_928, vm.uiState.value.contextWindow!!.totalTokens)
+        vm.setThinkingEnabled(false)
+        advanceUntilIdle()
+        assertEquals(941_808, vm.uiState.value.contextWindow!!.totalTokens)
+        vm.updateConversationSettings("", null, false, "", 0.7, 1.0, 256)
+        advanceUntilIdle()
+        assertEquals(949_744, vm.uiState.value.contextWindow!!.totalTokens)
+        assertEquals(256, vm.uiState.value.contextWindow!!.outputReserveTokens)
+        vm.updateConversationModel(provider, "deepseek-chat")
+        advanceUntilIdle()
+        assertEquals(32_000, vm.uiState.value.contextWindow!!.totalTokens)
+        assertEquals(null, vm.uiState.value.contextWindow!!.modelWindowTokens)
+        assertTrue(client.requests.isEmpty())
         collection.cancel()
     }
 

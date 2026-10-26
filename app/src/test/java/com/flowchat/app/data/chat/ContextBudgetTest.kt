@@ -13,6 +13,28 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ContextBudgetTest {
+    @Test fun cachedDeepSeekProjectionMatchesTheFullWireAcrossStreamAndSettingsChanges() {
+        val provider = provider("api.deepseek.com", "deepseek-flash")
+        val estimator = ContextBudget.Estimator()
+        val prefix = List(100) { ChatRequestMessage(if (it % 2 == 0) "user" else "assistant",
+            "中文🙂\\\"code".repeat(200), historical = it % 2 != 0) }
+        var request = request(provider.defaultModel, prefix).copy(tools = listOf(
+            com.flowchat.app.domain.model.ChatToolDefinition("read", "Read evidence", buildJsonObject { put("type", "object") })))
+        repeat(4) { index ->
+            request = request.copy(messages = prefix + ChatRequestMessage("assistant", "answer".repeat(index * 100),
+                reasoningContent = "reason".repeat(index * 50)))
+            assertEquals(ContextBudget.request(request, provider), estimator.request(request, provider))
+            assertEquals(ContextBudget.request(request, provider), estimator.request(request, provider))
+        }
+        listOf(request.copy(enableThinking = false), request.copy(tools = emptyList()),
+            request.copy(maxTokens = 131_072), request.copy(messages = prefix + ChatRequestMessage("tool", "Frame",
+                toolCallId = "call", images = listOf(ChatImage("image/png", "a".repeat(100_000)))))).forEach {
+            assertEquals(ContextBudget.request(it, provider), estimator.request(it, provider))
+        }
+        val other = provider.copy(baseUrl = "https://proxy.test")
+        assertEquals(ContextBudget.request(request, other), estimator.request(request, other))
+    }
+
     @Test
     fun deepSeekReplayedReasoningCountsButOpenAiUnreplayedReasoningDoesNot() {
         val reasoning = "r".repeat(12_000)

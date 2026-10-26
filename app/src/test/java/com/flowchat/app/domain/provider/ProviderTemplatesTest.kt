@@ -31,7 +31,7 @@ class ProviderTemplatesTest {
         assertEquals("gpt-5.4-mini", presets[0].defaultModel)
         assertEquals("DeepSeek", presets[1].displayName)
         assertEquals("https://api.deepseek.com", presets[1].baseUrl)
-        assertEquals("deepseek-v4-flash", presets[1].defaultModel)
+        assertEquals("deepseek-flash", presets[1].defaultModel)
         assertTrue(presets.any { it.baseUrl == "https://api.anthropic.com/v1" })
         assertTrue(presets.all { it.iconResName == null })
     }

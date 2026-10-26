@@ -59,6 +59,7 @@ import com.flowchat.app.domain.tools.AgentToolDefinitions
 import com.flowchat.app.domain.validation.ProviderConfigValidator
 import com.flowchat.app.domain.model.ThinkingEffort
 import com.flowchat.app.domain.provider.ThinkingSupport
+import com.flowchat.app.domain.provider.DeepSeekContextProfile
 import com.flowchat.app.presentation.overlay.FloatingAssistantBridge
 import com.flowchat.app.presentation.overlay.FloatingAssistantCommand
 import com.flowchat.app.presentation.overlay.FloatingAssistantState
@@ -84,6 +85,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.flow.stateIn
@@ -120,7 +122,8 @@ class ChatViewModel @Inject constructor(
     private val taskContextManager: TaskContextManager = TaskContextManager(chatClient, chatRepository),
     private val usageTracker: com.flowchat.app.data.usage.UsageTracker? = null,
     private val balanceClient: DeepSeekBalanceClient? = null,
-    private val workspaceManager: WorkspaceManager? = null
+    private val workspaceManager: WorkspaceManager? = null,
+    @com.flowchat.app.di.ContextDispatcher private val contextDispatcher: kotlinx.coroutines.CoroutineDispatcher = Dispatchers.Default
 ) : ViewModel() {
     private val currentConversationId = MutableStateFlow<String?>(null)
     val usageRecords = currentConversationId.flatMapLatest { id ->
@@ -255,7 +258,7 @@ class ChatViewModel @Inject constructor(
             delay(120) // Coalesce edits; estimating a draft never sends a model request.
             recoveryReady.await()
             try {
-                withContext(Dispatchers.Default) { estimateContextWindow(state) }
+                withContext(contextDispatcher) { estimateContextWindow(state) }
             } catch (cancelled: CancellationException) { throw cancelled }
               catch (_: Exception) { null }
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
@@ -267,7 +270,11 @@ class ChatViewModel @Inject constructor(
         } else preview
         state.copy(contextWindow = snapshot?.takeIf {
             it.conversationId == owner && it.providerId == state.currentConversation?.providerId &&
-                it.modelName == state.currentConversation?.modelName
+                it.modelName == state.currentConversation?.modelName && it.settings == state.currentConversation?.let { chat ->
+                    state.providers.firstOrNull { provider -> provider.id == chat.providerId }?.let { provider ->
+                        ContextWindowSettings(provider.baseUrl, chat.maxTokens, chat.enableThinking, chat.thinkingEffort)
+                    }
+                }
         }?.usage)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ChatUiState())
 
@@ -290,7 +297,7 @@ class ChatViewModel @Inject constructor(
         val request = attachTaskTools(ChatRequestFactory.create(conversation, messages, null,
             profile.thinkingFormat, memory, images, restored.checkpoint), state.appSettings, conversation.workspace)
         return ContextWindowSnapshot(conversation.id, provider.id, conversation.modelName,
-            taskContextManager.contextWindow(request, provider))
+            taskContextManager.contextWindow(request, provider), settings = ContextWindowSettings(provider, request))
     }
 
     private fun attachTaskTools(request: ChatRequest, settings: AppSettings, workspace: WorkspaceLocation?): ChatRequest {
@@ -309,6 +316,10 @@ class ChatViewModel @Inject constructor(
 
     private fun publishContextWindow(turn: ConversationTurn, request: ChatRequest, provider: ProviderConfig, force: Boolean = true) {
         if (turns[turn.conversationId] !== turn) return
+        if (DeepSeekContextProfile.resolve(provider, request) != null) {
+            publishDeepSeekContextWindow(turn, request, provider, force)
+            return
+        }
         val now = System.currentTimeMillis()
         if (!force && now - turn.lastContextUpdateAt < 150) {
             turn.pendingContextRequest = request
@@ -328,9 +339,41 @@ class ChatViewModel @Inject constructor(
         turn.pendingContextRequest = null
         turn.lastContextUpdateAt = now
         val value = ContextWindowSnapshot(turn.conversationId, provider.id, request.model,
-            taskContextManager.contextWindow(request, provider), turn.commandRunId)
+            taskContextManager.contextWindow(request, provider), turn.commandRunId, ContextWindowSettings(provider, request))
         liveContextWindows.update { it + (turn.conversationId to value) }
     }
+
+    private fun publishDeepSeekContextWindow(turn: ConversationTurn, request: ChatRequest, provider: ProviderConfig, force: Boolean) {
+        turn.pendingContextRequest = request
+        turn.contextRevision++
+        if (!force && turn.contextRefreshJob?.isActive == true) return
+        turn.contextRefreshJob?.cancel()
+        turn.contextRefreshJob = viewModelScope.launch {
+            try {
+                if (!force) delay((150 - (System.currentTimeMillis() - turn.lastContextUpdateAt)).coerceIn(0, 150))
+                while (true) {
+                    val pending = turn.pendingContextRequest ?: break
+                    turn.pendingContextRequest = null
+                    val revision = turn.contextRevision
+                    val usage = withContext(contextDispatcher) { taskContextManager.contextWindow(pending, provider) }
+                    if (turns[turn.conversationId] !== turn) break
+                    if (revision == turn.contextRevision) {
+                        turn.lastContextUpdateAt = System.currentTimeMillis()
+                        val snapshot = ContextWindowSnapshot(turn.conversationId, provider.id, pending.model,
+                            usage.copy(isCompacting = turn.isContextCompacting), turn.commandRunId, ContextWindowSettings(provider, pending))
+                        liveContextWindows.update { it + (turn.conversationId to snapshot) }
+                    }
+                    if (turn.pendingContextRequest == null) break
+                    delay(150)
+                }
+            } finally {
+                if (turn.contextRefreshJob === currentCoroutineContext()[Job]) turn.contextRefreshJob = null
+            }
+        }
+    }
+
+    private suspend fun <T> contextWork(provider: ProviderConfig, request: ChatRequest, work: suspend () -> T): T =
+        if (DeepSeekContextProfile.resolve(provider, request) != null) withContext(contextDispatcher) { work() } else work()
 
     private val workspaceBusy = MutableStateFlow(false)
     private val workspaceError = MutableStateFlow<String?>(null)
@@ -873,6 +916,7 @@ class ChatViewModel @Inject constructor(
             val apiKey = providerRepository.getApiKey(provider)
             val chinese = text.any { it in '\u3400'..'\u9fff' }
             val showContextPreparation: suspend () -> Unit = {
+                turn.isContextCompacting = true
                 liveContextWindows.update { windows ->
                     windows[conversation.id]?.takeIf { it.runId == turn.commandRunId }?.let { snapshot ->
                         windows + (conversation.id to snapshot.copy(usage = snapshot.usage.copy(isCompacting = true)))
@@ -889,11 +933,15 @@ class ChatViewModel @Inject constructor(
                 return attachTaskTools(rebuilt, settings, turn.activeWorkspace)
             }
             var request = runCatching {
-                publishContextWindow(turn, buildTaskWindow(taskContextManager.restoreWindow(conversation.id, history)), provider)
-                val prepared = taskContextManager.prepare(freshConversation, history, provider, apiKey,
-                    onCompacting = showContextPreparation, projectWindow = ::buildTaskWindow)
+                val restored = taskContextManager.restoreWindow(conversation.id, history)
+                val template = ChatRequestFactory.create(freshConversation, emptyList())
+                val initial = contextWork(provider, template) { buildTaskWindow(restored) }
+                publishContextWindow(turn, initial, provider)
+                val prepared = contextWork(provider, initial) { taskContextManager.prepare(freshConversation, history, provider, apiKey,
+                    onCompacting = showContextPreparation, projectWindow = ::buildTaskWindow) }
+                turn.isContextCompacting = false
                 appliedCheckpointBoundary = prepared.checkpoint?.throughMessageId
-                buildTaskWindow(prepared)
+                contextWork(provider, initial) { buildTaskWindow(prepared) }
             }.getOrElse { error ->
                 if (error is CancellationException) throw error
                 val message = error.userFacingChatError()
@@ -903,7 +951,7 @@ class ChatViewModel @Inject constructor(
                 turn.activeDeviceTask = null
                 return@launch
             }
-            if (appliedCheckpointBoundary != null) taskContextManager.recordCompaction(request, provider)
+            if (appliedCheckpointBoundary != null) contextWork(provider, request) { taskContextManager.recordCompaction(request, provider) }
             publishContextWindow(turn, request, provider)
             var content = ""
             var reasoningContent = ""
@@ -914,9 +962,9 @@ class ChatViewModel @Inject constructor(
                 var toolRoundLimit = if (settings.commandExecutionEnabled || turn.activeWorkspace != null) 80 else MaxToolCallRounds
                 val toolCallLoopGuard = ToolCallLoopGuard(MaxConsecutiveIdenticalToolCalls)
                 while (true) {
-                    if (closingReason == null && taskContextManager.shouldCompact(request, provider)) {
+                    if (closingReason == null && contextWork(provider, request) { taskContextManager.shouldCompact(request, provider) }) {
                         // Keep one or two recent native groups whole, including opaque replay state.
-                        val retainedStart = taskContextManager.retainedNativeStart(request, provider)
+                        val retainedStart = contextWork(provider, request) { taskContextManager.retainedNativeStart(request, provider) }
                         val protectedId = retainedStart?.let { request.messages[it].localMessageId }
                         if (retainedStart != null && protectedId != null) {
                             val stored = chatRepository.getMessages(conversation.id).filter { it.id != assistant.id }
@@ -927,30 +975,31 @@ class ChatViewModel @Inject constructor(
                                 val rebuilt = buildTaskWindow(prepared.copy(messages = prefix))
                                 return rebuilt.copy(messages = rebuilt.messages + nativeTail)
                             }
-                            val prepared = taskContextManager.prepare(freshConversation, stored, provider, apiKey,
+                            val prepared = contextWork(provider, request) { taskContextManager.prepare(freshConversation, stored, provider, apiKey,
                                 protectedMessageId = protectedId, force = true, onCompacting = showContextPreparation,
-                                projectWindow = ::projectActiveWindow)
+                                projectWindow = ::projectActiveWindow) }
                             val boundary = prepared.checkpoint?.throughMessageId
                             if (boundary != null && boundary != appliedCheckpointBoundary) {
                                 val protectedIndex = prepared.messages.indexOfFirst { it.id == protectedId }
                                 if (protectedIndex >= 0) {
-                                    request = projectActiveWindow(prepared)
+                                    request = contextWork(provider, request) { projectActiveWindow(prepared) }
                                     appliedCheckpointBoundary = boundary
                                 }
                             }
                         } else if (retainedStart == null) {
                             val stored = chatRepository.getMessages(conversation.id).filter { it.id != assistant.id }
-                            val prepared = taskContextManager.prepare(freshConversation, stored, provider, apiKey, force = true,
-                                onCompacting = showContextPreparation, projectWindow = ::buildTaskWindow)
+                            val prepared = contextWork(provider, request) { taskContextManager.prepare(freshConversation, stored, provider, apiKey, force = true,
+                                onCompacting = showContextPreparation, projectWindow = ::buildTaskWindow) }
                             if (prepared.checkpoint != null && prepared.checkpoint.throughMessageId != appliedCheckpointBoundary) {
-                                request = buildTaskWindow(prepared)
+                                request = contextWork(provider, request) { buildTaskWindow(prepared) }
                                 appliedCheckpointBoundary = prepared.checkpoint.throughMessageId
                             }
                         }
-                        taskContextManager.recordCompaction(request, provider)
+                        turn.isContextCompacting = false
+                        contextWork(provider, request) { taskContextManager.recordCompaction(request, provider) }
                         publishContextWindow(turn, request, provider)
                     }
-                    taskContextManager.requireFits(request, conversation.id, provider)
+                    contextWork(provider, request) { taskContextManager.requireFits(request, conversation.id, provider) }
                     val response = collectAssistantResponse(
                         request = request,
                         provider = provider,
@@ -1121,7 +1170,10 @@ class ChatViewModel @Inject constructor(
         var toolCalls = emptyList<ChatToolCall>()
         var error: String? = null
         var providerData: kotlinx.serialization.json.JsonArray? = null
-        chatClient.streamChat(request, provider, apiKey).collect { delta ->
+        val responseFlow = chatClient.streamChat(request, provider, apiKey).let {
+            if (DeepSeekContextProfile.resolve(provider, request) != null) it.flowOn(contextDispatcher) else it
+        }
+        responseFlow.collect { delta ->
             when (delta) {
                 is ChatDelta.Content -> {
                     content = appendContentDelta(
@@ -1961,8 +2013,13 @@ private data class ContextWindowSnapshot(
     val providerId: String,
     val modelName: String,
     val usage: ContextWindowUsage,
-    val runId: String? = null
+    val runId: String? = null,
+    val settings: ContextWindowSettings
 )
+
+private data class ContextWindowSettings(val baseUrl: String, val maxTokens: Int?, val thinking: Boolean, val effort: ThinkingEffort) {
+    constructor(provider: ProviderConfig, request: ChatRequest) : this(provider.baseUrl, request.maxTokens, request.enableThinking, request.thinkingEffort)
+}
 
 /** Every suspended model/tool continuation carries its own execution state across UI selection changes. */
 private class ConversationTurn(val conversationId: String, val activeTaskInstruction: String) :
@@ -1972,6 +2029,8 @@ private class ConversationTurn(val conversationId: String, val activeTaskInstruc
     var job: Job? = null
     var lastContextUpdateAt = 0L
     var contextRefreshJob: Job? = null
+    var contextRevision = 0L
+    var isContextCompacting = false
     var pendingContextRequest: ChatRequest? = null
     var activeDeviceTask: DeviceTaskControl.Task? = null
     var deviceLockHeld = false
