@@ -1,5 +1,8 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <application>
+        <activity android:name="com.flowchat.app.device.VisualTapFixtureActivity"
+            android:exported="true" android:configChanges="orientation|screenSize"
+            android:theme="@android:style/Theme.Material.Light.NoActionBar" />
         <activity android:name="com.flowchat.app.device.ScreenVisionFixtureActivity"
             android:exported="true" android:theme="@android:style/Theme.Material.Light.NoActionBar" />
         <activity android:name="com.flowchat.app.device.DeviceAutomationFixtureActivity"

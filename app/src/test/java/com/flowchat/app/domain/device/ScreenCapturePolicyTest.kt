@@ -46,6 +46,16 @@ class ScreenCapturePolicyTest {
         }
     }
 
+    @Test fun rotationOrWindowMovementDuringCaptureDiscardsTheFrame() {
+        val geometry = DeviceScreenGeometry(DeviceBounds(100, 200, 500, 1000), 1080, 1920, 0)
+        val original = before.copy(geometry = geometry)
+        for (changed in listOf(geometry.copy(rotation = 1), geometry.copy(windowBounds = DeviceBounds(0, 0, 400, 800)))) {
+            val result = ScreenCapturePolicy.complete(original, original.copy(geometry = changed), image)
+            assertNull(result.screenImage)
+            assertEquals("screen_changed_during_capture", result.errorCode)
+        }
+    }
+
     @Test fun sensitivePagesBeforeOrAfterCaptureNeverExposePixels() {
         for ((first, last) in listOf(before.copy(sensitive = true) to before, before to before.copy(sensitive = true))) {
             val result = ScreenCapturePolicy.complete(first, last, image)

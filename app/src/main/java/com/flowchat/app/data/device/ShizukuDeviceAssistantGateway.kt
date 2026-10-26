@@ -7,6 +7,7 @@ import android.content.ServiceConnection
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.IBinder
+import android.os.SystemClock
 import android.provider.Settings
 import com.flowchat.app.BuildConfig
 import com.flowchat.app.data.preferences.AppSettingsStore
@@ -22,6 +23,11 @@ import com.flowchat.app.domain.device.DeviceScreenSnapshot
 import com.flowchat.app.domain.device.DeviceSwipeDirection
 import com.flowchat.app.domain.device.DeviceToolResult
 import com.flowchat.app.domain.device.DeviceTaskControl
+import com.flowchat.app.domain.device.VisualTapTarget
+import com.flowchat.app.domain.device.VisualFrameGuard
+import com.flowchat.app.domain.device.visualTapPoint
+import com.flowchat.app.domain.device.needsVisualRefinement
+import com.flowchat.app.domain.device.visualRefinementRegion
 import com.flowchat.app.domain.device.PowerConnectionMode
 import com.flowchat.app.domain.device.ShizukuConnectionState
 import com.flowchat.app.domain.device.ShizukuConnectionStatus
@@ -60,7 +66,9 @@ class ShizukuDeviceAssistantGateway @Inject constructor(
     @ApplicationContext private val context: Context,
     private val appSettingsStore: AppSettingsStore,
     private val rootConnection: RootDeviceConnection,
-    private val taskControl: DeviceTaskControl = DeviceTaskControl()
+    private val taskControl: DeviceTaskControl = DeviceTaskControl(),
+    private val floatingAssistantBridge: com.flowchat.app.presentation.overlay.FloatingAssistantBridge =
+        com.flowchat.app.presentation.overlay.FloatingAssistantBridge(taskControl)
 ) : DeviceAssistantGateway {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val mutableConnectionState = MutableStateFlow(ShizukuConnectionState())
@@ -244,6 +252,7 @@ class ShizukuDeviceAssistantGateway @Inject constructor(
         currentCoroutineContext().ensureActive()
         val task = taskControl.currentTask
         taskControl.checkCanAct(task)
+        uiActionMutex.withLock { snapshotGuard.remember(null); visualFrameGuard.clear() }
         return callService {
             taskControl.checkCanAct(task)
             it.launchApp(packageName, activityName)
@@ -282,22 +291,32 @@ class ShizukuDeviceAssistantGateway @Inject constructor(
 
     private val uiActionMutex = Mutex()
     private val snapshotGuard = com.flowchat.app.domain.device.DeviceSnapshotGuard()
+    private val visualFrameGuard = VisualFrameGuard()
 
     override suspend fun observeScreen(): DeviceToolResult = uiActionMutex.withLock {
         observeScreenLocked()
     }
 
     override suspend fun captureScreen(region: com.flowchat.app.domain.device.ScreenImageRegion?): DeviceToolResult = uiActionMutex.withLock {
+        captureStableVisualFrameLocked(region)
+    }
+
+    private suspend fun captureScreenLocked(region: com.flowchat.app.domain.device.ScreenImageRegion? = null): DeviceToolResult {
+        val owner = taskControl.currentTask
         val observed = observeScreenLocked(waitForSettledUi = false)
         val before = observed.screen
-        if (!observed.success || before == null || before.sensitive) return@withLock observed.copy(
+        if (!observed.success || before == null || before.sensitive) return observed.copy(
             imageErrorCode = observed.errorCode ?: "screen_unavailable")
-        val accessibility = requireAccessibilityService() ?: return@withLock accessibilityUnavailable()
-        try {
-            val image = accessibility.captureScreenImage(before, region)
+        val accessibility = requireAccessibilityService() ?: return accessibilityUnavailable()
+        return try {
+            val image = accessibility.captureScreenImage(before, region) { capture ->
+                floatingAssistantBridge.withDisplayCapture(capture)
+            }
             val after = accessibility.observeScreen()
             val result = com.flowchat.app.domain.device.ScreenCapturePolicy.complete(before, after, image)
             snapshotGuard.remember(result.screen)
+            if (owner === taskControl.currentTask) visualFrameGuard.remember(result, SystemClock.elapsedRealtime(), owner)
+            else visualFrameGuard.clear()
             result
         } catch (error: kotlinx.coroutines.TimeoutCancellationException) {
             kotlinx.coroutines.currentCoroutineContext().ensureActive()
@@ -310,6 +329,7 @@ class ShizukuDeviceAssistantGateway @Inject constructor(
 
     private suspend fun observeScreenLocked(waitForSettledUi: Boolean = true): DeviceToolResult {
         snapshotGuard.remember(null)
+        visualFrameGuard.clear()
         val accessibility = requireAccessibilityService() ?: return accessibilityUnavailable()
         val screen = (if (waitForSettledUi) accessibility.observeSettledScreen() else accessibility.observeScreen())
             ?: return DeviceToolResult(
@@ -341,6 +361,98 @@ class ShizukuDeviceAssistantGateway @Inject constructor(
             if (screen.elements.none { it.index == index && it.enabled }) false
             else accessibility.tapUiElement(index, longPress)
         }
+
+    override suspend fun tapVisualTarget(target: VisualTapTarget): DeviceToolResult = uiActionMutex.withLock {
+        val task = taskControl.currentTask
+        currentCoroutineContext().ensureActive()
+        taskControl.checkCanAct(task)
+        val accessibility = requireAccessibilityService() ?: return@withLock accessibilityUnavailable()
+        val current = accessibility.observeScreen() ?: return@withLock DeviceToolResult(
+            false, "The current screen could not be read. No action was taken.", errorCode = "screen_unavailable")
+        if (current.sensitive || current.packageName == context.packageName) {
+            visualFrameGuard.clear(); snapshotGuard.remember(null)
+            return@withLock DeviceToolResult(false, "Visual actions are blocked on this screen. No action was taken.",
+                errorCode = if (current.sensitive) "sensitive_screen_blocked" else "self_automation_blocked", screen = current)
+        }
+        val frame = visualFrameGuard.current(target.screenId, current, SystemClock.elapsedRealtime(), task)
+            ?: return@withLock rejectVisualTarget("stale_screen",
+                "The image screen_id is missing, expired or no longer current. No action was taken. Locate the target again in the fresh image.")
+        val point = frame.image.visualTapPoint(target)
+            ?: return@withLock rejectVisualTarget("invalid_visual_target",
+                "The image point does not map to the active app window. No action was taken. Use coordinates relative to the attached image.")
+
+        if (frame.image.needsVisualRefinement) {
+            val detail = captureStableVisualFrameLocked(frame.image.visualRefinementRegion(target))
+            return@withLock detail.copy(success = detail.success && detail.screenImage != null,
+                errorCode = detail.errorCode ?: detail.imageErrorCode,
+                visualRefinementRequired = detail.screenImage != null,
+                summary = if (detail.screenImage != null) "Magnified the proposed target region. NO gesture was dispatched. Locate the target center again in this new detail image before requesting a tap."
+                    else "The target detail image is unavailable. No gesture was dispatched.")
+        }
+
+        // Re-sample pixels immediately before dispatch; unchanged accessibility nodes cannot validate a Canvas target.
+        val refreshed = captureStableVisualFrameLocked(frame.image.region)
+        val freshImage = refreshed.screenImage
+        val freshScreen = refreshed.screen
+        if (!refreshed.success || freshImage == null || freshScreen == null) return@withLock refreshed.copy(
+            success = false, summary = "The visual target could not be revalidated. No action was taken.",
+            errorCode = refreshed.errorCode ?: refreshed.imageErrorCode ?: "visual_verification_failed")
+        val comparison = try {
+            withContext(Dispatchers.Default) { ScreenImageMatcher.compare(frame.image, freshImage, target) }
+        } catch (error: CancellationException) { throw error }
+        catch (_: Exception) { null }
+        if (freshScreen.packageName != frame.screen.packageName || freshScreen.windowId != frame.screen.windowId ||
+            comparison?.stableForTap != true) return@withLock refreshed.copy(
+            success = false, errorCode = "stale_visual_target",
+            summary = "The target pixels or app window changed since the image you used. No action was taken. Locate the target again in this fresh image; do not reuse the old coordinates.")
+
+        currentCoroutineContext().ensureActive()
+        taskControl.checkCanAct(task)
+        snapshotGuard.remember(null); visualFrameGuard.clear()
+        val dispatchError = accessibility.tapVisualPoint(point, freshScreen, target.longPress) {
+            taskControl.checkCanAct(task)
+        }
+        // Always return a new frame, including after rejected/cancelled gestures, for the next model decision.
+        var after = captureStableVisualFrameLocked(frame.image.region)
+        val resultingScreen = after.screen
+        if (resultingScreen != null && (resultingScreen.windowId != frame.screen.windowId || resultingScreen.geometry != frame.screen.geometry))
+            after = captureStableVisualFrameLocked()
+        if (dispatchError != null) return@withLock after.copy(success = false, errorCode = dispatchError,
+            summary = "The visual gesture was rejected or cancelled. Inspect the refreshed image before choosing another action.")
+        val difference = after.screenImage?.let { image ->
+            try { withContext(Dispatchers.Default) { ScreenImageMatcher.compare(frame.image, image, target) } }
+            catch (error: CancellationException) { throw error }
+            catch (_: Exception) { null }
+        }
+        val unchanged = difference?.pixelsChanged == false && after.screen?.progressKey() == frame.screen.progressKey()
+        after.copy(
+            success = after.success && after.screenImage != null && !unchanged,
+            summary = if (unchanged) "The visual gesture completed, but neither the pixels nor UI state changed. Do not report task completion or repeat blindly."
+                else "The ${if (target.longPress) "long-press" else "tap"} gesture completed for ${target.targetDescription.replace(Regex("\\s+"), " ")}. " +
+                    if (after.screenImage == null) "The resulting image is unavailable; the task result is unverified."
+                    else "Inspect the attached resulting image to verify the user's intended outcome before reporting completion or choosing the next action.",
+            errorCode = if (unchanged) "ui_no_change" else after.errorCode ?: after.imageErrorCode
+                ?: "visual_verification_failed".takeIf { after.screenImage == null },
+            before = frame.screen.packageName, after = after.screen?.packageName,
+            visualProgressKey = if (difference?.targetOrSceneChanged == false) frame.image.visualKey else after.screenImage?.visualKey
+        )
+    }
+
+    private suspend fun rejectVisualTarget(code: String, summary: String): DeviceToolResult =
+        captureScreenLocked().copy(success = false, errorCode = code, summary = summary)
+
+    private suspend fun captureStableVisualFrameLocked(region: com.flowchat.app.domain.device.ScreenImageRegion? = null): DeviceToolResult {
+        val task = taskControl.currentTask
+        var result = captureScreenLocked(region)
+        repeat(2) { attempt ->
+            if (!com.flowchat.app.domain.device.ScreenCaptureReadiness.shouldRetry(result)) return result
+            currentCoroutineContext().ensureActive()
+            taskControl.checkCanAct(task)
+            delay(180L * (attempt + 1))
+            result = captureScreenLocked(region)
+        }
+        return result
+    }
 
     override suspend fun inputText(
         index: Int,
@@ -392,6 +504,7 @@ class ShizukuDeviceAssistantGateway @Inject constructor(
     ): DeviceToolResult = uiActionMutex.withLock {
         val task = taskControl.currentTask
         taskControl.checkCanAct(task)
+        visualFrameGuard.clear()
         performScreenActionLocked(toolName, summary, allowFlowChat, expectedScreenId, requiresSnapshot, targetIndex) { service, screen ->
             currentCoroutineContext().ensureActive()
             taskControl.checkCanAct(task)
@@ -705,7 +818,7 @@ class ShizukuDeviceAssistantGateway @Inject constructor(
             DeviceCapability.TextInput,
             DeviceCapability.ScreenSwipe,
             DeviceCapability.Navigation
-        )
+        ) + if (Build.VERSION.SDK_INT >= 30) setOf(DeviceCapability.VisualTargetAction) else emptySet()
         val TerminalConnectionStates = setOf(
             ShizukuConnectionStatus.NotInstalled,
             ShizukuConnectionStatus.NotRunning,

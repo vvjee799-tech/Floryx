@@ -34,6 +34,9 @@ class TerminalManager @Inject constructor(
 
     suspend fun start(owner: String, environment: CommandEnvironment, command: String, cwd: String, timeoutSeconds: Int, runId: String? = null): CommandSnapshot {
         CommandValidation.validate(command, cwd, timeoutSeconds)
+        require(environment != CommandEnvironment.Android || runId == null || !com.flowchat.app.domain.terminal.AndroidUiCommandPolicy.requiresDeviceTools(command)) {
+            com.flowchat.app.domain.terminal.AndroidUiCommandPolicy.Guidance
+        }
         ensureForegroundService()
         val snapshot = when (environment) {
             CommandEnvironment.Linux -> {

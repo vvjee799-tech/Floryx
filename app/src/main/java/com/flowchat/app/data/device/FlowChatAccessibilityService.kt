@@ -6,13 +6,19 @@ import android.graphics.Path
 import android.graphics.Bitmap
 import android.os.Build
 import android.os.SystemClock
+import android.hardware.display.DisplayManager
+import android.util.DisplayMetrics
 import android.view.Display
 import android.os.Bundle
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
+import android.view.accessibility.AccessibilityWindowInfo
+import com.flowchat.app.domain.device.DeviceBounds
+import com.flowchat.app.domain.device.DeviceScreenGeometry
 import com.flowchat.app.domain.device.DeviceScreenSnapshot
 import com.flowchat.app.domain.device.DeviceScreenImage
 import com.flowchat.app.domain.device.DeviceSwipeDirection
+import com.flowchat.app.domain.device.VisualTapPoint
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -69,15 +75,18 @@ class FlowChatAccessibilityService : AccessibilityService() {
                 return@withContext null
             }
             try {
-                val activityName = windows.firstOrNull { it.isActive }?.title?.toString().orEmpty()
+                val window = windows.firstOrNull { it.id == root.windowId }
+                val activityName = window?.title?.toString().orEmpty()
+                val geometry = window?.let(::windowGeometry)
                 val metrics = resources.displayMetrics
                 val readResult = AccessibilityScreenReader.read(root, activityName,
-                    android.graphics.Rect(0, 0, metrics.widthPixels, metrics.heightPixels))
+                    android.graphics.Rect(0, 0, geometry?.displayWidth ?: metrics.widthPixels,
+                        geometry?.displayHeight ?: metrics.heightPixels))
                 clearNodeCache()
                 indexedNodes.putAll(readResult.indexedNodes)
-                cachedSnapshot = readResult.snapshot
+                cachedSnapshot = readResult.snapshot.copy(geometry = geometry)
                 snapshotInvalidated = false
-                readResult.snapshot
+                cachedSnapshot
             } finally {
                 @Suppress("DEPRECATION")
                 root.recycle()
@@ -97,24 +106,84 @@ class FlowChatAccessibilityService : AccessibilityService() {
         return previous
     }
 
-    suspend fun captureScreenImage(screen: DeviceScreenSnapshot, region: com.flowchat.app.domain.device.ScreenImageRegion? = null): DeviceScreenImage = screenshotMutex.withLock {
+    @Suppress("DEPRECATION")
+    private fun windowGeometry(window: AccessibilityWindowInfo): DeviceScreenGeometry? {
+        val displayId = if (Build.VERSION.SDK_INT >= 30) window.displayId else Display.DEFAULT_DISPLAY
+        val display = getSystemService(DisplayManager::class.java).getDisplay(displayId) ?: return null
+        val metrics = DisplayMetrics().also(display::getRealMetrics)
+        val bounds = android.graphics.Rect().also(window::getBoundsInScreen)
+        if (bounds.isEmpty || metrics.widthPixels <= 0 || metrics.heightPixels <= 0) return null
+        return DeviceScreenGeometry(DeviceBounds(bounds.left, bounds.top, bounds.right, bounds.bottom),
+            metrics.widthPixels, metrics.heightPixels, display.rotation, displayId)
+    }
+
+    suspend fun captureScreenImage(
+        screen: DeviceScreenSnapshot,
+        region: com.flowchat.app.domain.device.ScreenImageRegion? = null,
+        withDisplayCapture: suspend (suspend () -> Bitmap) -> Bitmap = { it() }
+    ): DeviceScreenImage = screenshotMutex.withLock {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) throw ScreenCaptureFailure("screen_capture_requires_android_11")
-        val remaining = 500L - (SystemClock.elapsedRealtime() - lastScreenshotAt)
-        if (remaining > 0) delay(remaining)
+        suspend fun sample(windowCapture: Boolean): Bitmap {
+            suspend fun capture(): Bitmap {
+                val remaining = 500L - (SystemClock.elapsedRealtime() - lastScreenshotAt)
+                if (remaining > 0) delay(remaining)
+                return withContext(Dispatchers.Main.immediate) {
+                    if (!windowCapture && Build.VERSION.SDK_INT >= 34) {
+                        val targetBounds = screen.geometry?.windowBounds ?: throw ScreenCaptureFailure("screen_window_unavailable")
+                        val visible = windows
+                        val target = visible.firstOrNull { it.id == screen.windowId } ?: throw ScreenCaptureFailure("screen_window_unavailable")
+                        // A display crop must not accidentally send pixels from an overlay belonging to another window.
+                        if (visible.any { other -> other.id != target.id && other.layer > target.layer &&
+                                other.displayId == screen.geometry.displayId &&
+                                android.graphics.Rect().also(other::getBoundsInScreen).intersect(
+                                    targetBounds.left, targetBounds.top, targetBounds.right, targetBounds.bottom) })
+                            throw ScreenCaptureFailure("visual_target_obscured")
+                    }
+                    lastScreenshotAt = SystemClock.elapsedRealtime()
+                    withTimeout(3_000) { captureBitmap(screen.windowId,
+                        screen.geometry?.displayId ?: Display.DEFAULT_DISPLAY, windowCapture) }
+                }
+            }
+            return if (windowCapture) capture() else withDisplayCapture { capture() }
+        }
         var bitmap: Bitmap? = null
         try {
-            withContext(Dispatchers.Main.immediate) {
-                lastScreenshotAt = SystemClock.elapsedRealtime()
-                bitmap = withTimeout(3_000) { captureBitmap(screen.windowId) }
+            bitmap = sample(windowCapture = Build.VERSION.SDK_INT >= 34)
+            val geometry = screen.geometry
+            val window = geometry?.windowBounds
+            if (Build.VERSION.SDK_INT >= 34 && geometry != null && window != null &&
+                (bitmap!!.width != window.width || bitmap!!.height != window.height) &&
+                window.left >= 0 && window.top >= 0 && window.right <= geometry.displayWidth && window.bottom <= geometry.displayHeight) {
+                // Window screenshots can include asymmetric/unknown surface shadow insets. Never guess their offset.
+                // After the secure-window check above succeeded, sample visible display pixels and crop exact window bounds.
+                val display = sample(windowCapture = false)
+                try {
+                    if (display.width != geometry.displayWidth || display.height != geometry.displayHeight)
+                        throw ScreenCaptureFailure("screen_changed_during_capture")
+                    val cropped = withContext(Dispatchers.Default) {
+                        val crop = Bitmap.createBitmap(display, window.left, window.top, window.width, window.height)
+                        if (crop === display) requireNotNull(crop.copy(Bitmap.Config.ARGB_8888, false)) else crop
+                    }
+                    bitmap?.recycle()
+                    bitmap = cropped
+                } finally { display.recycle() }
             }
             val capturedAt = System.currentTimeMillis()
-            withContext(Dispatchers.Default) { ScreenImageEncoder.encode(requireNotNull(bitmap), screen.screenId, capturedAt, region) }
+            withContext(Dispatchers.Default) {
+                val pixels = requireNotNull(bitmap)
+                val bounds = geometry?.let {
+                    if (Build.VERSION.SDK_INT >= 34) it.windowBounds
+                    else DeviceBounds(0, 0, it.displayWidth, it.displayHeight)
+                }?.takeIf { it.width == pixels.width && it.height == pixels.height }
+                ScreenImageEncoder.encode(pixels, screen.screenId, capturedAt, region).copy(
+                    geometry = geometry.takeIf { bounds != null }, captureBounds = bounds)
+            }
         } finally { bitmap?.recycle() }
     }
 
     @android.annotation.TargetApi(30)
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
-    private suspend fun captureBitmap(windowId: Int?): Bitmap = suspendCancellableCoroutine { continuation ->
+    private suspend fun captureBitmap(windowId: Int?, displayId: Int, windowCapture: Boolean): Bitmap = suspendCancellableCoroutine { continuation ->
         val callback = object : TakeScreenshotCallback {
             override fun onSuccess(result: ScreenshotResult) {
                 var wrapped: Bitmap? = null
@@ -141,10 +210,10 @@ class FlowChatAccessibilityService : AccessibilityService() {
             }
         }
         try {
-            if (Build.VERSION.SDK_INT >= 34) {
+            if (Build.VERSION.SDK_INT >= 34 && windowCapture) {
                 if (windowId == null || windowId < 0) throw ScreenCaptureFailure("screen_window_unavailable")
                 takeScreenshotOfWindow(windowId, mainExecutor, callback)
-            } else takeScreenshot(Display.DEFAULT_DISPLAY, mainExecutor, callback)
+            } else takeScreenshot(displayId, mainExecutor, callback)
         } catch (error: Exception) { if (continuation.isActive) continuation.resumeWithException(error) }
     }
 
@@ -191,6 +260,35 @@ class FlowChatAccessibilityService : AccessibilityService() {
                 durationMillis = if (longPress) LongPressDurationMillis else TapDurationMillis
             ).also { accepted -> if (accepted) snapshotInvalidated = true }
         }
+
+    /** Last main-thread window/occlusion and task check, immediately before gesture dispatch. */
+    suspend fun tapVisualPoint(
+        point: VisualTapPoint,
+        expected: DeviceScreenSnapshot,
+        longPress: Boolean,
+        checkCanAct: () -> Unit
+    ): String? = withContext(Dispatchers.Main.immediate) {
+        val current = observeScreen() ?: return@withContext "screen_unavailable"
+        if (current.sensitive) return@withContext "sensitive_screen_blocked"
+        if (current.packageName != expected.packageName || current.windowId != expected.windowId ||
+            current.geometry != expected.geometry) return@withContext "stale_screen"
+        val geometry = current.geometry ?: return@withContext "visual_geometry_unavailable"
+        if (!geometry.windowBounds.contains(point.x, point.y) || point.x !in 0 until geometry.displayWidth ||
+            point.y !in 0 until geometry.displayHeight) return@withContext "invalid_visual_target"
+        val visibleWindows = windows
+        val window = visibleWindows.firstOrNull { it.id == current.windowId } ?: return@withContext "stale_screen"
+        if (visibleWindows.any { other ->
+                other.id != window.id && other.layer > window.layer &&
+                    (Build.VERSION.SDK_INT < 30 || other.displayId == geometry.displayId) &&
+                    android.graphics.Rect().also(other::getBoundsInScreen).contains(point.x, point.y)
+            }) return@withContext "visual_target_obscured"
+        checkCanAct()
+        if (dispatchPointGesture(point.x.toFloat(), point.y.toFloat(),
+                if (longPress) LongPressDurationMillis else TapDurationMillis, geometry.displayId)) {
+            snapshotInvalidated = true
+            null
+        } else "ui_action_failed"
+    }
 
     suspend fun inputText(index: Int, text: String, clearExisting: Boolean): Boolean =
         withContext(Dispatchers.Main.immediate) {
@@ -245,13 +343,13 @@ class FlowChatAccessibilityService : AccessibilityService() {
         performGlobalAction(GLOBAL_ACTION_HOME).also { accepted -> if (accepted) snapshotInvalidated = true }
     }
 
-    private suspend fun dispatchPointGesture(x: Float, y: Float, durationMillis: Long): Boolean {
+    private suspend fun dispatchPointGesture(x: Float, y: Float, durationMillis: Long, displayId: Int = Display.DEFAULT_DISPLAY): Boolean {
         val path = Path().apply {
             moveTo(x, y)
             lineTo(x, y)
         }
         return awaitGesture(
-            GestureDescription.Builder()
+            GestureDescription.Builder().apply { if (Build.VERSION.SDK_INT >= 30) setDisplayId(displayId) }
                 .addStroke(GestureDescription.StrokeDescription(path, 0, durationMillis))
                 .build()
         )

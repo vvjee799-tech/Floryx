@@ -39,6 +39,7 @@ class BackgroundConfirmationDiagnosticTest {
     @Test fun returningFromTheOverlayPreservesApprovalAndOrdinaryReturnsStillPause() = runBlocking {
         assumeTrue(InstrumentationRegistry.getArguments().getString("runBackgroundConfirmationDiagnostics") == "true")
         val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val approveInOverlay = InstrumentationRegistry.getArguments().getString("confirmInOverlay") == "true"
         val context = instrumentation.targetContext
         val data = EntryPointAccessors.fromApplication(context, AttachmentDiagnosticsEntryPoint::class.java)
         val entry = EntryPointAccessors.fromApplication(context, TerminalDiagnosticsEntryPoint::class.java)
@@ -99,6 +100,13 @@ class BackgroundConfirmationDiagnosticTest {
                 node.recycle()
                 return null
             }
+            if (approveInOverlay && !bridge.appInForeground.value) {
+                for (window in automation.windows) {
+                    val found = window.root?.let(::search)
+                    if (found != null) return found
+                }
+                return null
+            }
             return automation.rootInActiveWindow?.let(::search)
         }
         @Suppress("DEPRECATION")
@@ -116,6 +124,7 @@ class BackgroundConfirmationDiagnosticTest {
         }
         fun expandOverlay() {
             val output = requireNotNull(outputWindow())
+            if (output.width > (48 * context.resources.displayMetrics.density).toInt()) return
             val center = IntArray(2)
             instrumentation.runOnMainSync {
                 output.getLocationOnScreen(center)
@@ -167,6 +176,48 @@ class BackgroundConfirmationDiagnosticTest {
                 bridge.state.value.progress?.phase == FloatingTaskPhase.WaitingForUser && outputWindow() != null
             }
             expandOverlay()
+            if (approveInOverlay) {
+                waitFor("$name: floating approval buttons visible without returning to Floryx") {
+                    hasText(context.getString(R.string.floating_confirmation_allow)) &&
+                        hasText(context.getString(R.string.floating_confirmation_reject))
+                }
+                instrumentation.waitForIdleSync()
+                delay(300) // WindowManager and accessibility bounds settle after large-font repositioning.
+                assertFalse(bridge.appInForeground.value)
+                val output = requireNotNull(outputWindow())
+                val params = output.layoutParams as WindowManager.LayoutParams
+                assertTrue(params.flags and WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE != 0)
+                assertEquals(0, params.flags and WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE)
+                val bounds = Rect()
+                instrumentation.runOnMainSync {
+                    val location = IntArray(2)
+                    output.getLocationOnScreen(location)
+                    bounds.set(location[0], location[1], location[0] + output.width, location[1] + output.height)
+                }
+                assertTrue("Approval must fit on screen: $bounds", bounds.bottom <= context.resources.displayMetrics.heightPixels)
+                if (name == "allow") {
+                    val pending = bridge.state.value.pendingDeviceActionConfirmation
+                    val collapse = requireNotNull(findNode {
+                        it.contentDescription?.toString() == context.getString(R.string.collapse_floating_assistant)
+                    })
+                    val collapseBounds = Rect()
+                    try { collapse.getBoundsInScreen(collapseBounds) } finally { collapse.recycle() }
+                    tap(collapseBounds)
+                    waitFor("Collapsing keeps the request pending") {
+                        outputWindow()?.width == (48 * context.resources.displayMetrics.density).toInt()
+                    }
+                    assertEquals(pending, bridge.state.value.pendingDeviceActionConfirmation)
+                    assertTrue(entry.terminal().state.value.commands.none { it.environment == CommandEnvironment.Android })
+                    capture("allow-collapsed")
+                    expandOverlay()
+                    waitFor("Reopening the floating request restores approval buttons") {
+                        hasText(context.getString(R.string.floating_confirmation_allow))
+                    }
+                }
+                capture("$name-overlay")
+                report("$name: floating approval is touchable and non-focusable; Floryx remains in background")
+                return
+            }
             capture("$name-overlay")
             showMain()
             waitFor("$name: actual Activity returned to the foreground") { bridge.appInForeground.value }
@@ -177,6 +228,12 @@ class BackgroundConfirmationDiagnosticTest {
             assertFalse(hasText(context.getString(R.string.device_task_end)))
             capture("$name-returned")
             report("$name: original system-command approval visible; no takeover card")
+        }
+        fun allow() = tapText(context.getString(if (approveInOverlay) R.string.floating_confirmation_allow else R.string.continue_action))
+        fun decline() = tapText(context.getString(if (approveInOverlay) R.string.floating_confirmation_reject else R.string.cancel))
+        suspend fun returnToChat() {
+            showMain()
+            waitFor("Chat returned to foreground") { bridge.appInForeground.value }
         }
         try {
             check(Settings.canDrawOverlays(context)) { "Overlay permission required" }
@@ -199,8 +256,9 @@ class BackgroundConfirmationDiagnosticTest {
             send("ROOT_ALLOW_QA run two harmless system commands")
             returnForApproval("allow")
             assertTrue(entry.terminal().state.value.commands.none { it.environment == CommandEnvironment.Android })
-            tapText(context.getString(R.string.continue_action))
+            allow()
             awaitAnswer("ROOT_AGENT_LOCAL_OK")
+            if (approveInOverlay) assertFalse(bridge.appInForeground.value)
             val approvedCommands = entry.terminal().state.value.commands.filter { it.environment == CommandEnvironment.Android }
             assertEquals(2, approvedCommands.size)
             assertTrue(approvedCommands.all { it.status == CommandStatus.Exited && it.exitCode == 0 })
@@ -208,17 +266,41 @@ class BackgroundConfirmationDiagnosticTest {
             capture("allow-completed")
             report("PASS allow: two actual Android commands completed after approval; UID 0 verified")
 
+            if (approveInOverlay) returnToChat()
             send("ROOT_DECLINE_QA refuse system commands")
             returnForApproval("cancel")
-            tapText(context.getString(R.string.cancel))
+            decline()
             awaitAnswer("ROOT_DECLINE_LOCAL_OK")
+            if (approveInOverlay) assertFalse(bridge.appInForeground.value)
             assertEquals(2, entry.terminal().state.value.commands.count { it.environment == CommandEnvironment.Android })
             assertTrue(entry.terminal().state.value.commands.none { it.command.contains("MUST_NOT_RUN") })
             report("PASS cancel: no Android command executed after cancellation")
 
+            if (approveInOverlay) {
+                returnToChat()
+                send("ROOT_STOP_QA stop while system approval is pending")
+                returnForApproval("stop")
+                val pending = requireNotNull(bridge.state.value.pendingDeviceActionConfirmation)
+                tapText(context.getString(R.string.stop))
+                waitFor("Stopping clears the floating approval") {
+                    !bridge.state.value.isStreaming && bridge.state.value.pendingDeviceActionConfirmation == null
+                }
+                bridge.respondToConfirmation(requireNotNull(conversationId), pending.requestId, true)
+                delay(250)
+                assertEquals(2, entry.terminal().state.value.commands.count { it.environment == CommandEnvironment.Android })
+                assertFalse(bridge.appInForeground.value)
+                capture("stopped-approval")
+                report("PASS stop: pending approval dismissed; late approval cannot run a command")
+                returnToChat()
+                if (InstrumentationRegistry.getArguments().getString("overlayApprovalOnly") == "true") {
+                    report("PASS focused floating-confirmation checks; main-screen takeover is covered separately in portrait")
+                    return@runBlocking
+                }
+            }
+
             send("ROOT_TAKEOVER_QA run a harmless wait for takeover testing")
             returnForApproval("takeover")
-            tapText(context.getString(R.string.continue_action))
+            allow()
             waitFor("Actual Android wait command is running") {
                 entry.terminal().state.value.commands.any { it.command.contains("TAKEOVER_READY") && it.output.contains("TAKEOVER_READY") && it.isRunning }
             }

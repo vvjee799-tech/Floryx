@@ -100,6 +100,11 @@
     <string name="tool_action_generic">使用 %1$s</string>
     <string name="tool_name_observe_screen">当前页面</string>
     <string name="tool_name_tap_ui_element">页面控件</string>
+    <string name="tool_name_tap_visual_target">画面目标</string>
+    <string name="tool_action_tap_visual_target">定位并点击画面中的目标</string>
+    <string name="device_error_use_ui_tools">请使用页面操作工具，根据最新画面继续。</string>
+    <string name="device_error_visual_target">目标位置无效，请根据最新画面重新定位。</string>
+    <string name="device_error_visual_obscured">目标被其他窗口遮挡，请查看当前页面后继续。</string>
     <string name="tool_name_input_text">文字输入</string>
     <string name="tool_name_swipe_screen">页面滑动</string>
     <string name="tool_name_press_back">返回</string>
@@ -415,6 +420,9 @@
     <string name="floating_status_elapsed">已用时 %1$d 秒</string>
     <string name="floating_status_command_hint">等待命令返回结果，可随时停止</string>
     <string name="floating_status_confirmation_hint">请返回 Floryx 查看并确认请求</string>
+    <string name="floating_confirmation_hint">可直接在浮窗中确认</string>
+    <string name="floating_confirmation_allow">允许</string>
+    <string name="floating_confirmation_reject">拒绝</string>
     <string name="usage_title">用量与余额</string>
     <string name="usage_enable">显示用量与余额</string>
     <string name="usage_setting_description">目前仅适配 DeepSeek。显示实际 Token 用量；使用官方接口时，回复完成后刷新账户余额。</string>

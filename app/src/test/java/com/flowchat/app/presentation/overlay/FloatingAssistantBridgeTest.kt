@@ -174,4 +174,14 @@ class FloatingAssistantBridgeTest {
         assertTrue(result.isFailure)
         assertEquals(0, bridge.uiInteractionCount.value)
     }
+
+    @Test fun displayCaptureVisibilityIsRestoredAfterCancellation() = runTest {
+        val bridge = FloatingAssistantBridge()
+        val gate = CompletableDeferred<Unit>()
+        val job = async(start = CoroutineStart.UNDISPATCHED) { bridge.withDisplayCapture { gate.await() } }
+        assertEquals(1, bridge.displayCaptureCount.value)
+        job.cancelAndJoin()
+        assertEquals(0, bridge.displayCaptureCount.value)
+        assertEquals(0, bridge.screenCaptureCount.value)
+    }
 }

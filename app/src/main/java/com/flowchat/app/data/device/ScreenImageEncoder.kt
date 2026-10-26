@@ -37,7 +37,8 @@ internal object ScreenImageEncoder {
                     }
                     if (encoded.size <= MaxBytes) return DeviceScreenImage(
                         ChatImage(if (format == Bitmap.CompressFormat.PNG) "image/png" else "image/jpeg", Base64.getEncoder().encodeToString(encoded)),
-                        screenId, width, height, capturedAt, source.width, source.height, region)
+                        screenId, width, height, capturedAt, source.width, source.height, region,
+                        visualKey = ScreenImageMatcher.fingerprint(bitmap))
                 }
             } finally { bitmap.recycle() }
             scale *= .75f

@@ -740,6 +740,59 @@ class ChatViewModelTest {
         collection.cancel()
     }
 
+    @Test fun visualTapReturnsAnImageToTheModelAndAllowsOnlyOneUiActionPerResponse() = runTest(dispatcher) {
+        val gateway = FakeDeviceAssistantGateway().apply { screenshot = com.flowchat.app.domain.model.ChatImage("image/png", "VISUAL_PIXELS") }
+        val arguments = """{"screen_id":"capture-1","x":700,"y":700,"target_description":"blue button","long_press":false}"""
+        val client = FakeChatCompletionClient(listOf(
+            listOf(ChatDelta.ToolCalls(listOf(ChatToolCall("observe", AgentToolDefinitions.ObserveScreenToolName, "{}")))),
+            listOf(ChatDelta.ToolCalls(listOf(
+                ChatToolCall("visual", AgentToolDefinitions.TapVisualTargetToolName, arguments),
+                ChatToolCall("extra", AgentToolDefinitions.TapUiElementToolName, """{"index":2,"screen_id":"capture-1","long_press":false}""")))),
+            listOf(ChatDelta.Content("已核对点击后的画面。"), ChatDelta.Done)))
+        val vm = deviceTestViewModel(client, gateway, memoryEnabled = false)
+        val collection = backgroundScope.launch { vm.uiState.collect {} }
+        advanceUntilIdle(); vm.updateInput("点击蓝色按钮并检查结果"); vm.send(); advanceUntilIdle()
+        assertEquals(1, gateway.visualTargets.size)
+        assertEquals(700, gateway.visualTargets.single().x)
+        assertTrue(gateway.tappedIndexes.isEmpty())
+        val messages = client.requests.last().messages
+        val result = messages.single { it.toolCallId == "visual" }
+        assertEquals("VISUAL_PIXELS", result.images.single().base64)
+        assertEquals("visual-after", result.screenImageId)
+        assertTrue(messages.single { it.toolCallId == "extra" }.content!!.contains("sequential_ui_required"))
+        assertFalse(vm.uiState.value.messages.any { it.content.contains("VISUAL_PIXELS") || it.executionContext.orEmpty().contains("VISUAL_PIXELS") })
+        collection.cancel()
+    }
+
+    @Test fun invalidVisualCoordinatesCannotReachTheDevice() = runTest(dispatcher) {
+        val gateway = FakeDeviceAssistantGateway()
+        val client = FakeChatCompletionClient(listOf(
+            listOf(ChatDelta.ToolCalls(listOf(ChatToolCall("visual", AgentToolDefinitions.TapVisualTargetToolName,
+                """{"screen_id":"image","x":"500","y":700,"target_description":"blue button","long_press":false}""")))),
+            listOf(ChatDelta.Content("位置参数无效。"), ChatDelta.Done)))
+        val vm = deviceTestViewModel(client, gateway, memoryEnabled = false)
+        val collection = backgroundScope.launch { vm.uiState.collect {} }
+        advanceUntilIdle(); vm.updateInput("点击蓝色按钮"); vm.send(); advanceUntilIdle()
+        assertTrue(gateway.visualTargets.isEmpty())
+        assertTrue(client.requests.last().messages.last { it.role == "tool" }.content!!.contains("invalid_visual_target"))
+        collection.cancel()
+    }
+
+    @Test fun knownTextOnlyModelsDoNotGetAVisualTapToolEvenIfTheyRequestIt() = runTest(dispatcher) {
+        val gateway = FakeDeviceAssistantGateway()
+        val client = FakeChatCompletionClient(listOf(
+            listOf(ChatDelta.ToolCalls(listOf(ChatToolCall("visual", AgentToolDefinitions.TapVisualTargetToolName, "{}")))),
+            listOf(ChatDelta.Content("需要支持图片的模型。"), ChatDelta.Done)))
+        val vm = deviceTestViewModel(client, gateway, model = "deepseek-v4-pro", memoryEnabled = false,
+            providerBaseUrl = "https://api.deepseek.com")
+        val collection = backgroundScope.launch { vm.uiState.collect {} }
+        advanceUntilIdle(); vm.updateInput("点击画面按钮"); vm.send(); advanceUntilIdle()
+        assertTrue(client.requests.first().tools.none { it.name == AgentToolDefinitions.TapVisualTargetToolName })
+        assertTrue(gateway.visualTargets.isEmpty())
+        assertTrue(client.requests.last().messages.last { it.role == "tool" }.content!!.contains("tool_unavailable"))
+        collection.cancel()
+    }
+
     private fun deviceTestViewModel(
         client: ChatCompletionClient,
         gateway: FakeDeviceAssistantGateway,
@@ -1432,6 +1485,80 @@ class ChatViewModelTest {
         collection.cancel()
     }
 
+    @Test fun floatingApprovalStaysWithItsOwnerAndRejectsOldRequests() = runTest(dispatcher) {
+        val (a, b) = twoConversations()
+        val repository = FakeChatRepository(listOf(a, b), a)
+        val provider = ProviderConfig(id = "provider-1", displayName = "Test", baseUrl = "https://example.test", defaultModel = "test")
+        val bridge = FloatingAssistantBridge()
+        val gateway = FakeDeviceAssistantGateway()
+        val client = FakeChatCompletionClient(listOf(
+            listOf(ChatDelta.ToolCalls(listOf(ChatToolCall("first", AgentToolDefinitions.ForceStopAppToolName, """{"app_name":"First"}""")))),
+            listOf(ChatDelta.ToolCalls(listOf(ChatToolCall("second", AgentToolDefinitions.ForceStopAppToolName, """{"app_name":"Second"}""")))),
+            listOf(ChatDelta.Content("Finished"), ChatDelta.Done)
+        ))
+        val vm = ChatViewModel(repository, FakeProviderRepository(provider), client, FakeAppUsageReader(),
+            FakeAppLauncher(), gateway, FakePromptProfileRepository(), FakeMemoryRepository(),
+            AppSettingsStore(AppSettings(powerModeEnabled = true, memoryEnabled = false, installId = "test")),
+            floatingAssistantBridge = bridge, contextDispatcher = dispatcher).also { testModels += it }
+        val collection = backgroundScope.launch { vm.uiState.collect {} }
+        advanceUntilIdle()
+        vm.selectConversation(a.id)
+        vm.updateInput("Stop First and Second")
+        vm.send()
+        bridge.setAppInForeground(false)
+        advanceUntilIdle()
+        val first = requireNotNull(bridge.state.value.pendingDeviceActionConfirmation)
+        vm.selectConversation(b.id)
+        vm.updateInput("unsent draft")
+        advanceUntilIdle()
+        bridge.respondToConfirmation(b.id, first.requestId, true)
+        bridge.respondToConfirmation(a.id, "expired-request", true)
+        advanceUntilIdle()
+        assertTrue(gateway.forceStoppedApps.isEmpty())
+        bridge.respondToConfirmation(a.id, first.requestId, true)
+        advanceUntilIdle()
+        assertEquals(listOf("First"), gateway.forceStoppedApps)
+        val second = requireNotNull(bridge.state.value.pendingDeviceActionConfirmation)
+        assertTrue(second.requestId != first.requestId)
+        bridge.respondToConfirmation(a.id, first.requestId, true)
+        advanceUntilIdle()
+        assertEquals(second, bridge.state.value.pendingDeviceActionConfirmation)
+        bridge.respondToConfirmation(a.id, second.requestId, false)
+        advanceUntilIdle()
+        assertEquals(listOf("First"), gateway.forceStoppedApps)
+        assertEquals(null, bridge.state.value.pendingDeviceActionConfirmation)
+        assertEquals(b.id, vm.uiState.value.currentConversation?.id)
+        assertEquals("unsent draft", vm.uiState.value.input)
+        assertEquals("Finished", repository.messagesFor(a.id).last().content)
+        collection.cancel()
+    }
+
+    @Test fun stoppingAFloatingConfirmationMakesLateApprovalInert() = runTest(dispatcher) {
+        val bridge = FloatingAssistantBridge()
+        val gateway = FakeDeviceAssistantGateway()
+        val client = FakeChatCompletionClient(listOf(
+            listOf(ChatDelta.ToolCalls(listOf(ChatToolCall("stop", AgentToolDefinitions.ForceStopAppToolName, """{"app_name":"Example"}"""))))
+        ))
+        val vm = deviceTestViewModel(client, gateway, bridge = bridge, memoryEnabled = false)
+        val collection = backgroundScope.launch { vm.uiState.collect {} }
+        advanceUntilIdle()
+        vm.updateInput("Stop Example")
+        vm.send()
+        bridge.setAppInForeground(false)
+        advanceUntilIdle()
+        val owner = requireNotNull(bridge.state.value.conversationId)
+        val request = requireNotNull(bridge.state.value.pendingDeviceActionConfirmation)
+        bridge.stop()
+        advanceUntilIdle()
+        assertEquals(null, bridge.state.value.pendingDeviceActionConfirmation)
+        bridge.respondToConfirmation(owner, request.requestId, true)
+        advanceUntilIdle()
+        assertTrue(gateway.forceStoppedApps.isEmpty())
+        assertEquals(1, client.requests.size)
+        assertFalse(vm.uiState.value.isStreaming)
+        collection.cancel()
+    }
+
     @Test fun anotherConversationCanReplyWhileThePhoneOwnerWaitsForConfirmation() = runTest(dispatcher) {
         val (a, b) = twoConversations()
         val repository = FakeChatRepository(listOf(a, b), a)
@@ -2044,6 +2171,7 @@ class ChatViewModelTest {
         var screenshot: com.flowchat.app.domain.model.ChatImage? = null
         var observationGate: kotlinx.coroutines.CompletableDeferred<Unit>? = null
         val tappedIndexes = mutableListOf<Int>()
+        val visualTargets = mutableListOf<com.flowchat.app.domain.device.VisualTapTarget>()
         var backCount = 0
 
         override fun refreshConnection() = Unit
@@ -2066,13 +2194,20 @@ class ChatViewModelTest {
             captureCount++
             captureRegions += region
             val observed = observeScreen()
-            return observed.copy(screenImage = screenshot?.let {
-                com.flowchat.app.domain.device.DeviceScreenImage(it, observed.screen!!.screenId, 400, 800, region = region)
+            val captured = observed.screen!!.copy(screenId = "capture-$captureCount")
+            return observed.copy(screen = captured, screenImage = screenshot?.let {
+                com.flowchat.app.domain.device.DeviceScreenImage(it, captured.screenId, 400, 800, region = region)
             }, imageErrorCode = if (screenshot == null) "screen_capture_unavailable" else null)
         }
         override suspend fun tapUiElement(index: Int, longPress: Boolean, screenId: String?): DeviceToolResult {
             tappedIndexes += index
             return DeviceToolResult(true, "tapped", screen = testScreen())
+        }
+        override suspend fun tapVisualTarget(target: com.flowchat.app.domain.device.VisualTapTarget): DeviceToolResult {
+            visualTargets += target
+            val screen = testScreen().copy(screenId = "visual-after")
+            return DeviceToolResult(true, "visual gesture completed; verify the resulting image", screen = screen,
+                screenImage = screenshot?.let { com.flowchat.app.domain.device.DeviceScreenImage(it, screen.screenId, 400, 800) })
         }
         override suspend fun inputText(index: Int, text: String, clearExisting: Boolean, screenId: String?) =
             DeviceToolResult(true, "typed", screen = testScreen())

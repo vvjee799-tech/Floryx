@@ -5,6 +5,14 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class ToolCallLoopGuardTest {
+    @Test fun changingVisualCoordinatesCannotHideAStuckCanvasTask() {
+        val guard = ToolCallLoopGuard(4)
+        repeat(6) { index ->
+            guard.allow(ChatToolCall("$index", "tap_visual_target", """{"screen_id":"$index","x":${400 + index},"y":500}"""))
+            guard.recordProgress("unchanged canvas", "tap_visual_target", success = false)
+        }
+        assertTrue(guard.shouldStopAutomation)
+    }
 
     @Test fun repeatedNonUiToolsAndConsecutiveFailuresAlsoStop() {
         val repeated = ToolCallLoopGuard(4)

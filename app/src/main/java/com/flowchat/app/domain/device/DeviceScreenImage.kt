@@ -10,7 +10,12 @@ data class DeviceScreenImage(
     val capturedAt: Long = System.currentTimeMillis(),
     val sourceWidth: Int = width,
     val sourceHeight: Int = height,
-    val region: ScreenImageRegion? = null
+    val region: ScreenImageRegion? = null,
+    val geometry: DeviceScreenGeometry? = null,
+    /** Full source bitmap bounds in display coordinates, before cropping/resizing. */
+    val captureBounds: DeviceBounds? = null,
+    /** Coarse pixel fingerprint for in-memory progress tracking, not screenshot storage. */
+    val visualKey: String? = null
 ) {
     override fun toString(): String = "DeviceScreenImage(screenId=$screenId, width=$width, height=$height)"
 }

@@ -295,19 +295,21 @@ class ChatViewModel @Inject constructor(
             it to ChatImage(message.attachmentMimeType ?: "image/png", "")
         } }.toMap()
         val request = attachTaskTools(ChatRequestFactory.create(conversation, messages, null,
-            profile.thinkingFormat, memory, images, restored.checkpoint), state.appSettings, conversation.workspace)
+            profile.thinkingFormat, memory, images, restored.checkpoint), state.appSettings, conversation.workspace, provider)
         return ContextWindowSnapshot(conversation.id, provider.id, conversation.modelName,
             taskContextManager.contextWindow(request, provider), settings = ContextWindowSettings(provider, request))
     }
 
-    private fun attachTaskTools(request: ChatRequest, settings: AppSettings, workspace: WorkspaceLocation?): ChatRequest {
+    private fun attachTaskTools(request: ChatRequest, settings: AppSettings, workspace: WorkspaceLocation?, provider: ProviderConfig?): ChatRequest {
         var result = AgentToolDefinitions.withLifestyleTools(request,
             includeWebSearch = false, includeAppUsage = settings.powerModeEnabled,
             includeRecentActivity = settings.powerModeEnabled, includeOpenApp = settings.powerModeEnabled,
             includeDeviceAssistant = settings.powerModeEnabled &&
                 (deviceAssistantGateway.connectionState.value.isConnected || deviceAssistantGateway.accessibilityState.value.isConnected),
             includeForceStop = settings.powerModeEnabled,
-            deviceCapabilities = deviceAssistantGateway.connectionState.value.capabilities)
+            deviceCapabilities = deviceAssistantGateway.connectionState.value.capabilities -
+                if (com.flowchat.app.domain.provider.ScreenVisionSupport.knownTextOnly(provider, request.model))
+                    setOf(com.flowchat.app.domain.device.DeviceCapability.VisualTargetAction) else emptySet())
         result = TerminalToolDefinitions.attach(result, settings.commandExecutionEnabled && terminalManager != null)
         if (workspaceManager != null) result = WorkspaceToolDefinitions.attach(result, workspace,
             settings.commandExecutionEnabled && terminalManager != null)
@@ -517,6 +519,8 @@ class ChatViewModel @Inject constructor(
                     }
                     FloatingAssistantCommand.Stop -> floatingAssistantBridge.state.value.conversationId
                         ?.let { owner -> if (owner in pausedDeviceTasks.value) endTask(owner) else turns[owner]?.let(::stopTurn) }
+                    is FloatingAssistantCommand.RespondToConfirmation -> resolveDeviceActionConfirmation(
+                        command.conversationId, command.requestId, command.approved)
                 }
             }
         }
@@ -624,11 +628,20 @@ class ChatViewModel @Inject constructor(
     }
 
     fun confirmDeviceAction() {
-        turns[selectedConversationId()]?.deviceActionConfirmation?.complete(true)
+        val owner = selectedConversationId() ?: return
+        val request = deviceActionConfirmations.value[owner] ?: return
+        resolveDeviceActionConfirmation(owner, request.requestId, true)
     }
 
     fun cancelDeviceAction() {
-        turns[selectedConversationId()]?.deviceActionConfirmation?.complete(false)
+        val owner = selectedConversationId() ?: return
+        val request = deviceActionConfirmations.value[owner] ?: return
+        resolveDeviceActionConfirmation(owner, request.requestId, false)
+    }
+
+    private fun resolveDeviceActionConfirmation(owner: String, requestId: String, approved: Boolean) {
+        if (deviceActionConfirmations.value[owner]?.requestId != requestId) return
+        turns[owner]?.deviceActionConfirmation?.complete(approved)
     }
 
     fun deleteMemory(id: String) {
@@ -930,7 +943,7 @@ class ChatViewModel @Inject constructor(
             fun buildTaskWindow(prepared: PreparedTaskContext): ChatRequest {
                 val rebuilt = ChatRequestFactory.create(freshConversation, prepared.messages, null,
                     activeProfile.thinkingFormat, relevantMemories, taskImages, prepared.checkpoint)
-                return attachTaskTools(rebuilt, settings, turn.activeWorkspace)
+                return attachTaskTools(rebuilt, settings, turn.activeWorkspace, provider)
             }
             var request = runCatching {
                 val restored = taskContextManager.restoreWindow(conversation.id, history)
@@ -1362,6 +1375,7 @@ class ChatViewModel @Inject constructor(
                     observeScreenForModel(call, modelName)
                 }
                 AgentToolDefinitions.TapUiElementToolName -> executeTapUiElementTool(call.arguments)
+                AgentToolDefinitions.TapVisualTargetToolName -> executeTapVisualTargetTool(call.arguments)
                 AgentToolDefinitions.InputTextToolName -> executeInputTextTool(call.arguments)
                 AgentToolDefinitions.SwipeScreenToolName -> executeSwipeScreenTool(call.arguments)
                 AgentToolDefinitions.PressBackToolName -> prepareForExternalUiAction {
@@ -1492,6 +1506,9 @@ class ChatViewModel @Inject constructor(
             val cwd = parseStringArgument(call.arguments, "working_directory") ?: defaultDirectory
             val timeout = parseStringArgument(call.arguments, "timeout_seconds")?.let { it.toIntOrNull() ?: error("Invalid timeout_seconds.") } ?: 120
             CommandValidation.validate(command, cwd, timeout)
+            if (environment == CommandEnvironment.Android && com.flowchat.app.domain.terminal.AndroidUiCommandPolicy.requiresDeviceTools(command))
+                return ToolExecutionOutcome("failed: use_device_ui_tools. " + com.flowchat.app.domain.terminal.AndroidUiCommandPolicy.Guidance,
+                    errorDetail = "use_device_ui_tools")
             if (environment == CommandEnvironment.Android) {
                 guardDeviceTask()
                 if (turn.systemCommandsDeclined) return ToolExecutionOutcome("System command permission was declined for this task.", cancelled = true)
@@ -1675,6 +1692,19 @@ class ChatViewModel @Inject constructor(
         }
     }
 
+    private suspend fun executeTapVisualTargetTool(arguments: String): ToolExecutionOutcome {
+        val target = try { com.flowchat.app.domain.device.VisualTapTarget.fromToolArguments(arguments) }
+        catch (_: Exception) { return ToolExecutionOutcome(
+            "failed: invalid_visual_target. Supply the current image screen_id, integer x/y in 0..1000 relative to that attached image, a visible target_description and boolean long_press.",
+            errorDetail = "invalid_visual_target") }
+        return prepareForExternalUiAction {
+            floatingAssistantBridge.withDisplayCapture {
+                guardDeviceTask()
+                deviceAssistantGateway.tapVisualTarget(target).toToolOutcome()
+            }
+        }
+    }
+
     private suspend fun executeSwipeScreenTool(arguments: String): ToolExecutionOutcome {
         val direction = parseStringArgument(arguments, "direction")
             ?.let { value ->
@@ -1743,7 +1773,9 @@ class ChatViewModel @Inject constructor(
         ToolExecutionOutcome(
             content = asToolContent(),
             errorDetail = if (!success) errorCode ?: summary else imageErrorCode,
-            screenProgress = screen?.progressKey(),
+            screenProgress = screen?.progressKey()?.let { key ->
+                key + (visualProgressKey ?: screenImage?.visualKey)?.let { "\nvisual=$it" }.orEmpty()
+            },
             screenImage = screenImage,
             displayDetail = screenImage?.let { "image_size=${it.width}x${it.height}\nscreen_id=${it.screenId}" }
         )
@@ -1983,6 +2015,7 @@ class ChatViewModel @Inject constructor(
             AgentToolDefinitions.ObserveScreenToolName,
             AgentToolDefinitions.WaitForScreenToolName,
             AgentToolDefinitions.TapUiElementToolName,
+            AgentToolDefinitions.TapVisualTargetToolName,
             AgentToolDefinitions.InputTextToolName,
             AgentToolDefinitions.SwipeScreenToolName,
             AgentToolDefinitions.PressBackToolName,
@@ -2110,6 +2143,6 @@ internal class ToolCallLoopGuard(
     }
 
     private companion object {
-        val UiTools = setOf("open_app", "observe_screen", "wait_for_screen", "tap_ui_element", "input_text", "swipe_screen", "press_back", "press_home")
+        val UiTools = setOf("open_app", "observe_screen", "wait_for_screen", "tap_ui_element", "tap_visual_target", "input_text", "swipe_screen", "press_back", "press_home")
     }
 }

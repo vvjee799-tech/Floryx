@@ -6,7 +6,8 @@ object ScreenCapturePolicy {
         val error = when {
             before.sensitive || after?.sensitive == true -> "sensitive_screen_blocked"
             after == null || before.packageName != after.packageName || before.windowId == null ||
-                before.windowId < 0 || before.windowId != after.windowId || image.screenId != before.screenId ->
+                before.windowId < 0 || before.windowId != after.windowId || before.geometry != after.geometry ||
+                image.screenId != before.screenId ->
                 "screen_changed_during_capture"
             else -> null
         }

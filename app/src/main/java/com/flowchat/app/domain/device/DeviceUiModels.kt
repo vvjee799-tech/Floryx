@@ -6,10 +6,22 @@ data class DeviceBounds(
     val right: Int,
     val bottom: Int
 ) {
+    val width: Int get() = right - left
+    val height: Int get() = bottom - top
     val centerX: Int get() = left + (right - left) / 2
     val centerY: Int get() = top + (bottom - top) / 2
     val isVisible: Boolean get() = right > left && bottom > top
+    fun contains(x: Int, y: Int): Boolean = x >= left && x < right && y >= top && y < bottom
 }
+
+/** Geometry in physical display pixels, sampled together with the accessibility window. */
+data class DeviceScreenGeometry(
+    val windowBounds: DeviceBounds,
+    val displayWidth: Int,
+    val displayHeight: Int,
+    val rotation: Int,
+    val displayId: Int = 0
+)
 
 data class DeviceUiElement(
     val index: Int,
@@ -78,11 +90,13 @@ data class DeviceScreenSnapshot(
     val capturedAt: Long = System.currentTimeMillis(),
     val screenId: String = java.util.UUID.randomUUID().toString(),
     val truncated: Boolean = false,
-    val windowId: Int? = null
+    val windowId: Int? = null,
+    val geometry: DeviceScreenGeometry? = null
 ) {
     fun hasSameUi(other: DeviceScreenSnapshot): Boolean =
         packageName == other.packageName && activityName == other.activityName &&
-            sensitive == other.sensitive && truncated == other.truncated && windowId == other.windowId && elements == other.elements
+            sensitive == other.sensitive && truncated == other.truncated && windowId == other.windowId &&
+            geometry == other.geometry && elements == other.elements
 
     /** Ignore animation bounds, playback clocks and counters when checking task progress. */
     fun progressKey(): String = buildString {

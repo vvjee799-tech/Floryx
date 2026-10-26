@@ -17,7 +17,7 @@ object TerminalToolDefinitions {
         val tools = listOf(
             tool(Status, "Check Floryx's Linux runtime, installed development tools and Android Power connection.", emptyMap(), emptyList()),
             tool(Run, "Run a command for the user's task. Floryx waits locally until it finishes, showing live progress and allowing the user to stop it without additional model calls. Returns the actual exit status, elapsed_seconds and command_id. Do not poll or estimate elapsed time from tool call counts. Linux is a separate Alpine userspace with persistent /workspace files and apk; it does not grant Android Root. Android needs Power/Root or Shizuku and task approval. Do not detach commands or use nohup. Commands use separate non-interactive shells; use working_directory or command chains, as exports do not carry to the next call.", mapOf(
-                "command" to property("string", "Shell command, maximum 16000 characters."),
+                "command" to property("string", "Shell command, maximum 16000 characters. For phone GUI actions use open_app / indexed or visual device tools. Raw input tap/swipe and am start are rejected for AI commands; never bypass a failed visual action using shell coordinates."),
                 "environment" to buildJsonObject { put("type", "string"); put("enum", buildJsonArray { add("linux"); add("android") }) },
                 "working_directory" to property("string", "Absolute path. Linux defaults to the selected phone folder's local execution directory when configured, otherwise /workspace; Android defaults to /data/local/tmp."),
                 "workspace_inputs" to com.flowchat.app.domain.workspace.WorkspaceToolDefinitions.paths,

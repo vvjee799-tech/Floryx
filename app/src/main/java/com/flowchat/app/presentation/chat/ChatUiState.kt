@@ -45,5 +45,6 @@ data class UsageAccessPermissionRequestUi(
 data class DeviceActionConfirmationUi(
     val toolName: String,
     val title: String,
-    val message: String
+    val message: String,
+    val requestId: String = java.util.UUID.randomUUID().toString()
 )

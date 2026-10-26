@@ -12,6 +12,18 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AgentToolDefinitionsTest {
+    @Test fun visualTapRequiresBothScreenCaptureAndVisualActionCapabilities() {
+        val request = ChatRequest(model = "vision", messages = emptyList(), temperature = 1.0, topP = 1.0, maxTokens = null)
+        fun tools(capabilities: Set<DeviceCapability>) = AgentToolDefinitions.withLifestyleTools(request,
+            includeWebSearch = false, includeAppUsage = false, includeRecentActivity = false,
+            includeOpenApp = false, includeDeviceAssistant = true, deviceCapabilities = capabilities).tools
+        assertFalse(tools(setOf(DeviceCapability.ScreenObservation, DeviceCapability.UiElementAction)).any { it.name == AgentToolDefinitions.TapVisualTargetToolName })
+        assertFalse(tools(setOf(DeviceCapability.VisualTargetAction)).any { it.name == AgentToolDefinitions.TapVisualTargetToolName })
+        val tap = tools(setOf(DeviceCapability.ScreenObservation, DeviceCapability.VisualTargetAction))
+            .single { it.name == AgentToolDefinitions.TapVisualTargetToolName }
+        assertTrue(tap.description.contains("including any crop"))
+        assertTrue(tap.description.contains("returns a new image"))
+    }
     private val json = Json { explicitNulls = false }
 
     @Test

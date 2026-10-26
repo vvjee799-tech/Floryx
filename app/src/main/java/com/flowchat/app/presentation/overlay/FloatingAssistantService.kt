@@ -51,6 +51,8 @@ import androidx.compose.material.icons.rounded.KeyboardArrowUp
 import androidx.compose.material.icons.automirrored.rounded.Reply
 import androidx.compose.material.icons.rounded.Stop
 import androidx.compose.material3.Icon
+import androidx.compose.material3.Button
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -78,6 +80,7 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.ComposeView
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
@@ -98,6 +101,7 @@ import androidx.savedstate.SavedStateRegistryOwner
 import androidx.savedstate.setViewTreeSavedStateRegistryOwner
 import com.flowchat.app.MainActivity
 import com.flowchat.app.R
+import com.flowchat.app.domain.terminal.TerminalToolDefinitions
 import com.flowchat.app.ui.theme.AppAppearance
 import com.flowchat.app.ui.theme.FlowChatTheme
 import dagger.hilt.android.AndroidEntryPoint
@@ -230,8 +234,15 @@ class FloatingAssistantService : Service(), LifecycleOwner, ViewModelStoreOwner,
                         onSend = { text ->
                             bridge.send(text)
                         },
-                        onStop = bridge::stop
+                        onStop = bridge::stop,
+                        onConfirmationResponse = bridge::respondToConfirmation
                     )
+                }
+            }
+            addOnLayoutChangeListener { view, _, top, _, bottom, _, oldTop, _, oldBottom ->
+                if (overlayAttached && expanded && bridge.state.value.pendingDeviceActionConfirmation != null &&
+                    bottom - top != oldBottom - oldTop) {
+                    view.post { updateOverlayWindows() }
                 }
             }
         }
@@ -241,6 +252,11 @@ class FloatingAssistantService : Service(), LifecycleOwner, ViewModelStoreOwner,
             setViewTreeSavedStateRegistryOwner(this@FloatingAssistantService)
             setBackgroundColor(android.graphics.Color.TRANSPARENT)
             importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS
+            addOnLayoutChangeListener { view, _, top, _, bottom, _, oldTop, _, oldBottom ->
+                if (overlayAttached && expanded && watching && bottom - top != oldBottom - oldTop) {
+                    view.post { updateOverlayWindows() }
+                }
+            }
             setContent {
                 FlowChatTheme(appAppearance = appearance) {
                     val state by bridge.state.collectAsState()
@@ -264,11 +280,18 @@ class FloatingAssistantService : Service(), LifecycleOwner, ViewModelStoreOwner,
 
     private fun observeVisibility() {
         visibilityJob = serviceScope.launch {
-            combine(bridge.state, bridge.appInForeground, bridge.uiInteractionCount, bridge.screenCaptureCount) { state, appInForeground, interactions, captures ->
+            var displayedConfirmationId: String? = null
+            combine(bridge.state, bridge.appInForeground, bridge.uiInteractionCount, bridge.screenCaptureCount, bridge.displayCaptureCount) { state, appInForeground, interactions, captures, displayCaptures ->
                 OverlayVisibility(!appInForeground && state.canChat, state.isStreaming, interactions > 0,
-                    Build.VERSION.SDK_INT < 34 && captures > 0)
-            }.distinctUntilChanged().collect { (shouldShow, streaming, busy, captureHidden) ->
+                    (Build.VERSION.SDK_INT < 34 && captures > 0) || displayCaptures > 0,
+                    state.pendingDeviceActionConfirmation?.requestId)
+            }.distinctUntilChanged().collect { (shouldShow, streaming, busy, captureHidden, confirmationId) ->
                 automationBusy = busy
+                if (shouldShow && confirmationId != null && confirmationId != displayedConfirmationId) {
+                    expanded = true
+                    watching = true
+                }
+                displayedConfirmationId = confirmationId.takeIf { shouldShow }
                 // Viewing output never needs keyboard focus, including after the task finishes.
                 if (expanded && (streaming || busy)) watching = true
                 if (shouldShow && FloatingAssistantPermission.isGranted(this@FloatingAssistantService)) {
@@ -283,7 +306,8 @@ class FloatingAssistantService : Service(), LifecycleOwner, ViewModelStoreOwner,
         }
     }
 
-    private data class OverlayVisibility(val show: Boolean, val streaming: Boolean, val busy: Boolean, val captureHidden: Boolean)
+    private data class OverlayVisibility(val show: Boolean, val streaming: Boolean, val busy: Boolean,
+        val captureHidden: Boolean, val confirmationId: String?)
 
     private fun showOverlay() {
         if (overlayAttached) return
@@ -320,8 +344,15 @@ class FloatingAssistantService : Service(), LifecycleOwner, ViewModelStoreOwner,
     private fun updateOverlayWindows() {
         if (!overlayAttached) return
         val passive = expanded && watching
-        val passThrough = passive || automationBusy
-        val focusable = expanded && !watching && !automationBusy
+        val confirming = expanded && bridge.state.value.pendingDeviceActionConfirmation != null
+        val controlsHeight = maxOf(dp(48), controlsView.height)
+        if (confirming && overlayView.height > 0) {
+            val maxY = (resources.displayMetrics.heightPixels - overlayView.height - controlsHeight - dp(24))
+                .coerceAtLeast(dp(48))
+            anchorY = anchorY.coerceAtMost(maxY)
+        }
+        val passThrough = (passive || automationBusy) && !confirming
+        val focusable = expanded && !watching && !automationBusy && !confirming
         if (!focusable) clearOverlayFocus()
         layoutParams.flags = WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
             WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
@@ -335,11 +366,16 @@ class FloatingAssistantService : Service(), LifecycleOwner, ViewModelStoreOwner,
         layoutParams.alpha = if (passThrough) passThroughAlpha() else 1f
         layoutParams.width = if (expanded) WindowManager.LayoutParams.WRAP_CONTENT else dp(BubbleSizeDp)
         layoutParams.height = if (expanded) WindowManager.LayoutParams.WRAP_CONTENT else dp(BubbleSizeDp)
-        layoutParams.y = anchorY + if (passive) dp(48) else 0
+        layoutParams.y = anchorY + if (passive) controlsHeight else 0
+        // Only the explicit confirmation is interactive; it never opens the keyboard.
+        overlayView.importantForAccessibility = if (confirming) View.IMPORTANT_FOR_ACCESSIBILITY_YES
+            else View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS
+        controlsView.importantForAccessibility = if (confirming) View.IMPORTANT_FOR_ACCESSIBILITY_YES
+            else View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS
         runCatching { windowManager.updateViewLayout(overlayView, layoutParams) }
         if (passive) {
             controlsLayoutParams.y = anchorY
-            controlsView.visibility = if (automationBusy) View.INVISIBLE else View.VISIBLE
+            controlsView.visibility = if (automationBusy && !confirming) View.INVISIBLE else View.VISIBLE
             runCatching {
                 if (controlsAttached) windowManager.updateViewLayout(controlsView, controlsLayoutParams)
                 else {
@@ -438,7 +474,8 @@ private fun FloatingAssistantOverlay(
     onDrag: (Float) -> Unit,
     onDragFinished: () -> Unit,
     onSend: (String) -> Unit,
-    onStop: () -> Unit
+    onStop: () -> Unit,
+    onConfirmationResponse: (String, String, Boolean) -> Unit
 ) {
     Crossfade(
         targetState = expanded to watching,
@@ -453,7 +490,8 @@ private fun FloatingAssistantOverlay(
                 watching = isWatching,
                 onCollapse = onCollapse,
                 onSend = onSend,
-                onStop = onStop
+                onStop = onStop,
+                onConfirmationResponse = onConfirmationResponse
             )
         } else {
             FloatingAssistantBubble(
@@ -536,8 +574,11 @@ private fun ExpandedAssistantPanel(
     watching: Boolean,
     onCollapse: () -> Unit,
     onSend: (String) -> Unit,
-    onStop: () -> Unit
+    onStop: () -> Unit,
+    onConfirmationResponse: (String, String, Boolean) -> Unit
 ) {
+    val confirmation = state.pendingDeviceActionConfirmation
+    val maxConfirmationHeight = (LocalConfiguration.current.screenHeightDp - 144).coerceAtLeast(160).dp
     val messageScrollState = rememberScrollState()
     LaunchedEffect(state.assistantText, messageScrollState.maxValue) {
         messageScrollState.scrollTo(messageScrollState.maxValue)
@@ -545,6 +586,7 @@ private fun ExpandedAssistantPanel(
     Surface(
         modifier = Modifier
             .width(272.dp)
+            .then(if (confirmation != null) Modifier.heightIn(max = maxConfirmationHeight) else Modifier)
             .shadow(4.dp, RoundedCornerShape(20.dp)),
         shape = RoundedCornerShape(18.dp),
         color = MaterialTheme.colorScheme.surface,
@@ -565,37 +607,58 @@ private fun ExpandedAssistantPanel(
                 }
             }
             Spacer(Modifier.height(8.dp))
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(min = 112.dp, max = 208.dp)
-                    .clip(RoundedCornerShape(14.dp))
-                    .background(MaterialTheme.colorScheme.background.copy(alpha = 0.30f))
-            ) {
-                Text(
-                    text = state.assistantText.ifBlank {
-                        if (state.isStreaming) {
-                            stringResource(R.string.floating_assistant_thinking)
-                        } else {
-                            stringResource(R.string.floating_assistant_ready)
-                        }
-                    },
-                    style = MaterialTheme.typography.bodyMedium,
-                    lineHeight = 20.sp,
-                    color = MaterialTheme.colorScheme.onSurface,
+            if (confirmation != null && state.conversationId != null) {
+                Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState())) {
+                    val systemCommand = confirmation.toolName == TerminalToolDefinitions.Run
+                    Text(
+                        text = if (systemCommand) stringResource(R.string.terminal_system_approval_title)
+                            else stringResource(R.string.force_stop_confirmation_title, confirmation.title),
+                        style = MaterialTheme.typography.titleSmall,
+                        modifier = Modifier.padding(horizontal = 8.dp)
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        text = if (systemCommand) stringResource(R.string.terminal_system_approval_message, confirmation.title, confirmation.message)
+                            else stringResource(R.string.force_stop_confirmation_message, confirmation.title),
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.padding(horizontal = 8.dp)
+                    )
+                }
+                Spacer(Modifier.height(12.dp))
+                Row(Modifier.fillMaxWidth()) {
+                    OutlinedButton(
+                        onClick = { onConfirmationResponse(state.conversationId, confirmation.requestId, false) },
+                        modifier = Modifier.weight(1f).heightIn(min = 48.dp)
+                    ) { Text(stringResource(R.string.floating_confirmation_reject)) }
+                    Spacer(Modifier.width(8.dp))
+                    Button(
+                        onClick = { onConfirmationResponse(state.conversationId, confirmation.requestId, true) },
+                        modifier = Modifier.weight(1f).heightIn(min = 48.dp)
+                    ) { Text(stringResource(R.string.floating_confirmation_allow)) }
+                }
+            } else {
+                Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(14.dp)
-                        .verticalScroll(messageScrollState)
-                )
-            }
-            if (!watching) {
-                Spacer(Modifier.height(8.dp))
-                OverlayComposer(
-                    isStreaming = state.isStreaming,
-                    onSend = onSend,
-                    onStop = onStop
-                )
+                        .heightIn(min = 112.dp, max = 208.dp)
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(MaterialTheme.colorScheme.background.copy(alpha = 0.30f))
+                ) {
+                    Text(
+                        text = state.assistantText.ifBlank {
+                            if (state.isStreaming) stringResource(R.string.floating_assistant_thinking)
+                            else stringResource(R.string.floating_assistant_ready)
+                        },
+                        style = MaterialTheme.typography.bodyMedium,
+                        lineHeight = 20.sp,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.fillMaxWidth().padding(14.dp).verticalScroll(messageScrollState)
+                    )
+                }
+                if (!watching) {
+                    Spacer(Modifier.height(8.dp))
+                    OverlayComposer(isStreaming = state.isStreaming, onSend = onSend, onStop = onStop)
+                }
             }
         }
     }
@@ -649,7 +712,8 @@ private fun FloatingProgressStatus(state: FloatingAssistantState, modifier: Modi
         }
         val hint = when (phase) {
             FloatingTaskPhase.RunningCommand -> R.string.floating_status_command_hint
-            FloatingTaskPhase.WaitingForUser -> R.string.floating_status_confirmation_hint
+            FloatingTaskPhase.WaitingForUser -> if (state.pendingDeviceActionConfirmation != null)
+                R.string.floating_confirmation_hint else R.string.floating_status_confirmation_hint
             else -> null
         }
         if (hint != null) Text(stringResource(hint), style = MaterialTheme.typography.bodySmall,

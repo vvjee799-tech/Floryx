@@ -100,6 +100,11 @@
     <string name="tool_action_generic">using %1$s</string>
     <string name="tool_name_observe_screen">current screen</string>
     <string name="tool_name_tap_ui_element">screen control</string>
+    <string name="tool_name_tap_visual_target">visual target</string>
+    <string name="tool_action_tap_visual_target">tapping the target in the image</string>
+    <string name="device_error_use_ui_tools">Use the current screen tools to continue this phone action.</string>
+    <string name="device_error_visual_target">The target position is invalid. Locate it again in the latest image.</string>
+    <string name="device_error_visual_obscured">Another window covers the target. Check the screen before continuing.</string>
     <string name="tool_name_input_text">text input</string>
     <string name="tool_name_swipe_screen">screen swipe</string>
     <string name="tool_name_press_back">Back</string>
@@ -415,6 +420,9 @@
     <string name="floating_status_elapsed">Elapsed %1$d sec</string>
     <string name="floating_status_command_hint">Waiting for the command result. You can stop it.</string>
     <string name="floating_status_confirmation_hint">Return to Floryx to review the request.</string>
+    <string name="floating_confirmation_hint">Review and respond here</string>
+    <string name="floating_confirmation_allow">Allow</string>
+    <string name="floating_confirmation_reject">Decline</string>
     <string name="usage_title">Usage and balance</string>
     <string name="usage_enable">Show usage and balance</string>
     <string name="usage_setting_description">Currently supports DeepSeek only. Show reported token usage and refresh the official account balance after each reply.</string>

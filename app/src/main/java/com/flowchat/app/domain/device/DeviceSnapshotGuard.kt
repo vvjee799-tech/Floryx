@@ -16,6 +16,7 @@ class DeviceSnapshotGuard {
                 val oldTarget = previous.elements.firstOrNull { it.index == targetIndex }
                 previous.packageName == current.packageName && previous.activityName == current.activityName &&
                     previous.windowId == current.windowId &&
+                    previous.geometry == current.geometry &&
                     oldTarget != null && oldTarget == current.elements.firstOrNull { it.index == targetIndex }
             }
     }

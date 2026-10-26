@@ -4,6 +4,7 @@ import com.flowchat.app.domain.model.MessageRole
 import com.flowchat.app.domain.model.MessageStatus
 import com.flowchat.app.domain.terminal.CommandSnapshot
 import com.flowchat.app.presentation.chat.ChatUiState
+import com.flowchat.app.presentation.chat.DeviceActionConfirmationUi
 import com.flowchat.app.domain.device.DeviceTaskControl
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -25,7 +26,8 @@ data class FloatingAssistantState(
     val lastOpenedAppName: String? = null,
     val isStreaming: Boolean = false,
     val canChat: Boolean = false,
-    val progress: FloatingTaskProgress? = null
+    val progress: FloatingTaskProgress? = null,
+    val pendingDeviceActionConfirmation: DeviceActionConfirmationUi? = null
 ) {
     companion object {
         fun from(state: ChatUiState, commands: List<CommandSnapshot> = emptyList()): FloatingAssistantState {
@@ -91,7 +93,8 @@ data class FloatingAssistantState(
                 lastOpenedAppName = openedApp,
                 isStreaming = state.isStreaming,
                 canChat = conversation != null,
-                progress = FloatingTaskProgress(phase, startedAt.takeIf { phase.isActive })
+                progress = FloatingTaskProgress(phase, startedAt.takeIf { phase.isActive }),
+                pendingDeviceActionConfirmation = state.pendingDeviceActionConfirmation
             )
         }
     }
@@ -99,6 +102,7 @@ data class FloatingAssistantState(
 
 sealed interface FloatingAssistantCommand {
     data class Send(val text: String) : FloatingAssistantCommand
+    data class RespondToConfirmation(val conversationId: String, val requestId: String, val approved: Boolean) : FloatingAssistantCommand
     data object Stop : FloatingAssistantCommand
 }
 
@@ -133,6 +137,10 @@ class FloatingAssistantBridge @Inject constructor(
         mutableCommands.tryEmit(FloatingAssistantCommand.Stop)
     }
 
+    fun respondToConfirmation(conversationId: String, requestId: String, approved: Boolean) {
+        mutableCommands.tryEmit(FloatingAssistantCommand.RespondToConfirmation(conversationId, requestId, approved))
+    }
+
     /** Keep the output visible while touchable controls yield for the entire device operation. */
     suspend fun <T> withExternalUiAction(action: suspend () -> T): T {
         mutableUiInteractionCount.update { it + 1 }
@@ -145,6 +153,17 @@ class FloatingAssistantBridge @Inject constructor(
 
     private val mutableScreenCaptureCount = MutableStateFlow(0)
     val screenCaptureCount = mutableScreenCaptureCount.asStateFlow()
+    private val mutableDisplayCaptureCount = MutableStateFlow(0)
+    val displayCaptureCount = mutableDisplayCaptureCount.asStateFlow()
+
+    /** Also needed on Android 14+ when a window surface has unmappable shadow insets. */
+    suspend fun <T> withDisplayCapture(action: suspend () -> T): T {
+        mutableDisplayCaptureCount.update { it + 1 }
+        return try {
+            kotlinx.coroutines.delay(120)
+            action()
+        } finally { mutableDisplayCaptureCount.update { it - 1 } }
+    }
 
     suspend fun <T> withScreenCapture(action: suspend () -> T): T {
         mutableScreenCaptureCount.update { it + 1 }
