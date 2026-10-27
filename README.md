@@ -24,14 +24,14 @@
 
 Floryx 将多模型对话、手机操作与命令执行放进同一个会话。你可以从一句话开始，让它理解文档、查看画面、处理文件，并沿着已完成的步骤继续任务。
 
-1.5.19 新增独立设置页面、会话设置分组与资料分别编辑，并包含 Markdown 回复、流式阅读保护、会话管理、Gemini 原生适配与手机操作响应优化。项目与 GitHub 仓库统一使用 **Floryx**，更名范围和兼容标识见[项目更名记录](docs/project-rename-2026-10-27.md)。
+1.5.20 采用新版植物绿图标与「花开成形」启动页，修复冷启动空白等待后动效一闪而过的问题。应用包含独立设置、Markdown 回复、流式阅读保护、会话管理、Gemini 原生适配与手机操作。项目与 GitHub 仓库统一使用 **Floryx**，更名范围和兼容标识见[项目更名记录](docs/project-rename-2026-10-27.md)。
 
 ## 下载与更新
 
 | | 版本与入口 |
 | --- | --- |
-| **已发布安装包** | [下载 Floryx 1.5.19 APK](https://github.com/vvjee799-tech/Floryx/releases/download/v1.5.19/Floryx-1.5.19-retain-config.apk) · [发布页与校验文件](https://github.com/vvjee799-tech/Floryx/releases/latest) |
-| **当前源码** | **1.5.19** · [查看更新记录](CHANGELOG.md) · [自行构建](#开发与构建) |
+| **已发布安装包** | [下载 Floryx 1.5.20 APK](https://github.com/vvjee799-tech/Floryx/releases/download/v1.5.20/Floryx-1.5.20-retain-config.apk) · [发布页与校验文件](https://github.com/vvjee799-tech/Floryx/releases/latest) |
+| **当前源码** | **1.5.20** · [查看更新记录](CHANGELOG.md) · [自行构建](#开发与构建) |
 
 安装包与当前源码对应同一发布版本。版本内容见[更新记录](CHANGELOG.md)，打包与发布步骤见[发布流程](docs/releasing.md)。
 
@@ -126,7 +126,7 @@ Floryx 将多模型对话、手机操作与命令执行放进同一个会话。�
 | **命令与文件** | [内置 Linux 环境](docs/terminal.md) · [手机文件夹工作区](docs/workspace-2026-10-25.md) · [图片与文档附件](docs/attachments.md) |
 | **任务与记忆** | [会话检查点](docs/context-checkpoints.md) · [停止后的接续](docs/task-context.md) · [摘要记忆](docs/memory.md) |
 | **设置与发布** | [独立设置页面](docs/settings-navigation-2026-10-27.md) · [项目更名记录](docs/project-rename-2026-10-27.md) · [发布流程](docs/releasing.md) |
-| **体验与反馈** | [实际用量与余额](docs/usage-balance-2026-10-24.md) · [后台状态与计时](docs/floating-progress-2026-10-24.md) · [回复进度](docs/reply-feedback.md) · [界面设计](docs/ui-paper.md) |
+| **体验与反馈** | [启动页与验证](docs/bloom-splash-2026-10-27.md) · [应用图标](design-system/floryx/pages/icon.md) · [实际用量与余额](docs/usage-balance-2026-10-24.md) · [回复进度](docs/reply-feedback.md) · [界面设计](docs/ui-paper.md) |
 
 ## 开发与构建
 

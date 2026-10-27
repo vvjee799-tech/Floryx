@@ -1,8 +1,8 @@
 package com.flowchat.app.presentation.chat
 
+import java.io.File
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
-import java.io.File
 import java.nio.charset.StandardCharsets
 import java.util.zip.InflaterInputStream
 import org.junit.Assert.assertEquals
@@ -141,7 +141,7 @@ class ChatScreenContractTest {
     }
 
     @Test
-    fun launcherIconUsesFourthVersionRasterMipmapWithoutAdaptiveOverride() {
+    fun launcherIconKeepsPaperAndGreenMarkWithoutAdaptiveOverride() {
         val manifest = File("src/main/AndroidManifest.xml").readText()
         val expectedSizes = mapOf(
             "mipmap-mdpi" to 48,
@@ -166,27 +166,24 @@ class ChatScreenContractTest {
         val lightBackgroundPixels = xhdpiIcon.countPixels { _, _, r, g, b, alpha ->
             alpha > 220 && r > 210 && g > 210 && b > 210
         }
-        val middleLineDarkPixels = xhdpiIcon.countPixels { _, y, r, g, b, alpha ->
-            y > xhdpiIcon.height * 0.43 &&
-                y < xhdpiIcon.height * 0.52 &&
-                alpha > 220 &&
-                r < 70 &&
-                g < 70 &&
-                b < 70
+        fun greenInk(r: Int, g: Int, b: Int, alpha: Int) =
+            alpha > 220 && g > r + 10 && g > b + 5 && g < 185
+        fun regionInk(left: Double, right: Double, top: Double, bottom: Double) =
+            xhdpiIcon.countPixels { x, y, r, g, b, alpha ->
+                x > xhdpiIcon.width * left && x < xhdpiIcon.width * right &&
+                    y > xhdpiIcon.height * top && y < xhdpiIcon.height * bottom && greenInk(r, g, b, alpha)
+            }
+        assertTrue("The accepted icon keeps its paper background", lightBackgroundPixels > 8_000)
+        assertTrue("The horizontal stroke extends left of the curve", regionInk(.16, .40, .43, .52) > 15)
+        assertTrue("The horizontal stroke extends right of the curve", regionInk(.60, .84, .43, .52) > 15)
+        assertTrue("The curve rises above the horizontal stroke", regionInk(.43, .58, .35, .43) > 15)
+        assertTrue("The curve continues below the horizontal stroke", regionInk(.43, .58, .52, .68) > 15)
+        val clippedInk = xhdpiIcon.countPixels { x, y, r, g, b, alpha ->
+            greenInk(r, g, b, alpha) && kotlin.math.hypot(
+                x - (xhdpiIcon.width - 1) / 2.0, y - (xhdpiIcon.height - 1) / 2.0
+            ) > xhdpiIcon.width * .475
         }
-        val centerCurveDarkPixels = xhdpiIcon.countPixels { x, y, r, g, b, alpha ->
-            x > xhdpiIcon.width * 0.43 &&
-                x < xhdpiIcon.width * 0.58 &&
-                y > xhdpiIcon.height * 0.35 &&
-                y < xhdpiIcon.height * 0.68 &&
-                alpha > 220 &&
-                r < 70 &&
-                g < 70 &&
-                b < 70
-        }
-        assertTrue("Fourth version launcher icon should keep a mostly light background", lightBackgroundPixels > 8_000)
-        assertTrue("Fourth version launcher icon should keep the black horizontal stroke", middleLineDarkPixels > 80)
-        assertTrue("Fourth version launcher icon should keep the black center curve", centerCurveDarkPixels > 70)
+        assertEquals("The fine terminals must fit inside circular icon masks", 0, clippedInk)
     }
 
     @Test
@@ -965,13 +962,14 @@ private fun decodeRgbaPng(file: File): RgbaPng {
         offset = dataOffset + length + 4
     }
 
-    require(bitDepth == 8 && colorType == 6) {
-        "reference_gear.png must be 8-bit RGBA PNG, got bitDepth=$bitDepth colorType=$colorType"
+    require(bitDepth == 8 && (colorType == 2 || colorType == 6)) {
+        "${file.name} must be 8-bit RGB or RGBA PNG, got bitDepth=$bitDepth colorType=$colorType"
     }
 
     val inflated = InflaterInputStream(ByteArrayInputStream(idat.toByteArray())).readBytes()
-    val stride = width * 4
-    val pixels = ByteArray(height * stride)
+    val channels = if (colorType == 6) 4 else 3
+    val stride = width * channels
+    val pixels = ByteArray(height * width * 4)
     var sourceOffset = 0
     var previous = ByteArray(stride)
 
@@ -982,9 +980,9 @@ private fun decodeRgbaPng(file: File): RgbaPng {
 
         for (index in row.indices) {
             val raw = row[index].toInt() and 0xFF
-            val left = if (index >= 4) row[index - 4].toInt() and 0xFF else 0
+            val left = if (index >= channels) row[index - channels].toInt() and 0xFF else 0
             val up = previous[index].toInt() and 0xFF
-            val upLeft = if (index >= 4) previous[index - 4].toInt() and 0xFF else 0
+            val upLeft = if (index >= channels) previous[index - channels].toInt() and 0xFF else 0
             val value = when (filter) {
                 0 -> raw
                 1 -> raw + left
@@ -996,7 +994,12 @@ private fun decodeRgbaPng(file: File): RgbaPng {
             row[index] = (value and 0xFF).toByte()
         }
 
-        row.copyInto(pixels, y * stride)
+        for (x in 0 until width) {
+            val source = x * channels
+            val destination = (y * width + x) * 4
+            row.copyInto(pixels, destination, source, source + 3)
+            pixels[destination + 3] = if (channels == 4) row[source + 3] else (-1).toByte()
+        }
         previous = row
     }
 

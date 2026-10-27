@@ -74,10 +74,7 @@ import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.graphics.ColorFilter
-import androidx.compose.ui.graphics.ColorMatrix
 import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.platform.LocalConfiguration
@@ -861,22 +858,10 @@ private fun OverlayComposer(
 
 @Composable
 private fun FlowChatMark(modifier: Modifier = Modifier) {
-    val isDark = MaterialTheme.colorScheme.background.luminance() < 0.5f
-    val invert = remember {
-        ColorMatrix(
-            floatArrayOf(
-                -1f, 0f, 0f, 0f, 255f,
-                0f, -1f, 0f, 0f, 255f,
-                0f, 0f, -1f, 0f, 255f,
-                0f, 0f, 0f, 1f, 0f
-            )
-        )
-    }
     Image(
         painter = painterResource(R.mipmap.ic_launcher),
         contentDescription = null,
         contentScale = ContentScale.Crop,
-        colorFilter = if (isDark) ColorFilter.colorMatrix(invert) else null,
         modifier = modifier.clip(CircleShape)
     )
 }

@@ -32,8 +32,8 @@ android {
         applicationId = "com.flowchat.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 33
-        versionName = "1.5.19"
+        versionCode = 34
+        versionName = "1.5.20"
 
         buildConfigField("String", "SEARCH_PROXY_URL", "\"${searchProxyUrl.replace("\"", "\\\"")}\"")
 

@@ -13,6 +13,7 @@
     <string name="review_task_confirmation">Review</string>
     <string name="interrupted_task_description">Progress and tool records were retained. Continue to verify unfinished steps, or end this task.</string>
     <string name="app_name">Floryx</string>
+    <string name="splash_tagline">Let ideas bloom. Make things happen.</string>
     <string name="new_chat">New chat</string>
     <string name="conversations">Conversations</string>
     <string name="providers">Providers</string>

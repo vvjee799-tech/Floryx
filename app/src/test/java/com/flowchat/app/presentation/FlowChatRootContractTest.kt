@@ -39,7 +39,7 @@ class FlowChatRootContractTest {
         assertTrue(mainActivity.contains("FlowChatTheme(appAppearance = appAppearance)"))
         assertTrue(mainActivity.contains("isAppearanceLightStatusBars = !useDarkSystemBars"))
         assertTrue(mainActivity.contains("isAppearanceLightNavigationBars = !useDarkSystemBars"))
-        assertTrue(mainActivity.contains("SplashTransition(appAppearance = appAppearance)"))
+        assertTrue(mainActivity.contains("SplashTransition(appAppearance = appAppearance"))
         assertTrue(mainActivity.contains("FlowChatRoot(appAppearance = appAppearance, onAppAppearanceChange = { appearance ->"))
         assertTrue(source.contains("fun FlowChatRoot("))
         assertTrue(source.contains("appAppearance: AppAppearance"))

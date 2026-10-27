@@ -1,9 +1,12 @@
 <resources>
     <style name="Theme.FlowChat" parent="android:style/Theme.Material.Light.NoActionBar">
         <item name="android:windowBackground">@drawable/splash_window_background</item>
-        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:statusBarColor">@color/splash_background</item>
+        <item name="android:navigationBarColor">@color/splash_background</item>
+        <item name="android:windowLightStatusBar">@bool/splash_light_system_bars</item>
+        <item name="android:windowLightNavigationBar">@bool/splash_light_system_bars</item>
         <item name="android:colorAccent">#2563EB</item>
-        <item name="android:windowSplashScreenBackground">#000000</item>
-        <item name="android:windowSplashScreenAnimatedIcon">@drawable/transparent_splash_icon</item>
+        <item name="android:windowSplashScreenBackground">@color/splash_background</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@drawable/ic_splash_mark</item>
     </style>
 </resources>

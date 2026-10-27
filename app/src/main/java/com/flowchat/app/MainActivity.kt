@@ -2,6 +2,7 @@ package com.flowchat.app
 
 import android.content.Context
 import android.os.Bundle
+import android.os.Build
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -35,6 +36,7 @@ class MainActivity : ComponentActivity() {
     @Inject lateinit var appSettingsStore: AppSettingsStore
     @Inject lateinit var floatingAssistantManager: FloatingAssistantManager
     @Inject lateinit var deviceAssistantGateway: DeviceAssistantGateway
+    private var nativeSplashDismissed by mutableStateOf(Build.VERSION.SDK_INT < Build.VERSION_CODES.S)
 
     override fun attachBaseContext(newBase: Context) {
         super.attachBaseContext(AppLocale.wrapContext(newBase))
@@ -42,6 +44,12 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            splashScreen.setOnExitAnimationListener { startingWindow ->
+                startingWindow.remove()
+                nativeSplashDismissed = true
+            }
+        }
         window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
         enableEdgeToEdge()
         lifecycleScope.launch {
@@ -67,7 +75,7 @@ class MainActivity : ComponentActivity() {
                 }
             }
             FlowChatTheme(appAppearance = appAppearance) {
-                SplashTransition(appAppearance = appAppearance) {
+                SplashTransition(appAppearance = appAppearance, launchReady = nativeSplashDismissed) {
                     FlowChatRoot(appAppearance = appAppearance, onAppAppearanceChange = { appearance ->
                         appAppearance = appearance
                         AppAppearance.save(this, appearance)
@@ -80,6 +88,19 @@ class MainActivity : ComponentActivity() {
     override fun onStart() {
         super.onStart()
         floatingAssistantManager.onAppForeground()
+    }
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        // Some activity-only launches have no platform SplashScreenView. Let a
+        // focused app frame finish before using focus as the handoff fallback.
+        if (hasFocus && !nativeSplashDismissed) {
+            window.decorView.postOnAnimation {
+                window.decorView.post {
+                    if (window.decorView.hasWindowFocus()) nativeSplashDismissed = true
+                }
+            }
+        }
     }
 
     override fun onResume() {

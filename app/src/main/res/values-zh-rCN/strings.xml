@@ -13,6 +13,7 @@
     <string name="review_task_confirmation">查看确认</string>
     <string name="interrupted_task_description">已保留进度和操作记录。继续时会先核验未确认的步骤，也可以结束该任务。</string>
     <string name="app_name">Floryx</string>
+    <string name="splash_tagline">让想法生长，让任务落地。</string>
     <string name="new_chat">新建会话</string>
     <string name="conversations">会话</string>
     <string name="providers">服务商</string>

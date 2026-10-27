@@ -1,0 +1,5 @@
+<resources>
+    <color name="splash_background">#24231F</color>
+    <color name="splash_mark">#A8BEA9</color>
+    <bool name="splash_light_system_bars">false</bool>
+</resources>

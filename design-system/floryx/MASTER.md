@@ -11,6 +11,8 @@ Warm paper, quiet olive controls, generous reading space. Keep the interface fre
 - Shared tokens: `ui/theme/Theme.kt` and `presentation/common/FlowComponents.kt`.
 - Reading gutter 28 dp; input gutter 20 dp; maximum content width 720 dp.
 - Wordmark: platform serif, 28 sp. Chinese and conversation text use the native sans-serif face.
+- App icon: use the accepted [green flowing f on paper](pages/icon.md), selected 2026-10-27. Preserve its colors in both themes.
+- Startup: use the accepted [花开成形 splash](pages/splash.md), with six opening petals and a serif wordmark.
 - Conversation body: 16/29 sp. Secondary content: 14/24 sp. Labels: 12/18 sp.
 - Input radius 17 dp; send icon container 36 dp with a 48 dp touch target.
 - Settings groups are flat; spacing provides hierarchy. Use borders only for fields, the composer and selected-state cues.
