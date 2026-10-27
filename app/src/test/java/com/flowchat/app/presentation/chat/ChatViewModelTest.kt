@@ -398,6 +398,37 @@ class ChatViewModelTest {
         collection.cancel()
     }
 
+    @Test fun waitingUsesTheGatewayReadinessCheckWithOneOverlayPreparation() = runTest(dispatcher) {
+        com.flowchat.app.domain.device.AutomationTimings.clear()
+        val gateway = FakeDeviceAssistantGateway()
+        val client = FakeChatCompletionClient(listOf(
+            listOf(ChatDelta.ToolCalls(listOf(ChatToolCall("wait", AgentToolDefinitions.WaitForScreenToolName, """{"include_image":false}""")))),
+            listOf(ChatDelta.Content("ready"), ChatDelta.Done)))
+        val vm = deviceTestViewModel(client, gateway, memoryEnabled = false)
+        val collection = backgroundScope.launch { vm.uiState.collect {} }
+        advanceUntilIdle(); vm.updateInput("Wait for the page"); vm.send(); advanceUntilIdle()
+        assertEquals(1, gateway.waitCount)
+        assertEquals(1, gateway.observeCount)
+        assertEquals(0, gateway.captureCount)
+        assertEquals(1, com.flowchat.app.domain.device.AutomationTimings.snapshot().count { it.stage == "overlay.prepare" })
+        collection.cancel()
+    }
+
+    @Test fun textOnlyModelsKeepLocalSwipeVerificationWithoutReceivingImages() = runTest(dispatcher) {
+        val gateway = FakeDeviceAssistantGateway().apply { screenshot = com.flowchat.app.domain.model.ChatImage("image/png", "PIXELS") }
+        val client = FakeChatCompletionClient(listOf(
+            listOf(ChatDelta.ToolCalls(listOf(ChatToolCall("swipe", AgentToolDefinitions.SwipeScreenToolName,
+                """{"direction":"up","distance_percent":50}""")))), listOf(ChatDelta.Content("done"), ChatDelta.Done)))
+        val vm = deviceTestViewModel(client, gateway, model = "deepseek-v4-pro", memoryEnabled = false,
+            providerBaseUrl = "https://api.deepseek.com")
+        val collection = backgroundScope.launch { vm.uiState.collect {} }
+        advanceUntilIdle(); vm.updateInput("Swipe up"); vm.send(); advanceUntilIdle()
+        val result = client.requests.last().messages.last { it.role == "tool" }
+        assertTrue(result.images.isEmpty())
+        assertTrue(result.content.orEmpty().contains("model_vision_unsupported"))
+        collection.cancel()
+    }
+
     @Test
     fun stoppingCancelsPendingDeviceWorkAndItsVisibleToolStatus() = runTest(dispatcher) {
         val client = FakeChatCompletionClient(listOf(
@@ -1921,6 +1952,51 @@ class ChatViewModelTest {
         collection.cancel()
     }
 
+    @Test fun pagedDisplayStillSendsTheFullConversationAndEstimatesTheFullContext() = runTest(dispatcher) {
+        val (a, _) = twoConversations()
+        val repository = FakeChatRepository(listOf(a), a)
+        repeat(180) { index ->
+            repository.appendMessage(a.id, if (index % 2 == 0) MessageRole.User else MessageRole.Assistant,
+                "History marker $index", if (index % 2 == 0) MessageStatus.Sent else MessageStatus.Complete,
+                "test", null, null, null, null)
+        }
+        val client = FakeChatCompletionClient()
+        val vm = conversationTestViewModel(repository, client)
+        val collection = backgroundScope.launch { vm.uiState.collect {} }
+        advanceUntilIdle()
+        assertEquals(80, vm.uiState.value.messages.size)
+        assertTrue(vm.uiState.value.hasOlderMessages)
+        vm.updateInput("Continue using the first marker")
+        vm.send()
+        advanceUntilIdle()
+        assertTrue(client.requests.first().messages.any { it.content == "History marker 0" })
+        assertTrue(client.requests.first().messages.size > 180)
+        vm.loadOlderMessages()
+        advanceUntilIdle()
+        assertEquals(160, vm.uiState.value.messages.size)
+        vm.loadOlderMessages()
+        advanceUntilIdle()
+        assertEquals(182, vm.uiState.value.messages.size)
+        assertFalse(vm.uiState.value.hasOlderMessages)
+        collection.cancel()
+    }
+
+    @Test fun interruptedLongTurnCanResumeWhenItsUserMessageIsOutsideTheDisplayPage() = runTest(dispatcher) {
+        val (a, _) = twoConversations()
+        val repository = FakeChatRepository(listOf(a), a)
+        repository.appendMessage(a.id, MessageRole.User, "Long task", MessageStatus.Sent, "test", null, null, null, null)
+        repeat(90) {
+            repository.appendMessage(a.id, MessageRole.Tool, "Completed step $it", MessageStatus.Complete, "test", null, null, null, null)
+        }
+        repository.appendMessage(a.id, MessageRole.Assistant, "Saved partial reply", MessageStatus.Stopped, "test", null, null, null, null)
+        val vm = conversationTestViewModel(repository, FakeChatCompletionClient())
+        val collection = backgroundScope.launch { vm.uiState.collect {} }
+        advanceUntilIdle()
+        assertEquals(80, vm.uiState.value.messages.size)
+        assertTrue(vm.uiState.value.interruptedTask)
+        collection.cancel()
+    }
+
     private class FakeChatRepository(
         initialConversations: List<Conversation>,
         private val nextConversation: Conversation
@@ -2166,6 +2242,7 @@ class ChatViewModelTest {
         val forceStoppedApps = mutableListOf<String>()
         val brightnessValues = mutableListOf<Int>()
         var observeCount = 0
+        var waitCount = 0
         var captureCount = 0
         val captureRegions = mutableListOf<com.flowchat.app.domain.device.ScreenImageRegion?>()
         var screenshot: com.flowchat.app.domain.model.ChatImage? = null
@@ -2190,6 +2267,7 @@ class ChatViewModelTest {
             observationGate?.await()
             return DeviceToolResult(true, "screen", screen = testScreen())
         }
+        override suspend fun waitForScreen(): DeviceToolResult { waitCount++; return observeScreen() }
         override suspend fun captureScreen(region: com.flowchat.app.domain.device.ScreenImageRegion?): DeviceToolResult {
             captureCount++
             captureRegions += region
@@ -2212,7 +2290,8 @@ class ChatViewModelTest {
         override suspend fun inputText(index: Int, text: String, clearExisting: Boolean, screenId: String?) =
             DeviceToolResult(true, "typed", screen = testScreen())
         override suspend fun swipeScreen(direction: DeviceSwipeDirection, distancePercent: Int) =
-            DeviceToolResult(true, "swiped", screen = testScreen())
+            DeviceToolResult(true, "swiped", screen = testScreen(), screenImage = screenshot?.let {
+                com.flowchat.app.domain.device.DeviceScreenImage(it, "swipe", 400, 800) })
         override suspend fun pressBack(): DeviceToolResult {
             backCount += 1
             return DeviceToolResult(true, "back", screen = testScreen())

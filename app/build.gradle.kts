@@ -16,7 +16,9 @@ val releaseKeystoreProperties = Properties().apply {
     }
 }
 val hasReleaseSigning = releaseKeystorePropertiesFile.exists()
-val searchProxyUrl = providers.gradleProperty("flowchatSearchProxyUrl").orElse("").get()
+val searchProxyUrl = providers.gradleProperty("floryxSearchProxyUrl")
+    .orElse(providers.gradleProperty("flowchatSearchProxyUrl")) // Legacy build-property compatibility.
+    .orElse("").get()
 
 fun releaseSigningProperty(name: String): String =
     releaseKeystoreProperties.getProperty(name)
@@ -30,8 +32,8 @@ android {
         applicationId = "com.flowchat.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 32
-        versionName = "1.5.18"
+        versionCode = 33
+        versionName = "1.5.19"
 
         buildConfigField("String", "SEARCH_PROXY_URL", "\"${searchProxyUrl.replace("\"", "\\\"")}\"")
 
@@ -105,6 +107,10 @@ android {
 }
 
 dependencies {
+    implementation("org.commonmark:commonmark:0.24.0")
+    implementation("org.commonmark:commonmark-ext-gfm-tables:0.24.0")
+    implementation("org.commonmark:commonmark-ext-gfm-strikethrough:0.24.0")
+    implementation("org.commonmark:commonmark-ext-autolink:0.24.0")
     implementation("org.apache.commons:commons-compress:1.28.0")
     testImplementation(libs.ktor.client.mock)
     implementation(libs.androidx.core.ktx)
@@ -134,6 +140,7 @@ dependencies {
     implementation(libs.androidx.datastore.preferences)
     implementation(libs.ktor.client.core)
     implementation(libs.ktor.client.cio)
+    implementation(libs.ktor.client.okhttp)
     implementation(libs.ktor.client.content.negotiation)
     implementation(libs.ktor.client.logging)
     implementation(libs.ktor.serialization.json)

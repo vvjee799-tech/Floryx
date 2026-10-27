@@ -251,6 +251,53 @@ class ProviderSettingsViewModelTest {
         assertEquals(1, providerRepository.upsertCount)
     }
 
+    @Test fun conversationModelSelectionSavesManualModelsAndChangesAnUncheckedDefault() = runTest(dispatcher) {
+        val provider = ProviderConfig(id = "models", displayName = "Test", baseUrl = "https://example.test/v1", defaultModel = "alpha", apiKeyAlias = "old-alias")
+        val repo = FakeProviderRepository(provider, "saved-key")
+        val vm = ProviderSettingsViewModel(repo, FakeWebSearchSettingsRepository(), FakeModelCatalogClient(listOf("alpha", "beta", "gamma")))
+        advanceUntilIdle()
+        vm.openConversationModels(provider); advanceUntilIdle()
+        vm.setConversationModelChecked("alpha", false)
+        vm.setConversationModelChecked("beta", true)
+        vm.addConversationModel(" manual-model ")
+        vm.saveConversationModels(); advanceUntilIdle()
+        val saved = requireNotNull(repo.getProvider(provider.id))
+        assertEquals(listOf("beta", "manual-model"), saved.conversationModels)
+        assertEquals("beta", saved.defaultModel)
+        assertEquals("saved-key", repo.getApiKey(saved))
+        assertEquals("old-alias", saved.apiKeyAlias)
+        assertNull(vm.uiState.first { it.message == "Saved" }.modelSelection)
+    }
+
+    @Test fun anEmptySelectionCannotBeSavedAndCancellingLeavesConfigurationIntact() = runTest(dispatcher) {
+        val provider = ProviderConfig(id = "models", displayName = "Test", baseUrl = "https://example.test/v1", defaultModel = "alpha")
+        val repo = FakeProviderRepository(provider)
+        val vm = ProviderSettingsViewModel(repo, FakeWebSearchSettingsRepository(), FakeModelCatalogClient(error = IllegalStateException("offline")))
+        advanceUntilIdle()
+        vm.openConversationModels(provider); advanceUntilIdle()
+        assertEquals("offline", vm.uiState.first { it.modelSelection?.error == "offline" }.modelSelection?.error)
+        vm.selectAllConversationModels(false)
+        vm.saveConversationModels(); advanceUntilIdle()
+        assertEquals(0, repo.upsertCount)
+        assertEquals("Select at least one model.", vm.uiState.first { it.modelSelection?.selected?.isEmpty() == true }.modelSelection?.error)
+        vm.dismissConversationModels()
+        assertNull(repo.getProvider(provider.id)!!.conversationModels)
+    }
+
+    @Test fun updatingAPresetKeyPreservesCuratedModels() = runTest(dispatcher) {
+        val preset = ProviderTemplates.popularPresets().first { it.id == "preset-gemini" }
+        val provider = ProviderConfig(id = "provider-gemini", displayName = "Gemini", baseUrl = preset.baseUrl,
+            defaultModel = "gemini-3.6-flash", conversationModels = listOf("gemini-3.6-flash", "gemini-3.5-flash"))
+        val repo = FakeProviderRepository(provider, "old-key")
+        val vm = ProviderSettingsViewModel(repo, FakeWebSearchSettingsRepository(), FakeModelCatalogClient())
+        advanceUntilIdle()
+        vm.applyPreset(preset); vm.updatePresetApiKey("new-key"); vm.savePresetApiKey(); advanceUntilIdle()
+        val saved = requireNotNull(repo.getProvider(provider.id))
+        assertEquals(provider.conversationModels, saved.conversationModels)
+        assertEquals(provider.defaultModel, saved.defaultModel)
+        assertEquals("new-key", repo.getApiKey(saved))
+    }
+
     private class FakeProviderRepository(
         initialProviders: List<ProviderConfig>,
         savedApiKeys: Map<String, String> = emptyMap()

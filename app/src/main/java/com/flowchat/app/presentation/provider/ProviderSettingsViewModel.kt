@@ -6,6 +6,7 @@ import com.flowchat.app.data.network.ModelCatalogClient
 import com.flowchat.app.domain.model.ProviderConfig
 import com.flowchat.app.domain.provider.ProviderPreset
 import com.flowchat.app.domain.provider.ProviderTemplates
+import com.flowchat.app.domain.provider.cleanModelSelection
 import com.flowchat.app.domain.repository.ProviderRepository
 import com.flowchat.app.domain.repository.WebSearchSettingsRepository
 import com.flowchat.app.domain.validation.ProviderConfigValidator
@@ -17,6 +18,10 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.withTimeout
 
 @HiltViewModel
 class ProviderSettingsViewModel @Inject constructor(
@@ -37,6 +42,8 @@ class ProviderSettingsViewModel @Inject constructor(
     private val modelListError = MutableStateFlow<String?>(null)
     private val message = MutableStateFlow<String?>(null)
     private val modelOptionsCache = mutableMapOf<String, List<String>>()
+    private val modelSelection = MutableStateFlow<ConversationModelSelection?>(null)
+    private var modelSelectionJob: Job? = null
 
     val uiState = combine(
         providerRepository.observeProviders(),
@@ -51,7 +58,8 @@ class ProviderSettingsViewModel @Inject constructor(
         isLoadingModels,
         modelOptionsExpanded,
         modelListError,
-        message
+        message,
+        modelSelection
     ) { values ->
         @Suppress("UNCHECKED_CAST")
         val providers = values[0] as List<ProviderConfig>
@@ -90,7 +98,8 @@ class ProviderSettingsViewModel @Inject constructor(
             isLoadingModels = loadingModels,
             modelOptionsExpanded = optionsExpanded,
             modelListError = modelError,
-            message = msg
+            message = msg,
+            modelSelection = values[13] as ConversationModelSelection?
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ProviderSettingsUiState())
 
@@ -109,6 +118,92 @@ class ProviderSettingsViewModel @Inject constructor(
         selected.value = provider
         apiKey.value = ""
         refreshApiKeyState(provider)
+    }
+
+    fun openConversationModels(provider: ProviderConfig) {
+        modelSelectionJob?.cancel()
+        val names = cleanModelSelection(provider.conversationModels ?: listOf(provider.defaultModel))
+        modelSelection.value = ConversationModelSelection(provider, names, names)
+        refreshConversationModels()
+    }
+
+    fun dismissConversationModels() {
+        if (modelSelection.value?.isSaving == true) return
+        modelSelectionJob?.cancel()
+        modelSelection.value = null
+    }
+
+    fun refreshConversationModels() {
+        val editor = modelSelection.value ?: return
+        if (editor.isSaving) return
+        modelSelectionJob?.cancel()
+        modelSelection.update { it?.copy(isLoading = true, error = null) }
+        modelSelectionJob = viewModelScope.launch {
+            var key: String? = null
+            try {
+                key = providerRepository.getApiKey(editor.provider)
+                val names = withTimeout(30_000) { modelCatalogClient.listModels(editor.provider, key) }
+                updateModelSelection(editor.provider.id) {
+                    it.copy(options = cleanModelSelection(it.options + names), isLoading = false,
+                        error = if (names.isEmpty()) "No models found." else null)
+                }
+            } catch (_: TimeoutCancellationException) {
+                updateModelSelection(editor.provider.id) { it.copy(isLoading = false, error = "Failed to load model list.") }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                val detail = failure.message.orEmpty().let { if (key.isNullOrBlank()) it else it.replace(key!!, "[REDACTED]") }
+                updateModelSelection(editor.provider.id) { it.copy(isLoading = false, error = detail.ifBlank { "Failed to load model list." }) }
+            }
+        }
+    }
+
+    private fun updateModelSelection(providerId: String, transform: (ConversationModelSelection) -> ConversationModelSelection) {
+        modelSelection.update { if (it?.provider?.id == providerId) transform(it) else it }
+    }
+
+    fun setConversationModelChecked(name: String, checked: Boolean) {
+        modelSelection.update { editor -> editor?.takeUnless { it.isSaving }?.copy(
+            selected = if (checked) cleanModelSelection(editor.selected + name) else editor.selected - name)
+            ?: editor }
+    }
+
+    fun selectAllConversationModels(checked: Boolean) {
+        modelSelection.update { it?.takeUnless { value -> value.isSaving }?.copy(selected = if (checked) it.options else emptyList()) ?: it }
+    }
+
+    fun addConversationModel(name: String) {
+        val clean = name.trim()
+        if (clean.isBlank()) return
+        modelSelection.update { it?.takeUnless { value -> value.isSaving }?.copy(
+            options = cleanModelSelection(it.options + clean), selected = cleanModelSelection(it.selected + clean)) ?: it }
+    }
+
+    fun saveConversationModels() {
+        val editor = modelSelection.value ?: return
+        if (editor.isSaving) return
+        val names = cleanModelSelection(editor.selected)
+        if (names.isEmpty()) {
+            modelSelection.update { it?.copy(error = "Select at least one model.") }
+            return
+        }
+        modelSelection.update { it?.copy(isSaving = true) }
+        viewModelScope.launch {
+            try {
+                val latest = providerRepository.getProvider(editor.provider.id) ?: error("Provider not found.")
+                val default = latest.defaultModel.takeIf { it in names } ?: names.first()
+                providerRepository.upsertProvider(latest.copy(defaultModel = default, conversationModels = names), null)
+                selected.update { current -> if (current?.id == latest.id) current.copy(conversationModels = names,
+                    defaultModel = if (current.defaultModel == latest.defaultModel) default else current.defaultModel) else current }
+                modelSelectionJob?.cancel()
+                modelSelection.value = null
+                message.value = "Saved"
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                modelSelection.update { it?.copy(isSaving = false, error = failure.message ?: "Failed to save models.") }
+            }
+        }
     }
 
     fun updateSelected(transform: (ProviderConfig) -> ProviderConfig) {
@@ -147,7 +242,10 @@ class ProviderSettingsViewModel @Inject constructor(
             return
         }
         viewModelScope.launch {
-            val provider = preset.toProviderConfig()
+            val template = preset.toProviderConfig()
+            val existing = providerRepository.getProvider(template.id)
+            val provider = if (existing?.conversationModels != null) template.copy(
+                defaultModel = existing.defaultModel, conversationModels = existing.conversationModels) else template
             providerRepository.upsertProvider(provider, presetApiKey.value.trim())
             pendingPreset.value = null
             presetApiKey.value = ""

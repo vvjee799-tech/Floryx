@@ -13,6 +13,7 @@ data class ChatUiState(
     val conversations: List<Conversation> = emptyList(),
     val currentConversation: Conversation? = null,
     val messages: List<Message> = emptyList(),
+    val hasOlderMessages: Boolean = false,
     val providers: List<ProviderConfig> = emptyList(),
     val input: String = "",
     val pendingAttachment: PendingAttachment? = null,

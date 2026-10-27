@@ -115,26 +115,26 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.VerticalDivider
 import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.ModalDrawerSheet
 import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberDrawerState
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.foundation.selection.toggleable
+import com.flowchat.app.presentation.common.FlowSettingsPage
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.ExperimentalComposeUiApi
@@ -151,12 +151,16 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.LiveRegionMode
+import com.flowchat.app.domain.provider.conversationModelNames
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.text.font.FontWeight
 import com.flowchat.app.ui.theme.PaperWordmark
@@ -214,7 +218,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 private val ComposerToolHeight = 48.dp
-private const val BottomMessageAnchorKey = "bottom-message-anchor"
 
 @Composable
 private fun DrawerMenuIcon(
@@ -228,11 +231,14 @@ private fun DrawerMenuIcon(
 @Composable
 fun ChatScreen(
     onOpenProviders: () -> Unit,
+    onOpenAppSettings: () -> Unit,
+    onOpenConversationSettings: () -> Unit,
     appAppearance: AppAppearance,
     onAppAppearanceChange: (AppAppearance) -> Unit,
     viewModel: ChatViewModel = hiltViewModel()
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
+    val providerModelOptions by viewModel.providerModelOptions.collectAsStateWithLifecycle()
     val usageRecords by viewModel.usageRecords.collectAsStateWithLifecycle()
     val balanceState by viewModel.balanceState.collectAsStateWithLifecycle()
     val terminalState by viewModel.terminalState.collectAsStateWithLifecycle()
@@ -242,12 +248,6 @@ fun ChatScreen(
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
-    var workspacePickerOwner by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf<String?>(null) }
-    val workspacePicker = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
-        if (result.resultCode == android.app.Activity.RESULT_OK) result.data?.let { data ->
-            data.data?.let { uri -> viewModel.selectWorkspace(uri.toString(), data.flags, workspacePickerOwner) }
-        }
-    }
     val attachmentPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
         if (uri != null) {
             val appContext = context.applicationContext
@@ -257,17 +257,26 @@ fun ChatScreen(
             )
         }
     }
-    val defaultUserName = stringResource(R.string.user_display_name)
-    val initialUserProfile = remember(context, defaultUserName) {
-        loadUserProfile(context, defaultUserName)
+    var exportOwner by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf<String?>(null) }
+    val exportPicker = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/markdown")) { uri ->
+        val owner = exportOwner
+        exportOwner = null
+        if (uri != null && owner != null) scope.launch {
+            runCatching {
+                val text = viewModel.exportConversation(owner)
+                withContext(Dispatchers.IO) {
+                    requireNotNull(context.contentResolver.openOutputStream(uri, "wt")).bufferedWriter().use { it.write(text) }
+                }
+            }.onSuccess {
+                android.widget.Toast.makeText(context, R.string.conversation_exported, android.widget.Toast.LENGTH_SHORT).show()
+            }.onFailure {
+                viewModel.reportError(context.getString(R.string.conversation_export_failed))
+            }
+        }
     }
-    var userName by remember(context, defaultUserName) { mutableStateOf(initialUserProfile.name) }
-    var userAvatarPath by remember(context, defaultUserName) { mutableStateOf(initialUserProfile.avatarPath) }
-    var showSettings by remember { mutableStateOf(false) }
-    var showUserSettings by remember { mutableStateOf(false) }
-    var showAppSettings by remember { mutableStateOf(false) }
-    var showTerminal by remember { mutableStateOf(false) }
-    var showWorkspace by remember { mutableStateOf(false) }
+    val userProfile = rememberUserProfile()
+    val userName = userProfile.name
+    val userAvatarPath = userProfile.avatarPath
     var conversationPendingDelete by remember { mutableStateOf<Conversation?>(null) }
 
     ModalNavigationDrawer(
@@ -297,41 +306,22 @@ fun ChatScreen(
                         }
                     }
                     HorizontalDivider(Modifier.padding(horizontal = 28.dp), color = MaterialTheme.colorScheme.outlineVariant)
-                    Text(
-                        text = stringResource(R.string.conversation_history),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(start = 28.dp, top = 24.dp, bottom = 10.dp)
-                    )
-                    LazyColumn(
-                        modifier = Modifier.weight(1f),
-                        contentPadding = PaddingValues(horizontal = 20.dp, vertical = 4.dp),
-                        verticalArrangement = Arrangement.spacedBy(4.dp)
-                    ) {
-                        items(state.conversations, key = { it.id }) { conversation ->
-                            val isActiveConversation = conversation.id == state.currentConversation?.id
-                            DrawerConversationRow(
-                                conversation = conversation,
-                                isActive = isActiveConversation,
-                                                                modifier = Modifier.semantics { selected = isActiveConversation }.clip(RoundedCornerShape(6.dp)).combinedClickable(
-                                    onClick = {
-                                        viewModel.selectConversation(conversation.id)
-                                        scope.launch { drawerState.close() }
-                                    },
-                                    onLongClick = { conversationPendingDelete = conversation }
-                                )
-                            )
-                        }
-                    }
+                    ConversationHistory(state.conversations, state.currentConversation?.id,
+                        onSelect = { id -> viewModel.selectConversation(id); scope.launch { drawerState.close() } },
+                        onRename = viewModel::renameConversation, onPin = viewModel::pinConversation,
+                        onArchive = viewModel::archiveConversation,
+                        onExport = { conversation ->
+                            exportOwner = conversation.id
+                            exportPicker.launch(ConversationExporter.fileName(conversation.title))
+                        },
+                        onDelete = { conversationPendingDelete = it }, modifier = Modifier.weight(1f))
                     HorizontalDivider(
                         modifier = Modifier.padding(horizontal = 20.dp),
                         color = MaterialTheme.colorScheme.outlineVariant
                     )
                     Row(Modifier.padding(horizontal = 14.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                        UserProfileEntry(userName, userAvatarPath, onClick = {
-                            scope.launch { drawerState.close(); showUserSettings = true }
-                        }, modifier = Modifier.weight(1f))
-                        IconButton(onClick = { scope.launch { drawerState.close(); showAppSettings = true } }) {
+                        UserProfileEntry(userName, userAvatarPath, modifier = Modifier.weight(1f))
+                        IconButton(onClick = { scope.launch { drawerState.close(); onOpenAppSettings() } }) {
                             Icon(Icons.Outlined.Settings, stringResource(R.string.settings), Modifier.size(22.dp),
                                 tint = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
@@ -356,7 +346,7 @@ fun ChatScreen(
                             title = state.currentConversation?.assistantName?.takeIf { it.isNotBlank() } ?: stringResource(R.string.app_name),
                             modifier = Modifier.semantics { contentDescription = context.getString(R.string.conversation_settings) }.clickable(
                                 enabled = state.currentConversation != null,
-                                onClick = { showSettings = true }
+                                onClick = onOpenConversationSettings
                             )
                         )
                     },
@@ -399,7 +389,9 @@ fun ChatScreen(
                     onClearAttachment = viewModel::clearAttachment,
                     usageRecords = usageRecords.takeIf { state.appSettings.usageTrackingEnabled },
                     balanceState = balanceState, onRefreshBalance = viewModel::refreshBalance,
-                    onSelectModel = viewModel::updateConversationModel
+                    onSelectModel = viewModel::updateConversationModel,
+                    providerModelOptions = providerModelOptions,
+                    onOpenModelOptions = viewModel::loadModelOptions
                 )
             }
         ) { padding ->
@@ -480,105 +472,10 @@ fun ChatScreen(
                         },
                         startLabel = stringResource(if (state.providers.any { it.baseUrl.isNotBlank() && it.defaultModel.isNotBlank() })
                             R.string.new_chat else R.string.provider_configuration))
-                } else MessageList(messages = state.messages, assistantAvatarPath = state.currentConversation?.assistantAvatarPath, userAvatarPath = userAvatarPath, showAvatars = state.currentConversation?.showAvatars == true, modifier = Modifier.weight(1f))
+                } else MessageList(messages = state.messages, assistantAvatarPath = state.currentConversation?.assistantAvatarPath, userAvatarPath = userAvatarPath, showAvatars = state.currentConversation?.showAvatars == true, modifier = Modifier.weight(1f), hasOlderMessages = state.hasOlderMessages, onLoadOlder = viewModel::loadOlderMessages)
             }
         }
     }
-
-    if (showSettings && state.currentConversation != null) {
-        ConversationSettingsSheet(
-            conversation = state.currentConversation!!,
-            onDismiss = { showSettings = false },
-            onSave = { assistantName, assistantAvatarPath, showAvatars, prompt, temperature, topP, maxTokens ->
-                viewModel.updateConversationSettings(
-                    assistantName,
-                    assistantAvatarPath,
-                    showAvatars,
-                    prompt,
-                    temperature,
-                    topP,
-                    maxTokens
-                )
-                showSettings = false
-            }
-        )
-    }
-
-    if (showUserSettings) {
-        UserProfileSheet(
-            userName = userName,
-            avatarPath = userAvatarPath,
-            onDismiss = { showUserSettings = false },
-            onSave = { profileName, profileAvatarPath ->
-                val normalizedName = profileName.trim().ifBlank { defaultUserName }
-                saveUserProfile(context, profileName, profileAvatarPath)
-                userName = normalizedName
-                userAvatarPath = profileAvatarPath
-                showUserSettings = false
-            }
-        )
-    }
-
-    if (showAppSettings) {
-        AppSettingsSheet(
-            appSettings = state.appSettings,
-            memories = state.memories,
-            shizukuState = state.shizukuState,
-            accessibilityState = state.accessibilityState,
-            onOpenAccessibilitySettings = viewModel::openAccessibilitySettings,
-            appAppearance = appAppearance,
-            onAppAppearanceChange = onAppAppearanceChange,
-            onOpenProviders = {
-                showAppSettings = false
-                onOpenProviders()
-            },
-            onOpenTerminal = { showAppSettings = false; showTerminal = true },
-            onOpenWorkspace = { showAppSettings = false; showWorkspace = true },
-            workspaceName = workspaceState.location?.name,
-            onMemoryEnabledChange = viewModel::setMemoryEnabled,
-            onUsageTrackingChange = viewModel::setUsageTrackingEnabled,
-            onPowerModeEnabledChange = viewModel::setPowerModeEnabled,
-            onPowerConnectionModeChange = viewModel::setPowerConnectionMode,
-            onRequestShizukuPermission = viewModel::requestShizukuPermission,
-            onRefreshShizuku = viewModel::refreshDeviceAssistantConnections,
-            onDeleteMemory = viewModel::deleteMemory,
-            onUpdateMemory = viewModel::updateMemory,
-            onClearMemories = viewModel::clearMemories,
-            onDismiss = { showAppSettings = false },
-            userName = userName, userAvatarPath = userAvatarPath,
-            providerName = state.providers.firstOrNull { it.id == state.currentConversation?.providerId }?.displayName,
-            onOpenProfile = { showAppSettings = false; showUserSettings = true }
-        )
-    }
-
-    if (showTerminal) TerminalSettingsSheet(
-        state = terminalState,
-        aiEnabled = state.appSettings.commandExecutionEnabled,
-        androidAvailable = state.appSettings.powerModeEnabled && state.shizukuState.isConnected,
-        onAiEnabledChange = viewModel::setCommandExecutionEnabled,
-        onPrepare = viewModel::prepareTerminal,
-        onInstallTools = viewModel::installDeveloperTools,
-        onStop = viewModel::stopTerminalCommand,
-        onDismiss = { showTerminal = false }
-    )
-
-    if (showWorkspace) WorkspaceSettingsSheet(
-        state = workspaceState,
-        isDefault = workspaceState.location != null && workspaceState.location == state.appSettings.defaultWorkspace,
-        taskRunning = state.isStreaming || terminalState.commands.any { it.isRunning },
-        onChoose = {
-            workspacePickerOwner = state.currentConversation?.id
-            val intent = Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or
-                Intent.FLAG_GRANT_WRITE_URI_PERMISSION or Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION or Intent.FLAG_GRANT_PREFIX_URI_PERMISSION)
-            workspaceState.location?.let { intent.putExtra(android.provider.DocumentsContract.EXTRA_INITIAL_URI, Uri.parse(it.treeUri)) }
-            runCatching { workspacePicker.launch(intent) }.onFailure { viewModel.workspacePickerFailed(it.localizedMessage) }
-        },
-        onDefaultChange = viewModel::setWorkspaceDefault,
-        onClear = viewModel::clearWorkspace,
-        onRefresh = viewModel::refreshWorkspace,
-        onRetrySave = viewModel::retryWorkspaceSave,
-        onDismiss = { showWorkspace = false }
-    )
 
     state.usageAccessPermissionRequest?.let { request ->
         UsageAccessPermissionDialog(
@@ -642,75 +539,6 @@ private fun localizedChatError(message: String): String =
     }
 
 @Composable
-internal fun MessageList(
-    messages: List<Message>,
-    assistantAvatarPath: String?,
-    userAvatarPath: String?,
-    showAvatars: Boolean,
-    modifier: Modifier = Modifier
-) {
-    val listState = rememberLazyListState()
-    val displayMessages = remember(messages) { groupChatMessages(messages) }
-    val lastMessage = displayMessages.lastOrNull()?.message
-    val activeReasoning = displayMessages.firstOrNull { it.reasoning?.status == MessageStatus.Streaming }?.reasoning
-    var lastAnimatedMessageId by remember { mutableStateOf<String?>(null) }
-
-    LaunchedEffect(displayMessages.size, lastMessage?.id) {
-        if (displayMessages.isNotEmpty()) {
-            lastAnimatedMessageId = lastMessage?.id
-            listState.animateScrollToItem(displayMessages.size)
-        }
-    }
-
-    LaunchedEffect(lastMessage?.content, activeReasoning?.reasoningContent) {
-        if (displayMessages.isNotEmpty() && lastAnimatedMessageId == lastMessage?.id) {
-            // A resumed Scaffold can compose this list during measurement. Wait for a
-            // frame before scrollToItem forces another measure of the same hierarchy.
-            androidx.compose.runtime.withFrameNanos { }
-            listState.scrollToItem(displayMessages.size)
-        }
-    }
-
-    LazyColumn(
-        state = listState,
-        modifier = modifier.fillMaxWidth(),
-        contentPadding = PaddingValues(top = 28.dp, bottom = 24.dp),
-        verticalArrangement = Arrangement.spacedBy(26.dp)
-    ) {
-        items(displayMessages, key = { it.message.id }) { entry ->
-            if (entry.activity.isNotEmpty()) {
-                ReplyActivity(entry)
-            } else MessageBubble(entry.message, assistantAvatarPath, userAvatarPath, showAvatars, entry.reasoning)
-        }
-        item(key = BottomMessageAnchorKey) {
-            Spacer(Modifier.height(1.dp))
-        }
-    }
-}
-
-@Composable
-private fun ReplyActivity(entry: DisplayChatMessage) {
-    var expanded by remember(entry.message.id) { mutableStateOf(false) }
-    Column {
-        entry.reasoning?.let { ReasoningBubble(it, FlowLayout.ContentWidth - FlowLayout.Gutter * 2) }
-        Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).clickable { expanded = !expanded },
-            verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(stringResource(R.string.reply_activity), style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Icon(if (expanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
-                stringResource(if (expanded) R.string.thinking_collapse else R.string.thinking_expand),
-                Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-        if (expanded) entry.activity.forEach { message ->
-            if (message.role == MessageRole.Tool) ToolCallBubble(message)
-            else if (message.content.isNotBlank()) Text(message.content,
-                style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(vertical = 8.dp))
-        }
-    }
-}
-
-@Composable
 internal fun ConversationHeaderTitle(
     assistantAvatarPath: String?, title: String, modifier: Modifier = Modifier
 ) {
@@ -724,35 +552,16 @@ internal fun ConversationHeaderTitle(
 }
 
 @Composable
-private fun DrawerConversationRow(conversation: Conversation, isActive: Boolean, modifier: Modifier = Modifier) {
-    val accent = MaterialTheme.colorScheme.primary
-    Row(modifier.fillMaxWidth().heightIn(min = 52.dp).clip(RoundedCornerShape(6.dp))
-        .background(if (isActive) MaterialTheme.colorScheme.primaryContainer else Color.Transparent)
-        .drawBehind { if (isActive) drawLine(accent, Offset(1.dp.toPx(), 10.dp.toPx()),
-            Offset(1.dp.toPx(), size.height - 10.dp.toPx()), strokeWidth = 2.dp.toPx()) }
-        .padding(horizontal = 14.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-        Text(conversation.displayTitle(), style = MaterialTheme.typography.bodyMedium,
-            maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-    }
-}
-
-@OptIn(ExperimentalFoundationApi::class)
-@Composable
-private fun UserProfileEntry(
+internal fun UserProfileEntry(
     userName: String,
     avatarPath: String?,
-    onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     Row(
         modifier = modifier
             .fillMaxWidth()
             .heightIn(min = 64.dp)
-            .clip(RoundedCornerShape(16.dp))
-            .combinedClickable(
-                onClick = onClick,
-                onLongClick = onClick
-            )
+            .testTag("drawer_profile")
             .padding(horizontal = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(14.dp)
@@ -765,6 +574,7 @@ private fun UserProfileEntry(
             text = userName,
             style = MaterialTheme.typography.titleSmall,
             maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f)
         )
     }
@@ -772,86 +582,7 @@ private fun UserProfileEntry(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-internal fun UserProfileSheet(
-    userName: String,
-    avatarPath: String?,
-    onDismiss: () -> Unit,
-    onSave: (String, String?) -> Unit
-) {
-    val context = LocalContext.current
-    var profileName by remember(userName) { mutableStateOf(userName) }
-    var profileAvatarPath by remember(avatarPath) { mutableStateOf(avatarPath) }
-    val profileScope = rememberCoroutineScope()
-    val avatarPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
-        if (uri != null) {
-            profileScope.launch {
-                val path = withContext(Dispatchers.IO) {
-                    copyUserAvatarToPrivateFile(context, uri)
-                }
-                if (path != null) {
-                    profileAvatarPath = path
-                }
-            }
-        }
-    }
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        sheetState = sheetState,
-        shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
-        containerColor = MaterialTheme.colorScheme.surface,
-        contentColor = MaterialTheme.colorScheme.onSurface
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .verticalScroll(rememberScrollState())
-                .imePadding()
-                .navigationBarsPadding()
-                .padding(horizontal = 24.dp, vertical = 12.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(18.dp)
-        ) {
-            FlowSheetHeader(stringResource(R.string.profile_title), onDismiss)
-            Box(modifier = Modifier.size(96.dp), contentAlignment = Alignment.Center) {
-                ProfileAvatar(
-                    avatarPath = profileAvatarPath,
-                    size = 96.dp
-                )
-                AvatarEditButton(
-                    onClick = { avatarPicker.launch("image/*") },
-                    contentDescription = stringResource(R.string.assistant_avatar),
-                    modifier = Modifier
-                        .align(Alignment.BottomEnd)
-                        .offset(x = (-4).dp, y = (-4).dp)
-                )
-            }
-            OutlinedTextField(
-                value = profileName,
-                onValueChange = { profileName = it },
-                label = { Text(stringResource(R.string.profile_name)) },
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(14.dp),
-                colors = flowTextFieldColors(),
-                singleLine = true
-            )
-            Button(
-                onClick = { onSave(profileName, profileAvatarPath) },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(min = 52.dp),
-                shape = RoundedCornerShape(14.dp)
-            ) {
-                Text(stringResource(R.string.save))
-            }
-            Spacer(Modifier.height(12.dp))
-        }
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-internal fun AppSettingsSheet(
+internal fun AppSettingsScreen(
     appSettings: AppSettings,
     memories: List<MemoryRecord>,
     shizukuState: ShizukuConnectionState,
@@ -871,44 +602,68 @@ internal fun AppSettingsSheet(
     onClearMemories: () -> Unit,
     onDismiss: () -> Unit,
     userName: String = "Floryx", userAvatarPath: String? = null, providerName: String? = null,
-    onOpenProfile: (() -> Unit)? = null,
+    onProfileNameChange: (String) -> Unit = {},
+    onProfileAvatarChange: (String) -> Unit = {},
     onUsageTrackingChange: (Boolean) -> Unit = {},
     onOpenWorkspace: () -> Unit = {},
     workspaceName: String? = null
 ) {
     val context = LocalContext.current
     val currentLanguage = AppLocale.getLanguage(context)
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val settingsScroll = rememberScrollState()
     var showAppearanceDialog by remember { mutableStateOf(false) }
     var showLanguageDialog by remember { mutableStateOf(false) }
-    var showDeviceAssistantDialog by remember { mutableStateOf(false) }
-    var showMemoryDialog by remember { mutableStateOf(false) }
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        sheetState = sheetState,
-        shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
-        containerColor = MaterialTheme.colorScheme.surface,
-        contentColor = MaterialTheme.colorScheme.onSurface
-    ) {
+    var showDeviceAssistantScreen by rememberSaveable { mutableStateOf(false) }
+    var showMemoryDialog by rememberSaveable { mutableStateOf(false) }
+    var editingName by rememberSaveable { mutableStateOf(false) }
+    var avatarLoading by remember { mutableStateOf(false) }
+    var avatarFailed by remember { mutableStateOf(false) }
+    val profileScope = rememberCoroutineScope()
+    val avatarPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        if (uri != null) profileScope.launch {
+            avatarLoading = true
+            avatarFailed = false
+            val path = withContext(Dispatchers.IO) { copyUserAvatarToPrivateFile(context, uri) }
+            if (path != null) onProfileAvatarChange(path) else avatarFailed = true
+            avatarLoading = false
+        }
+    }
+    if (showDeviceAssistantScreen) {
+        DeviceAssistantScreen(appSettings, shizukuState, accessibilityState, onOpenAccessibilitySettings,
+            onPowerModeEnabledChange, onPowerConnectionModeChange, onRequestShizukuPermission, onRefreshShizuku,
+            onOpenShizuku = {
+                runCatching { context.startActivity(context.packageManager.getLaunchIntentForPackage("moe.shizuku.privileged.api")
+                    ?: Intent(Intent.ACTION_VIEW, Uri.parse("https://shizuku.rikka.app/download/"))) }
+            }, onDismiss = { showDeviceAssistantScreen = false })
+        return
+    }
+    if (showMemoryDialog) {
+        MemorySettingsScreen(appSettings.memoryEnabled, memories, onMemoryEnabledChange,
+            onUpdateMemory, onDeleteMemory, onClearMemories, onDismiss = { showMemoryDialog = false })
+        return
+    }
+    FlowSettingsPage(title = stringResource(R.string.settings), onBack = onDismiss) {
         Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .fillMaxHeight(.94f)
-                .verticalScroll(rememberScrollState())
-                .navigationBarsPadding()
-                .padding(horizontal = FlowLayout.Gutter, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(20.dp)
+            modifier = Modifier.fillMaxSize().verticalScroll(settingsScroll)
+                .padding(horizontal = 24.dp, vertical = 16.dp).testTag("app_settings_content"),
+            verticalArrangement = Arrangement.spacedBy(24.dp)
         ) {
-            FlowSheetHeader(stringResource(R.string.settings), onDismiss)
-            Row(Modifier.fillMaxWidth().heightIn(min = 72.dp)
-                .clickable(enabled = onOpenProfile != null) { onOpenProfile?.invoke() }
-                .padding(vertical = 12.dp), verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                ProfileAvatar(userAvatarPath, size = 42.dp)
-                Text(userName, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
-                if (onOpenProfile != null) Icon(Icons.Default.ChevronRight, stringResource(R.string.profile_title),
-                    Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                EditableAvatar(userAvatarPath, assistant = false, enabled = !avatarLoading,
+                    onClick = { avatarPicker.launch("image/*") }, tag = "user")
+                Column(Modifier.weight(1f)) {
+                    Text(userName, style = MaterialTheme.typography.titleMedium,
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                            .clickable(role = Role.Button, onClickLabel = stringResource(R.string.edit_profile_name)) { editingName = true }
+                            .padding(vertical = 10.dp).testTag("profile_name"))
+                    Text(stringResource(R.string.profile_title), style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
             }
+            if (avatarLoading) LinearProgressIndicator(Modifier.fillMaxWidth())
+            if (avatarFailed) Text(stringResource(R.string.avatar_update_failed), color = MaterialTheme.colorScheme.error,
+                style = MaterialTheme.typography.bodySmall)
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
             SettingsGroup(title = stringResource(R.string.settings_connection)) {
                 SettingsRow(title = stringResource(R.string.model_provider_configuration),
@@ -918,7 +673,7 @@ internal fun AppSettingsSheet(
                     onClick = { showMemoryDialog = true })
                 SettingsRow(title = stringResource(R.string.device_assistant),
                     trailingText = deviceReadinessLabel(deviceReadiness(appSettings.powerModeEnabled, shizukuState, accessibilityState)),
-                    onClick = { onRefreshShizuku(); showDeviceAssistantDialog = true })
+                    onClick = { onRefreshShizuku(); showDeviceAssistantScreen = true })
                 SettingsRow(title = stringResource(R.string.terminal_title), onClick = onOpenTerminal)
                 SettingsRow(title = stringResource(R.string.workspace_title), trailingText = workspaceName ?: stringResource(R.string.workspace_none),
                     onClick = onOpenWorkspace)
@@ -968,42 +723,14 @@ internal fun AppSettingsSheet(
             onDismiss = { showLanguageDialog = false }
         )
     }
-    if (showDeviceAssistantDialog) {
-        DeviceAssistantDialog(
-            appSettings = appSettings,
-            shizukuState = shizukuState,
-            accessibilityState = accessibilityState,
-            onOpenAccessibilitySettings = onOpenAccessibilitySettings,
-            onPowerModeEnabledChange = onPowerModeEnabledChange,
-            onPowerConnectionModeChange = onPowerConnectionModeChange,
-            onRequestShizukuPermission = onRequestShizukuPermission,
-            onRefreshShizuku = onRefreshShizuku,
-            onOpenShizuku = {
-                runCatching {
-                    context.startActivity(
-                        context.packageManager.getLaunchIntentForPackage("moe.shizuku.privileged.api")
-                            ?: Intent(Intent.ACTION_VIEW, Uri.parse("https://shizuku.rikka.app/download/"))
-                    )
-                }
-            },
-            onDismiss = { showDeviceAssistantDialog = false }
-        )
-    }
-    if (showMemoryDialog) {
-        MemorySettingsDialog(
-            enabled = appSettings.memoryEnabled,
-            memories = memories,
-            onEnabledChange = onMemoryEnabledChange,
-            onDelete = onDeleteMemory,
-            onUpdate = onUpdateMemory,
-            onClear = onClearMemories,
-            onDismiss = { showMemoryDialog = false }
-        )
-    }
+    if (editingName) NameEditorDialog(
+        title = stringResource(R.string.profile_name), initialName = userName,
+        onDismiss = { editingName = false }, onSave = { onProfileNameChange(it); editingName = false }
+    )
 }
 
 @Composable
-internal fun DeviceAssistantDialog(
+internal fun DeviceAssistantScreen(
     appSettings: AppSettings,
     shizukuState: ShizukuConnectionState,
     accessibilityState: AccessibilityConnectionState,
@@ -1046,19 +773,9 @@ internal fun DeviceAssistantDialog(
         ShizukuConnectionStatus.NotRunning -> R.string.device_open_shizuku
         else -> R.string.device_refresh_status
     }
-    Dialog(onDismissRequest = onDismiss) {
-        FlowDialogSystemBars()
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(22.dp),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
-        ) {
-            Column(modifier = Modifier.fillMaxWidth().heightIn(max = 600.dp).padding(18.dp)) {
-                FlowSheetHeader(stringResource(R.string.device_assistant), onDismiss)
-                Column(
-                    modifier = Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(16.dp)
-                ) {
+    FlowSettingsPage(title = stringResource(R.string.device_assistant), onBack = onDismiss) {
+        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 24.dp, vertical = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)) {
                     SettingsToggleRow(
                         title = stringResource(R.string.power_mode),
                         supportingText = stringResource(R.string.power_mode_description),
@@ -1129,8 +846,6 @@ internal fun DeviceAssistantDialog(
                     HorizontalDivider()
                     Text(stringResource(R.string.device_usage_hint), style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-            }
         }
     }
 }
@@ -1516,10 +1231,15 @@ private fun SettingsGroup(title: String, content: @Composable ColumnScope.() -> 
 
 @Composable
 private fun SettingsRow(title: String, trailingText: String? = null, onClick: () -> Unit) {
-    Row(Modifier.fillMaxWidth().heightIn(min = 52.dp).clickable(onClick = onClick).padding(vertical = 12.dp),
+    val stackValue = LocalDensity.current.fontScale > 1.3f
+    Row(Modifier.fillMaxWidth().heightIn(min = 56.dp).clickable(onClick = onClick).padding(vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-        Text(title, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
-        if (trailingText != null) Text(trailingText, style = MaterialTheme.typography.bodySmall,
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(title, style = MaterialTheme.typography.bodyLarge)
+            if (stackValue && trailingText != null) Text(trailingText, style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        if (!stackValue && trailingText != null) Text(trailingText, style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis,
             modifier = Modifier.widthIn(max = 120.dp))
         Icon(Icons.Default.ChevronRight, null, Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -1531,7 +1251,7 @@ private fun flowTextFieldColors() = flowFieldColors()
 
 @Composable
 @OptIn(ExperimentalFoundationApi::class)
-private fun MessageBubble(message: Message, assistantAvatarPath: String?, userAvatarPath: String?, showAvatars: Boolean, reasoning: Message?) {
+internal fun MessageBubble(message: Message, assistantAvatarPath: String?, userAvatarPath: String?, showAvatars: Boolean, reasoning: Message?) {
     if (message.role == MessageRole.Assistant && message.status == MessageStatus.Complete &&
         message.content.isBlank() && message.reasoningContent.isBlank()) return
     if (message.role == MessageRole.Tool) {
@@ -1624,7 +1344,8 @@ private fun MessageBubble(message: Message, assistantAvatarPath: String?, userAv
                             if (isWaitingForAssistant) {
                                 StreamingJumpingDots()
                             } else if (displayContent.isNotBlank()) {
-                                Text(
+                                if (!isUser && !isCommentary) MarkdownContent(displayContent)
+                                else Text(
                                     text = displayContent,
                                     style = if (isCommentary) MaterialTheme.typography.bodyMedium else MaterialTheme.typography.bodyLarge,
                                     color = if (isCommentary) MaterialTheme.colorScheme.onSurfaceVariant else bubbleContentColor
@@ -1743,7 +1464,7 @@ private fun AttachmentMessagePreview(name: String) {
 }
 
 @Composable
-private fun ToolCallBubble(message: Message) {
+internal fun ToolCallBubble(message: Message) {
     var commandExpanded by remember(message.id) { mutableStateOf(false) }
     val context = LocalContext.current
     val messageTime = remember(context, message.createdAt) {
@@ -1833,7 +1554,7 @@ private fun ToolCallBubble(message: Message) {
 }
 
 @Composable
-private fun ReasoningBubble(message: Message, maxWidth: Dp) {
+internal fun ReasoningBubble(message: Message, maxWidth: Dp) {
     var expanded by remember(message.id) { mutableStateOf(false) }
     val isStillThinking = message.status == MessageStatus.Streaming && message.content.isBlank()
     val elapsedSeconds = (message.reasoningDurationMillis / 1000L).coerceAtLeast(1L)
@@ -1961,7 +1682,9 @@ internal fun MessageComposer(
     usageRecords: List<com.flowchat.app.data.db.UsageRecord>? = null,
     balanceState: com.flowchat.app.data.usage.BalanceState = com.flowchat.app.data.usage.BalanceState(),
     onRefreshBalance: () -> Unit = {},
-    contextWindow: com.flowchat.app.domain.model.ContextWindowUsage? = null
+    contextWindow: com.flowchat.app.domain.model.ContextWindowUsage? = null,
+    providerModelOptions: Map<String, ProviderModelOptions> = emptyMap(),
+    onOpenModelOptions: () -> Unit = {}
 ) {
     val focusRequester = remember { FocusRequester() }
     val keyboardController = LocalSoftwareKeyboardController.current
@@ -1971,7 +1694,9 @@ internal fun MessageComposer(
     }
     val hasInput = value.isNotBlank() || pendingAttachment != null
     val sendDescription = stringResource(if (isStreaming) R.string.stop else R.string.send)
-    val modelOptions = remember(providers) { configuredModelOptions(providers) }
+    val modelOptions = remember(providers, providerModelOptions, currentConversation?.providerId, currentConversation?.modelName) {
+        configuredModelOptions(providers, providerModelOptions, currentConversation)
+    }
     val currentProvider = providers.firstOrNull { provider -> provider.id == currentConversation?.providerId }
     val sendIconColor = when {
         isStreaming -> MaterialTheme.colorScheme.onErrorContainer
@@ -2126,7 +1851,8 @@ internal fun MessageComposer(
                   color = MaterialTheme.colorScheme.outlineVariant)
               Box(Modifier.weight(1.1f)) {
                   ModelSwitchButton(currentProvider, currentConversation?.modelName, modelOptions,
-                      enabled = enabled && !isStreaming && modelOptions.isNotEmpty(), onSelectModel = onSelectModel, compact = true)
+                      enabled = enabled && !isStreaming && modelOptions.isNotEmpty(), onSelectModel = onSelectModel, compact = true,
+                      providerModelOptions = providerModelOptions, onOpen = onOpenModelOptions, providers = providers)
               }
           }
        }
@@ -2134,7 +1860,8 @@ internal fun MessageComposer(
       if (usageRecords == null) {
           Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
               ModelSwitchButton(currentProvider, currentConversation?.modelName, modelOptions,
-                  enabled = enabled && !isStreaming && modelOptions.isNotEmpty(), onSelectModel = onSelectModel)
+                  enabled = enabled && !isStreaming && modelOptions.isNotEmpty(), onSelectModel = onSelectModel,
+                  providerModelOptions = providerModelOptions, onOpen = onOpenModelOptions, providers = providers)
           }
       }
     }
@@ -2147,7 +1874,10 @@ private fun ModelSwitchButton(
     modelOptions: List<ComposerModelOption>,
     enabled: Boolean,
     onSelectModel: (ProviderConfig, String) -> Unit,
-    compact: Boolean = false
+    compact: Boolean = false,
+    providerModelOptions: Map<String, ProviderModelOptions> = emptyMap(),
+    onOpen: () -> Unit = {},
+    providers: List<ProviderConfig> = emptyList()
 ) {
     var expanded by remember { mutableStateOf(false) }
     val selectedDotColor = MaterialTheme.colorScheme.primary
@@ -2157,8 +1887,9 @@ private fun ModelSwitchButton(
             modifier = Modifier
                 .heightIn(min = ComposerToolHeight)
                 .clip(RoundedCornerShape(16.dp))
+                .testTag("model-switch")
                 .semantics { contentDescription = switchModelDescription }
-                .clickable(enabled = enabled) { expanded = true }
+                .clickable(enabled = enabled) { expanded = true; onOpen() }
                 .padding(horizontal = if (compact) 4.dp else 10.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(if (compact) 4.dp else 6.dp)
@@ -2173,8 +1904,28 @@ private fun ModelSwitchButton(
             expanded = expanded,
             onDismissRequest = { expanded = false }
         ) {
+            providerModelOptions.forEach { (id, options) ->
+                if (providers.firstOrNull { it.id == id }?.conversationModels != null) return@forEach
+                val name = providers.firstOrNull { it.id == id }?.displayName ?: "Gemini"
+                if (options is ProviderModelOptions.Loading) {
+                    DropdownMenuItem(enabled = false, onClick = {}, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite }, text = {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            androidx.compose.material3.CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                            Text(stringResource(R.string.provider_models_loading, name))
+                        }
+                    })
+                } else if (options is ProviderModelOptions.Failed) {
+                    DropdownMenuItem(onClick = onOpen, modifier = Modifier.testTag("model-list-retry").semantics { liveRegion = LiveRegionMode.Polite }, text = {
+                        Column {
+                            Text(stringResource(R.string.provider_models_failed, name), color = MaterialTheme.colorScheme.error)
+                            Text(stringResource(R.string.retry), style = MaterialTheme.typography.labelMedium)
+                        }
+                    })
+                }
+            }
             modelOptions.forEach { option ->
                 DropdownMenuItem(
+                    modifier = Modifier.testTag("conversation-option-${option.provider.id}-${option.modelName}"),
                     text = {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
@@ -2218,13 +1969,19 @@ private fun ModelSwitchButton(
     }
 }
 
-private fun configuredModelOptions(providers: List<ProviderConfig>): List<ComposerModelOption> =
+private fun configuredModelOptions(
+    providers: List<ProviderConfig>,
+    catalogs: Map<String, ProviderModelOptions> = emptyMap(),
+    conversation: Conversation? = null
+): List<ComposerModelOption> =
     providers.asSequence()
         .filter { provider -> provider.isEnabled }
         .filter { provider -> provider.baseUrl.isNotBlank() }
         .filter { provider -> provider.defaultModel.isNotBlank() }
         .flatMap { provider ->
-            recognizedProviderModelNames(provider).map { modelName ->
+            val fetched = (catalogs[provider.id] as? ProviderModelOptions.Ready)?.names
+            val selected = conversation?.modelName?.takeIf { conversation.providerId == provider.id && it.isNotBlank() }
+            provider.conversationModelNames(fetched ?: recognizedProviderModelNames(provider), selected).map { modelName ->
                 ComposerModelOption(provider = provider, modelName = modelName)
             }
         }
@@ -2306,279 +2063,121 @@ private fun providerLogoRes(providerName: String?): Int? =
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-internal fun ConversationSettingsSheet(
+internal fun ConversationSettingsScreen(
     conversation: Conversation,
     onDismiss: () -> Unit,
     onSave: (String, String?, Boolean, String, Double, Double, Int?) -> Unit
 ) {
     val context = LocalContext.current
-    var assistantName by remember(conversation.id) { mutableStateOf(conversation.assistantName) }
-    var assistantAvatarPath by remember(conversation.id) { mutableStateOf(conversation.assistantAvatarPath) }
-    var showAvatars by remember(conversation.id) { mutableStateOf(conversation.showAvatars) }
-    var prompt by remember(conversation.id) { mutableStateOf(conversation.systemPrompt) }
-    var temperature by remember(conversation.id) { mutableStateOf(conversation.temperature.toFloat()) }
-    var topP by remember(conversation.id) { mutableStateOf(conversation.topP.toFloat()) }
-    var maxTokens by remember(conversation.id) { mutableStateOf(conversation.maxTokens?.toString().orEmpty()) }
-    var showAdvancedParameters by remember(conversation.id) { mutableStateOf(false) }
+    var assistantName by rememberSaveable(conversation.id) { mutableStateOf(conversation.assistantName) }
+    var assistantAvatarPath by rememberSaveable(conversation.id) { mutableStateOf(conversation.assistantAvatarPath) }
+    var showAvatars by rememberSaveable(conversation.id) { mutableStateOf(conversation.showAvatars) }
+    var prompt by rememberSaveable(conversation.id) { mutableStateOf(conversation.systemPrompt) }
+    var maxTokens by rememberSaveable(conversation.id) { mutableStateOf(conversation.maxTokens) }
+    var editingName by rememberSaveable { mutableStateOf(false) }
+    var editingPrompt by rememberSaveable { mutableStateOf(false) }
+    var editingLimit by rememberSaveable { mutableStateOf(false) }
+    var confirmBack by rememberSaveable { mutableStateOf(false) }
+    var avatarLoading by remember { mutableStateOf(false) }
+    var avatarFailed by remember { mutableStateOf(false) }
     val settingsScope = rememberCoroutineScope()
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val settingsScroll = rememberScrollState()
+    val changed = assistantName != conversation.assistantName || assistantAvatarPath != conversation.assistantAvatarPath ||
+        showAvatars != conversation.showAvatars || prompt != conversation.systemPrompt || maxTokens != conversation.maxTokens
+    val save = {
+        onSave(assistantName, assistantAvatarPath, showAvatars, prompt, conversation.temperature, conversation.topP, maxTokens)
+    }
     val avatarPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
-        if (uri != null) {
-            settingsScope.launch {
-                val path = withContext(Dispatchers.IO) {
-                    copyAssistantAvatarToPrivateFile(context, conversation.id, uri)
-                }
-                if (path != null) {
-                    assistantAvatarPath = path
-                }
-            }
+        if (uri != null) settingsScope.launch {
+            avatarLoading = true
+            avatarFailed = false
+            val path = withContext(Dispatchers.IO) { copyAssistantAvatarToPrivateFile(context, conversation.id, uri) }
+            if (path != null) assistantAvatarPath = path else avatarFailed = true
+            avatarLoading = false
         }
     }
-
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        sheetState = sheetState,
-        shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
-        containerColor = MaterialTheme.colorScheme.surface,
-        contentColor = MaterialTheme.colorScheme.onSurface
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .heightIn(max = 720.dp)
-                .navigationBarsPadding()
-                .imePadding()
-        ) {
-            Column(
-                modifier = Modifier
-                    .weight(1f)
-                    .verticalScroll(rememberScrollState())
-                    .padding(horizontal = 18.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(16.dp)
-            ) {
-                FlowSheetHeader(stringResource(R.string.conversation_settings), onDismiss)
-                Column(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Text(
-                        text = stringResource(R.string.assistant_avatar),
-                        style = MaterialTheme.typography.labelLarge,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    AssistantAvatarStrip(
-                        assistantAvatarPath = assistantAvatarPath,
-                        onAvatarClick = { avatarPicker.launch("image/*") }
-                    )
-                }
-                OutlinedTextField(
-                    value = assistantName,
-                    onValueChange = { assistantName = it },
-                    label = { Text(stringResource(R.string.assistant_name)) },
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(12.dp),
-                    colors = flowTextFieldColors(),
-                    singleLine = true
-                )
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                        Text(
-                            text = stringResource(R.string.show_avatars),
-                            style = MaterialTheme.typography.labelLarge
-                        )
-                        Text(
-                            text = stringResource(R.string.personalization_switch_hint),
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                    Switch(
-                        checked = showAvatars,
-                        onCheckedChange = { showAvatars = it }
-                    )
-                }
-                OutlinedTextField(
-                    value = prompt,
-                    onValueChange = { prompt = it },
-                    label = { Text(stringResource(R.string.system_prompt)) },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .heightIn(min = 132.dp),
-                    shape = RoundedCornerShape(12.dp),
-                    colors = flowTextFieldColors(),
-                    minLines = 4,
-                    maxLines = 8
-                )
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(12.dp))
-                        .clickable { showAdvancedParameters = !showAdvancedParameters }
-                        .padding(horizontal = 12.dp, vertical = 13.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = stringResource(R.string.advanced_parameters),
-                        style = MaterialTheme.typography.titleSmall,
-                        modifier = Modifier.weight(1f)
-                    )
-                    Text(
-                        text = stringResource(
-                            if (showAdvancedParameters) R.string.thinking_collapse else R.string.thinking_expand
-                        ),
-                        style = MaterialTheme.typography.labelLarge,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-                if (showAdvancedParameters) {
-                    SettingsLabeledSlider(
-                        title = stringResource(R.string.reply_style),
-                        startLabel = stringResource(R.string.concise),
-                        endLabel = stringResource(R.string.detailed),
-                        value = topP,
-                        onValueChange = { topP = it },
-                        valueRange = 0f..1f
-                    )
-                    SettingsLabeledSlider(
-                        title = stringResource(R.string.creativity),
-                        startLabel = stringResource(R.string.strict),
-                        endLabel = stringResource(R.string.playful),
-                        value = temperature / 2f,
-                        onValueChange = { temperature = it * 2f },
-                        valueRange = 0f..1f
-                    )
-                    OutlinedTextField(
-                        value = maxTokens,
-                        onValueChange = { value -> maxTokens = value.filter { it.isDigit() } },
-                        label = { Text(stringResource(R.string.max_tokens)) },
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        shape = RoundedCornerShape(12.dp),
-                        colors = flowTextFieldColors(),
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                }
-            }
-            Button(
-                onClick = {
-                    onSave(assistantName, assistantAvatarPath, showAvatars, prompt, temperature.toDouble(), topP.toDouble(), maxTokens.toIntOrNull())
-                },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(64.dp)
-                    .padding(horizontal = 18.dp, vertical = 8.dp),
-                shape = RoundedCornerShape(16.dp)
-            ) {
+    if (editingPrompt) {
+        SystemPromptEditor(prompt, onChange = { prompt = it }, onBack = { editingPrompt = false })
+        return
+    }
+    FlowSettingsPage(title = stringResource(R.string.conversation_settings),
+        onBack = { if (changed) confirmBack = true else onDismiss() },
+        actions = {
+            TextButton(onClick = save, enabled = changed && !avatarLoading, modifier = Modifier.testTag("conversation_save")) {
                 Text(stringResource(R.string.save))
             }
+        }) {
+        Column(Modifier.fillMaxSize().verticalScroll(settingsScroll)
+            .padding(horizontal = 24.dp, vertical = 16.dp).testTag("conversation_settings_content"),
+            verticalArrangement = Arrangement.spacedBy(28.dp)) {
+            SettingsGroup(title = stringResource(R.string.assistant_profile)) {
+                Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                    EditableAvatar(assistantAvatarPath, assistant = true, enabled = !avatarLoading,
+                        onClick = { avatarPicker.launch("image/*") }, tag = "assistant")
+                    Column(Modifier.weight(1f)) {
+                        Text(assistantName.ifBlank { stringResource(R.string.assistant_name) }, style = MaterialTheme.typography.titleMedium,
+                            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                                .clickable(role = Role.Button, onClickLabel = stringResource(R.string.assistant_name)) { editingName = true }
+                                .padding(vertical = 10.dp).testTag("assistant_name"))
+                        Text(stringResource(R.string.assistant_name), style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+                if (avatarLoading) LinearProgressIndicator(Modifier.fillMaxWidth())
+                if (avatarFailed) Text(stringResource(R.string.avatar_update_failed), color = MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.bodySmall)
+                Row(Modifier.fillMaxWidth().heightIn(min = 64.dp)
+                    .toggleable(showAvatars, role = Role.Switch, onValueChange = { showAvatars = it })
+                    .padding(vertical = 12.dp).testTag("conversation_show_avatars"), verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f).padding(end = 16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text(stringResource(R.string.show_avatars), style = MaterialTheme.typography.bodyLarge)
+                        Text(stringResource(R.string.personalization_switch_hint), style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    Switch(checked = showAvatars, onCheckedChange = null)
+                }
+            }
+            SettingsGroup(title = stringResource(R.string.conversation_rules)) {
+                Column(Modifier.fillMaxWidth().clickable(role = Role.Button) { editingPrompt = true }
+                    .padding(vertical = 12.dp).testTag("conversation_prompt"), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Text(stringResource(R.string.system_prompt), style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
+                        Icon(Icons.Default.ChevronRight, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    Text(prompt.ifBlank { stringResource(R.string.not_configured) }, maxLines = 2, overflow = TextOverflow.Ellipsis,
+                        style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+            SettingsGroup(title = stringResource(R.string.reply_settings)) {
+                SettingsRow(title = stringResource(R.string.max_tokens),
+                    trailingText = maxTokens?.toString() ?: stringResource(R.string.default_value), onClick = { editingLimit = true })
+            }
+            Text(stringResource(R.string.current_conversation_only), style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
+    if (editingName) NameEditorDialog(stringResource(R.string.assistant_name), assistantName,
+        onDismiss = { editingName = false }, onSave = { assistantName = it; editingName = false })
+    if (editingLimit) OutputLimitDialog(maxTokens, onDismiss = { editingLimit = false },
+        onSave = { maxTokens = it; editingLimit = false })
+    if (confirmBack) UnsavedSettingsDialog(onSave = save,
+        onDiscard = { confirmBack = false; onDismiss() }, onKeepEditing = { confirmBack = false })
 }
 
 @Composable
-private fun AssistantAvatarStrip(
-    assistantAvatarPath: String?,
-    onAvatarClick: () -> Unit
+private fun EditableAvatar(
+    avatarPath: String?, assistant: Boolean, enabled: Boolean, onClick: () -> Unit, tag: String
 ) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.Start,
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Box(modifier = Modifier.size(66.dp), contentAlignment = Alignment.Center) {
-            AssistantAvatar(
-                avatarPath = assistantAvatarPath,
-                size = 62.dp
-            )
-            Box(
-                modifier = Modifier
-                    .matchParentSize()
-                    .border(BorderStroke(2.dp, MaterialTheme.colorScheme.primary), CircleShape)
-            )
-            AvatarEditButton(
-                onClick = onAvatarClick,
-                contentDescription = stringResource(R.string.assistant_avatar),
-                modifier = Modifier
-                    .align(Alignment.BottomEnd)
-                    .offset(x = (-2).dp, y = (-2).dp)
-            )
+    val description = stringResource(if (assistant) R.string.assistant_avatar else R.string.edit_profile_avatar)
+    Box(Modifier.size(80.dp), contentAlignment = Alignment.Center) {
+        Box(Modifier.size(64.dp).clip(CircleShape).clickable(enabled = enabled, role = Role.Button,
+            onClickLabel = description, onClick = onClick).testTag("${tag}_avatar")) {
+            if (assistant) AssistantAvatar(avatarPath = avatarPath, size = 64.dp) else ProfileAvatar(avatarPath = avatarPath, size = 64.dp)
         }
-    }
-}
-
-@Composable
-private fun SettingsLabeledSlider(
-    title: String,
-    startLabel: String,
-    endLabel: String,
-    value: Float,
-    onValueChange: (Float) -> Unit,
-    valueRange: ClosedFloatingPointRange<Float>
-) {
-    Column(
-        modifier = Modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(4.dp)
-    ) {
-        Text(
-            text = title,
-            style = MaterialTheme.typography.labelLarge,
-            color = MaterialTheme.colorScheme.onSurface
-        )
-        Slider(value = value, onValueChange = onValueChange, valueRange = valueRange)
-        Row(modifier = Modifier.fillMaxWidth()) {
-            Text(
-                text = startLabel,
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.weight(1f)
-            )
-            Text(
-                text = endLabel,
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
-    }
-}
-
-@Composable
-private fun AssistantProfileEditor(
-    assistantName: String,
-    assistantAvatarPath: String?,
-    onAssistantNameChange: (String) -> Unit,
-    onAvatarClick: () -> Unit
-) {
-    Column(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-        Box(modifier = Modifier.size(96.dp), contentAlignment = Alignment.Center) {
-            AssistantAvatar(
-                avatarPath = assistantAvatarPath,
-                size = 96.dp
-            )
-            AvatarEditButton(
-                onClick = onAvatarClick,
-                contentDescription = stringResource(R.string.assistant_avatar),
-                modifier = Modifier
-                    .align(Alignment.BottomEnd)
-                    .offset(x = (-4).dp, y = (-4).dp)
-            )
-        }
-        OutlinedTextField(
-            value = assistantName,
-            onValueChange = onAssistantNameChange,
-            label = { Text(stringResource(R.string.assistant_name)) },
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(14.dp),
-            colors = flowTextFieldColors(),
-            singleLine = true
-        )
+        AvatarEditButton(onClick, description,
+            modifier = Modifier.align(Alignment.BottomEnd).offset(x = 4.dp, y = 4.dp).testTag("${tag}_avatar_edit"),
+            enabled = enabled)
     }
 }
 
@@ -2586,18 +2185,19 @@ private fun AssistantProfileEditor(
 private fun AvatarEditButton(
     onClick: () -> Unit,
     contentDescription: String,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true
 ) {
     Box(
         modifier = modifier
-            .size(32.dp)
+            .size(48.dp)
             .clip(CircleShape)
-            .background(Color(0xFF3A3A3A), CircleShape)
-            .border(BorderStroke(1.dp, Color.Black.copy(alpha = 0.35f)), CircleShape)
             .semantics { this.contentDescription = contentDescription }
-            .clickable(onClick = onClick),
+            .clickable(enabled = enabled, role = Role.Button, onClick = onClick),
         contentAlignment = Alignment.Center
     ) {
+        Box(Modifier.size(30.dp).background(Color(0xFF3A3A3A), CircleShape)
+            .border(BorderStroke(1.dp, MaterialTheme.colorScheme.background), CircleShape), contentAlignment = Alignment.Center) {
         val pencilColor = Color.White
         Canvas(modifier = Modifier.size(17.dp)) {
             val strokeWidth = 2.1.dp.toPx()
@@ -2644,6 +2244,7 @@ private fun AvatarEditButton(
                 strokeWidth = strokeWidth,
                 cap = StrokeCap.Round
             )
+        }
         }
     }
 }
@@ -2722,12 +2323,29 @@ private fun AssistantAvatar(
     }
 }
 
-private data class UserProfile(
+internal data class UserProfile(
     val name: String,
     val avatarPath: String?
 )
 
-private fun loadUserProfile(context: Context, defaultName: String): UserProfile {
+@Composable
+internal fun rememberUserProfile(): UserProfile {
+    val context = LocalContext.current
+    val defaultName = stringResource(R.string.user_display_name)
+    val preferences = remember(context) { context.getSharedPreferences(UserProfilePrefsName, Context.MODE_PRIVATE) }
+    var profile by remember(context, defaultName) { mutableStateOf(loadUserProfile(context, defaultName)) }
+    DisposableEffect(preferences, defaultName) {
+        val listener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, _ ->
+            profile = loadUserProfile(context, defaultName)
+        }
+        preferences.registerOnSharedPreferenceChangeListener(listener)
+        profile = loadUserProfile(context, defaultName)
+        onDispose { preferences.unregisterOnSharedPreferenceChangeListener(listener) }
+    }
+    return profile
+}
+
+internal fun loadUserProfile(context: Context, defaultName: String): UserProfile {
     val prefs = context.getSharedPreferences(UserProfilePrefsName, Context.MODE_PRIVATE)
     return UserProfile(
         name = prefs.getString(UserProfileNameKey, null)?.takeIf { it.isNotBlank() } ?: defaultName,
@@ -2735,7 +2353,7 @@ private fun loadUserProfile(context: Context, defaultName: String): UserProfile 
     )
 }
 
-private fun saveUserProfile(context: Context, profileName: String, profileAvatarPath: String?) {
+internal fun saveUserProfile(context: Context, profileName: String, profileAvatarPath: String?) {
     context.getSharedPreferences(UserProfilePrefsName, Context.MODE_PRIVATE)
         .edit()
         .putString(UserProfileNameKey, profileName.trim())
@@ -2743,7 +2361,7 @@ private fun saveUserProfile(context: Context, profileName: String, profileAvatar
         .apply()
 }
 
-private fun copyUserAvatarToPrivateFile(context: Context, uri: Uri): String? {
+internal fun copyUserAvatarToPrivateFile(context: Context, uri: Uri): String? {
     return runCatching {
         val bytes = context.contentResolver.openInputStream(uri)?.use { input ->
             input.readBytes()
@@ -2751,7 +2369,7 @@ private fun copyUserAvatarToPrivateFile(context: Context, uri: Uri): String? {
         val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size) ?: return null
         val scaled = bitmap.scaleToMax(512)
         val directory = File(context.filesDir, "user_profile").apply { mkdirs() }
-        val output = File(directory, "avatar.jpg")
+        val output = File(directory, "avatar-${java.util.UUID.randomUUID()}.jpg")
 
         try {
             FileOutputStream(output).use { stream ->
@@ -2775,7 +2393,7 @@ private fun copyAssistantAvatarToPrivateFile(context: Context, conversationId: S
         val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size) ?: return null
         val scaled = bitmap.scaleToMax(512)
         val directory = File(context.filesDir, "assistant_avatars").apply { mkdirs() }
-        val output = File(directory, "$conversationId.jpg")
+        val output = File(directory, "$conversationId-${java.util.UUID.randomUUID()}.jpg")
 
         try {
             FileOutputStream(output).use { stream ->
@@ -2805,7 +2423,7 @@ private const val UserProfileNameKey = "name"
 private const val UserProfileAvatarKey = "avatar_path"
 
 @Composable
-private fun Conversation.displayTitle(): String {
+internal fun Conversation.displayTitle(): String {
     return if (title == "New chat") stringResource(R.string.default_conversation_title) else title
 }
 

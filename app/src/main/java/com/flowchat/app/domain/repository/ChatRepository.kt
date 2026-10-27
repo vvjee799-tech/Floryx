@@ -6,10 +6,20 @@ import com.flowchat.app.domain.model.MessageRole
 import com.flowchat.app.domain.model.MessageStatus
 import com.flowchat.app.domain.chat.TaskCheckpoint
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.map
+
+data class MessageWindow(val messages: List<Message>, val hasOlder: Boolean)
 
 interface ChatRepository {
     fun observeConversations(): Flow<List<Conversation>>
     fun observeMessages(conversationId: String): Flow<List<Message>>
+    fun observeMessageWindow(conversationId: String, limit: Int): Flow<MessageWindow> =
+        observeMessages(conversationId).map { MessageWindow(it.takeLast(limit), it.size > limit) }
+    fun searchConversationIds(query: String): Flow<Set<String>> = observeConversations().map { rows ->
+        rows.filter { it.title.contains(query, ignoreCase = true) }.map { it.id }.toSet()
+    }
+    suspend fun setConversationPinned(id: String, pinned: Boolean) { error("Pinning is unavailable") }
+    suspend fun setConversationArchived(id: String, archived: Boolean) { error("Archiving is unavailable") }
     suspend fun getConversation(id: String): Conversation?
     suspend fun getMessages(conversationId: String): List<Message>
     /** Reconcile unfinished messages from a previous process before starting a new task. */

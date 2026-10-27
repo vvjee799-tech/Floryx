@@ -37,13 +37,18 @@ import com.flowchat.app.domain.provider.apiHost
 @Singleton
 class KtorOpenAiCompatibleClient @Inject constructor(
     private val httpClient: HttpClient,
-    private val json: Json
+    private val json: Json,
+    @com.flowchat.app.di.GeminiHttp private val geminiHttpClient: HttpClient? = null
 ) : ChatCompletionClient {
     @Inject lateinit var usageTracker: com.flowchat.app.data.usage.UsageTracker
     private val meter get() = if (::usageTracker.isInitialized) usageTracker else null
 
     override fun streamChat(request: ChatRequest, provider: ProviderConfig, apiKey: String?): Flow<ChatDelta> = flow {
         val protocol = modelProtocol(provider, request.model)
+        if (protocol == ModelProtocol.Gemini) {
+            emitAll(KtorGeminiClient(geminiHttpClient ?: httpClient, json).streamChat(request, provider, apiKey))
+            return@flow
+        }
         if (protocol != ModelProtocol.ChatCompletions) {
             emitAll(streamNative(request, provider, apiKey, protocol))
             return@flow

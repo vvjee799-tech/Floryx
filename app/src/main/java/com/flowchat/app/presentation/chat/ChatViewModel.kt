@@ -20,6 +20,7 @@ import com.flowchat.app.data.preferences.AppSettings
 import com.flowchat.app.data.preferences.AppSettingsStore
 import com.flowchat.app.domain.appusage.AppUsageToolFormatter
 import com.flowchat.app.domain.device.DeviceActionPolicy
+import com.flowchat.app.domain.device.AutomationTimings
 import com.flowchat.app.domain.device.DeviceAssistantGateway
 import com.flowchat.app.domain.device.DeviceToolResult
 import com.flowchat.app.domain.device.DeviceSwipeDirection
@@ -123,9 +124,39 @@ class ChatViewModel @Inject constructor(
     private val usageTracker: com.flowchat.app.data.usage.UsageTracker? = null,
     private val balanceClient: DeepSeekBalanceClient? = null,
     private val workspaceManager: WorkspaceManager? = null,
-    @com.flowchat.app.di.ContextDispatcher private val contextDispatcher: kotlinx.coroutines.CoroutineDispatcher = Dispatchers.Default
+    @com.flowchat.app.di.ContextDispatcher private val contextDispatcher: kotlinx.coroutines.CoroutineDispatcher = Dispatchers.Default,
+    modelCatalogClient: com.flowchat.app.data.network.ModelCatalogClient? = null
 ) : ViewModel() {
+    private val modelCatalog = ProviderModelCatalog(viewModelScope, providerRepository, modelCatalogClient)
+    val providerModelOptions = modelCatalog.state
+    fun loadModelOptions() = modelCatalog.load()
     private val currentConversationId = MutableStateFlow<String?>(null)
+    private val messageWindowSizes = MutableStateFlow<Map<String, Int>>(emptyMap())
+    private val liveReplies = MutableStateFlow<Map<String, LiveReply>>(emptyMap())
+    fun loadOlderMessages() {
+        val owner = selectedConversationId() ?: return
+        messageWindowSizes.update { it + (owner to ((it[owner] ?: 80) + 80)) }
+    }
+    fun renameConversation(id: String, title: String) {
+        val clean = title.trim().take(160)
+        if (clean.isNotEmpty()) viewModelScope.launch { chatRepository.updateConversationTitle(id, clean) }
+    }
+    fun pinConversation(id: String, pinned: Boolean) {
+        viewModelScope.launch { chatRepository.setConversationPinned(id, pinned) }
+    }
+    fun archiveConversation(id: String, archived: Boolean) {
+        viewModelScope.launch { chatRepository.setConversationArchived(id, archived) }
+    }
+    suspend fun exportConversation(id: String): String = withContext(Dispatchers.IO) {
+        val conversation = chatRepository.getConversation(id) ?: error("Conversation not found")
+        val live = liveReplies.value[id]
+        val messages = chatRepository.getMessages(id).map { message ->
+            if (message.id == live?.id && message.status == MessageStatus.Streaming) message.copy(
+                content = live.snapshot.content, reasoningContent = live.snapshot.reasoning,
+                reasoningDurationMillis = live.snapshot.reasoningMillis) else message
+        }
+        ConversationExporter.markdown(conversation, messages)
+    }
     val usageRecords = currentConversationId.flatMapLatest { id ->
         if (id == null) flowOf(emptyList()) else usageTracker?.observe(id) ?: flowOf(emptyList())
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
@@ -171,7 +202,7 @@ class ChatViewModel @Inject constructor(
         currentConversationId
     ) { conversations: List<Conversation>, providers: List<ProviderConfig>, selectedId: String? ->
         val current = if (selectedId == null) {
-            conversations.firstOrNull()
+            conversations.firstOrNull { !it.isArchived } ?: conversations.firstOrNull()
         } else {
             conversations.firstOrNull { it.id == selectedId }
         }
@@ -241,14 +272,21 @@ class ChatViewModel @Inject constructor(
 
     private val conversationState = combine(
         stateWithMemories,
-        currentConversationId.flatMapLatest { id ->
-            if (id == null) flowOf(null to emptyList()) else chatRepository.observeMessages(id).map { id to it }
+        combine(currentConversationId, messageWindowSizes) { id, sizes -> id to (sizes[id] ?: 80) }.flatMapLatest { (id, size) ->
+            if (id == null) flowOf(null to com.flowchat.app.domain.repository.MessageWindow(emptyList(), false))
+            else chatRepository.observeMessageWindow(id, size).map { id to it }
         }
     ) { state, ownedMessages ->
-        val messages = ownedMessages.second.takeIf { ownedMessages.first == state.currentConversation?.id }.orEmpty()
+        val window = ownedMessages.second.takeIf { ownedMessages.first == state.currentConversation?.id }
+        val messages = window?.messages.orEmpty()
+        val recoveryMessages = if (!state.isStreaming && window?.hasOlder == true &&
+            messages.none { it.role == MessageRole.User }) {
+            chatRepository.getMessages(requireNotNull(state.currentConversation).id)
+        } else messages
         state.copy(
             messages = messages,
-            interruptedTask = !state.isStreaming && TaskRecovery.canResume(messages)
+            hasOlderMessages = window?.hasOlder == true,
+            interruptedTask = !state.isStreaming && TaskRecovery.canResume(recoveryMessages)
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ChatUiState())
 
@@ -263,12 +301,17 @@ class ChatViewModel @Inject constructor(
               catch (_: Exception) { null }
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
-    val uiState = combine(conversationState, liveContextWindows, contextWindowPreview) { state, active, preview ->
+    val uiState = combine(conversationState, liveContextWindows, contextWindowPreview, liveReplies) { state, active, preview, replies ->
         val owner = state.currentConversation?.id
         val snapshot = if (state.isStreaming) active[owner]?.takeIf {
             it.runId == turns[owner]?.commandRunId
         } else preview
-        state.copy(contextWindow = snapshot?.takeIf {
+        val live = replies[owner]
+        state.copy(messages = if (live == null) state.messages else state.messages.map { message ->
+            if (message.id == live.id && message.status == MessageStatus.Streaming) message.copy(
+                content = live.snapshot.content, reasoningContent = live.snapshot.reasoning,
+                reasoningDurationMillis = live.snapshot.reasoningMillis) else message
+        }, contextWindow = snapshot?.takeIf {
             it.conversationId == owner && it.providerId == state.currentConversation?.providerId &&
                 it.modelName == state.currentConversation?.modelName && it.settings == state.currentConversation?.let { chat ->
                     state.providers.firstOrNull { provider -> provider.id == chat.providerId }?.let { provider ->
@@ -281,7 +324,7 @@ class ChatViewModel @Inject constructor(
     private suspend fun estimateContextWindow(state: ChatUiState): ContextWindowSnapshot? {
         val conversation = state.currentConversation ?: return null
         val provider = state.providers.firstOrNull { it.id == conversation.providerId } ?: return null
-        val restored = taskContextManager.restoreWindow(conversation.id, state.messages)
+        val restored = taskContextManager.restoreWindow(conversation.id, chatRepository.getMessages(conversation.id))
         val attachment = state.pendingAttachment
         val messages = if (state.input.isNotBlank() || attachment != null) restored.messages + Message(
             id = "context-draft-${conversation.id}", conversationId = conversation.id, role = MessageRole.User,
@@ -728,6 +771,8 @@ class ChatViewModel @Inject constructor(
         pausedDeviceTasks.update { it - id }
         drafts.value[id]?.attachment?.imagePath?.let { imageAttachmentStore?.discardNow(it) }
         drafts.update { it - id }
+        messageWindowSizes.update { it - id }
+        liveReplies.update { it - id }
         viewModelScope.launch {
             chatRepository.deleteConversation(id)
             if (currentConversationId.value == id) {
@@ -1013,14 +1058,14 @@ class ChatViewModel @Inject constructor(
                         publishContextWindow(turn, request, provider)
                     }
                     contextWork(provider, request) { taskContextManager.requireFits(request, conversation.id, provider) }
-                    val response = collectAssistantResponse(
+                    val response = AutomationTimings.measure("model.response") { collectAssistantResponse(
                         request = request,
                         provider = provider,
                         apiKey = apiKey,
                         assistantId = assistant.id,
                         currentContent = content,
                         currentReasoning = reasoningContent
-                    )
+                    ) }
                     content = response.content
                     reasoningContent = response.reasoningContent
                     response.errorMessage?.let { rawError ->
@@ -1152,6 +1197,7 @@ class ChatViewModel @Inject constructor(
             }
         }
         turn.job?.invokeOnCompletion {
+            liveReplies.update { it - selectedConversationId }
             turn.contextRefreshJob?.cancel()
             turn.pendingContextRequest = null
             taskControl.finish(turn.activeDeviceTask)
@@ -1178,70 +1224,41 @@ class ChatViewModel @Inject constructor(
         currentReasoning: String
     ): AssistantResponseResult {
         val turn = currentTurn()
-        var content = currentContent
-        var reasoningContent = currentReasoning
         var toolCalls = emptyList<ChatToolCall>()
         var error: String? = null
         var providerData: kotlinx.serialization.json.JsonArray? = null
-        val responseFlow = chatClient.streamChat(request, provider, apiKey).let {
-            if (DeepSeekContextProfile.resolve(provider, request) != null) it.flowOn(contextDispatcher) else it
-        }
-        responseFlow.collect { delta ->
-            when (delta) {
-                is ChatDelta.Content -> {
-                    content = appendContentDelta(
-                        assistantId,
-                        content,
-                        reasoningContent,
-                        delta.text
-                    )
-                }
-                is ChatDelta.Reasoning -> {
-                    reasoningContent = appendReasoningDelta(
-                        assistantId,
-                        content,
-                        reasoningContent,
-                        delta.text
-                    )
-                }
-                is ChatDelta.FullResponse -> {
-                    reasoningContent = appendReasoningDelta(
-                        assistantId,
-                        content,
-                        reasoningContent,
-                        delta.reasoningText
-                    )
-                    content = appendContentDelta(
-                        assistantId,
-                        content,
-                        reasoningContent,
-                        delta.contentText
-                    )
-                }
-                is ChatDelta.ToolCalls -> {
-                    toolCalls = delta.calls
-                }
-                is ChatDelta.ProviderData -> providerData = delta.blocks
-                is ChatDelta.ToolCallDelta -> Unit
-                ChatDelta.Done -> Unit
-                is ChatDelta.Error -> {
-                    error = delta.message
-                }
-            }
+        fun publish(snapshot: ReplySnapshot, force: Boolean) {
             val responseWindow = request.copy(messages = request.messages + ChatRequestMessage(
-                role = MessageRole.Assistant.apiRole, content = content, reasoningContent = reasoningContent,
+                role = MessageRole.Assistant.apiRole, content = snapshot.content, reasoningContent = snapshot.reasoning,
                 toolCalls = toolCalls, providerData = providerData))
-            publishContextWindow(turn, responseWindow, provider,
-                force = delta is ChatDelta.Done || delta is ChatDelta.ToolCalls || delta is ChatDelta.ProviderData || delta is ChatDelta.Error)
+            publishContextWindow(turn, responseWindow, provider, force = force)
         }
-        return AssistantResponseResult(
-            content = content,
-            reasoningContent = reasoningContent,
-            toolCalls = toolCalls,
-            errorMessage = error,
-            providerData = providerData
+        val writer = StreamingReplyWriter(currentContent, currentReasoning)
+        val snapshot = writer.collect(
+            chatClient.streamChat(request, provider, apiKey).flowOn(contextDispatcher),
+            onSnapshot = { value, persist ->
+                turn.activeAssistantContent = value.content
+                turn.activeAssistantReasoningContent = value.reasoning
+                turn.activeAssistantReasoningDurationMillis = value.reasoningMillis
+                liveReplies.update { it + (turn.conversationId to LiveReply(assistantId, value)) }
+                if (persist) chatRepository.updateMessage(assistantId, value.content, MessageStatus.Streaming,
+                    value.reasoning, reasoningDurationMillis = value.reasoningMillis)
+                publish(value, force = false)
+            },
+            onEvent = { delta ->
+                when (delta) {
+                    is ChatDelta.ToolCalls -> toolCalls = delta.calls
+                    is ChatDelta.ProviderData -> providerData = delta.blocks
+                    is ChatDelta.Error -> error = delta.message
+                    else -> Unit
+                }
+                publish(ReplySnapshot(turn.activeAssistantContent, turn.activeAssistantReasoningContent,
+                    turn.activeAssistantReasoningDurationMillis), force = true)
+            }
         )
+        return AssistantResponseResult(snapshot.content, snapshot.reasoning, toolCalls, error, providerData)
     }
+
 
     private suspend fun executeToolCalls(
         calls: List<ChatToolCall>,
@@ -1266,12 +1283,12 @@ class ChatViewModel @Inject constructor(
                 ToolExecutionOutcome("failed: tool_unavailable. This tool is not enabled for this request.")
             } else if (uiChanged && call.name in UiAutomationToolNames + AgentToolDefinitions.OpenAppToolName) {
                 ToolExecutionOutcome("failed: sequential_ui_required. Inspect the previous action result and request the next action in a new response.")
-            } else executeSingleToolCall(
+            } else AutomationTimings.measure("tool.${call.name}") { executeSingleToolCall(
                 call,
                 conversationId,
                 modelName,
                 loopGuard
-            )
+            ) }
             } catch (cancelled: CancellationException) {
                 evidence[evidence.lastIndex] = TaskExecutionHistory.interrupted(evidence.last())
                 withContext(NonCancellable) {
@@ -1370,14 +1387,11 @@ class ChatViewModel @Inject constructor(
                 AgentToolDefinitions.SetMediaVolumeToolName -> executeSetMediaVolumeTool(call.arguments)
                 AgentToolDefinitions.ForceStopAppToolName -> executeForceStopAppTool(call)
                 AgentToolDefinitions.ObserveScreenToolName -> observeScreenForModel(call, modelName)
-                AgentToolDefinitions.WaitForScreenToolName -> prepareForExternalUiAction {
-                    delay(700)
-                    observeScreenForModel(call, modelName)
-                }
+                AgentToolDefinitions.WaitForScreenToolName -> observeScreenForModel(call, modelName, waitForUpdate = true)
                 AgentToolDefinitions.TapUiElementToolName -> executeTapUiElementTool(call.arguments)
                 AgentToolDefinitions.TapVisualTargetToolName -> executeTapVisualTargetTool(call.arguments)
                 AgentToolDefinitions.InputTextToolName -> executeInputTextTool(call.arguments)
-                AgentToolDefinitions.SwipeScreenToolName -> executeSwipeScreenTool(call.arguments)
+                AgentToolDefinitions.SwipeScreenToolName -> executeSwipeScreenTool(call.arguments, modelName)
                 AgentToolDefinitions.PressBackToolName -> prepareForExternalUiAction {
                     deviceAssistantGateway.pressBack().toToolOutcome()
                 }
@@ -1435,14 +1449,15 @@ class ChatViewModel @Inject constructor(
         )
     }
 
-    private suspend fun observeScreenForModel(call: ChatToolCall, modelName: String?): ToolExecutionOutcome = prepareForExternalUiAction {
+    private suspend fun observeScreenForModel(call: ChatToolCall, modelName: String?, waitForUpdate: Boolean = false): ToolExecutionOutcome = prepareForExternalUiAction {
         val turn = currentTurn()
         val includeImage = parseBooleanArgument(call.arguments, "include_image") ?: true
-        if (!includeImage) return@prepareForExternalUiAction deviceAssistantGateway.observeScreen().toToolOutcome()
         val region = try { com.flowchat.app.domain.device.ScreenImageRegion.fromToolArguments(call.arguments) }
         catch (_: IllegalArgumentException) { return@prepareForExternalUiAction invalidDeviceToolArguments(call.name, "image_region (percent bounds)") }
+        val waited = if (waitForUpdate) deviceAssistantGateway.waitForScreen() else null
+        if (!includeImage || waited?.success == false) return@prepareForExternalUiAction (waited ?: deviceAssistantGateway.observeScreen()).toToolOutcome()
         if (com.flowchat.app.domain.provider.ScreenVisionSupport.knownTextOnly(turn.activeTaskProvider, modelName)) {
-            return@prepareForExternalUiAction deviceAssistantGateway.observeScreen().copy(
+            return@prepareForExternalUiAction (waited ?: deviceAssistantGateway.observeScreen()).copy(
                 summary = "Only UI elements were read. The selected model is text-only; choose a model with image input, such as DeepSeek Flash, for visual analysis.",
                 imageErrorCode = "model_vision_unsupported").toToolOutcome()
         }
@@ -1705,7 +1720,7 @@ class ChatViewModel @Inject constructor(
         }
     }
 
-    private suspend fun executeSwipeScreenTool(arguments: String): ToolExecutionOutcome {
+    private suspend fun executeSwipeScreenTool(arguments: String, modelName: String?): ToolExecutionOutcome {
         val direction = parseStringArgument(arguments, "direction")
             ?.let { value ->
                 DeviceSwipeDirection.entries.firstOrNull { it.name.equals(value, ignoreCase = true) }
@@ -1713,14 +1728,19 @@ class ChatViewModel @Inject constructor(
             ?: return invalidDeviceToolArguments(AgentToolDefinitions.SwipeScreenToolName, "direction")
         val distance = parseIntArgument(arguments, "distance_percent", minimum = 20, maximum = 80) ?: 50
         return prepareForExternalUiAction {
-            deviceAssistantGateway.swipeScreen(direction, distance).toToolOutcome()
+            val result = deviceAssistantGateway.swipeScreen(direction, distance)
+            val projected = if (result.screenImage != null && com.flowchat.app.domain.provider.ScreenVisionSupport.knownTextOnly(
+                    currentTurn().activeTaskProvider, modelName)) result.copy(screenImage = null,
+                imageErrorCode = "model_vision_unsupported", summary = result.summary.substringBefore(" Inspect the returned image") +
+                    " The selected model cannot view the verification image; only readable controls are exposed.") else result
+            projected.toToolOutcome()
         }
     }
 
     private suspend fun prepareForExternalUiAction(
         action: suspend () -> ToolExecutionOutcome
     ): ToolExecutionOutcome = floatingAssistantBridge.withExternalUiAction {
-        delay(OverlayAutomationPrepareDelayMillis)
+        AutomationTimings.measure("overlay.prepare") { delay(OverlayAutomationPrepareDelayMillis) }
         guardDeviceTask()
         action()
     }
@@ -1882,39 +1902,6 @@ class ChatViewModel @Inject constructor(
     private fun failedToolMessageContent(toolName: String, detail: String): String =
         "$toolName\n$detail"
 
-    private suspend fun appendReasoningDelta(
-        assistantId: String,
-        currentContent: String,
-        currentReasoning: String,
-        deltaText: String
-    ): String {
-        val turn = currentTurn()
-        val reasoning = currentReasoning + deltaText
-        val startedAt = turn.activeAssistantReasoningStartedAt ?: System.currentTimeMillis().also {
-            turn.activeAssistantReasoningStartedAt = it
-        }
-        turn.activeAssistantReasoningDurationMillis = (System.currentTimeMillis() - startedAt).coerceAtLeast(0L)
-        turn.activeAssistantReasoningContent = reasoning
-        chatRepository.updateMessage(assistantId, currentContent, MessageStatus.Streaming, reasoning,
-            reasoningDurationMillis = turn.activeAssistantReasoningDurationMillis)
-        return reasoning
-    }
-
-    private suspend fun appendContentDelta(
-        assistantId: String,
-        currentContent: String,
-        currentReasoning: String,
-        deltaText: String
-    ): String {
-        val turn = currentTurn()
-        val content = currentContent + deltaText
-        turn.activeAssistantContent = content
-        turn.activeAssistantReasoningContent = currentReasoning
-        chatRepository.updateMessage(assistantId, content, MessageStatus.Streaming, currentReasoning,
-            reasoningDurationMillis = null)
-        return content
-    }
-
     private fun Throwable.userFacingChatError(): String {
         val rawMessage = message.orEmpty()
         return if (rawMessage.contains("Request timeout has expired", ignoreCase = true)) {
@@ -1984,8 +1971,6 @@ class ChatViewModel @Inject constructor(
         val stoppedContent = turn.activeAssistantContent.ifBlank {
             if (turn.activeTaskInstruction.any { it in '\u3400'..'\u9fff' }) "已停止本轮处理。" else "This turn has stopped."
         }
-        val stoppedReasoning = turn.activeAssistantReasoningContent
-        val stoppedDuration = turn.activeAssistantReasoningDurationMillis
         val stoppingJob = turn.job
         stoppingJob?.cancel()
         turn.deviceActionConfirmation?.complete(false)
@@ -1998,8 +1983,8 @@ class ChatViewModel @Inject constructor(
         if (assistantId != null) {
             stoppedTurnPersistence[turn.conversationId] = viewModelScope.launch {
                 stoppingJob?.join()
-                chatRepository.updateMessage(assistantId, stoppedContent, MessageStatus.Stopped,
-                    stoppedReasoning, reasoningDurationMillis = stoppedDuration.takeIf { it > 0L })
+                chatRepository.updateMessage(assistantId, turn.activeAssistantContent.ifBlank { stoppedContent }, MessageStatus.Stopped,
+                    turn.activeAssistantReasoningContent, reasoningDurationMillis = turn.activeAssistantReasoningDurationMillis.takeIf { it > 0L })
             }
         }
     }

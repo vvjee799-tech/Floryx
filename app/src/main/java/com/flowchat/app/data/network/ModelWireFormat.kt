@@ -8,11 +8,13 @@ import com.flowchat.app.domain.model.ThinkingEffort
 import com.flowchat.app.domain.provider.ThinkingStyle
 import com.flowchat.app.domain.provider.ThinkingSupport
 import com.flowchat.app.domain.provider.apiHost
+import com.flowchat.app.domain.provider.isGoogleGemini
 import kotlinx.serialization.json.*
 
-internal enum class ModelProtocol { ChatCompletions, Responses, Anthropic }
+internal enum class ModelProtocol { ChatCompletions, Responses, Anthropic, Gemini }
 
 internal fun modelProtocol(provider: ProviderConfig, model: String): ModelProtocol = when {
+    provider.isGoogleGemini() -> ModelProtocol.Gemini
     provider.apiHost() == "api.anthropic.com" -> ModelProtocol.Anthropic
     provider.apiHost() == "api.openai.com" && (model.startsWith("gpt-6", true) ||
         model.contains("codex", true) || model.matches(Regex("(?:gpt-5[^/]*|o[13])-pro(?:-.*)?"))) -> ModelProtocol.Responses
@@ -24,12 +26,14 @@ internal fun ModelProtocol.path() = when (this) {
     ModelProtocol.ChatCompletions -> "/chat/completions"
     ModelProtocol.Responses -> "/responses"
     ModelProtocol.Anthropic -> "/messages"
+    ModelProtocol.Gemini -> error("Gemini uses a model-specific endpoint.")
 }
 
 internal fun ChatRequest.toWireBody(provider: ProviderConfig, stream: Boolean, json: Json): JsonObject = when (modelProtocol(provider, model)) {
     ModelProtocol.ChatCompletions -> json.encodeToJsonElement(toOpenAiRequest(provider, stream)).jsonObject
     ModelProtocol.Responses -> toResponsesBody(provider, stream)
     ModelProtocol.Anthropic -> toAnthropicBody(provider, stream, json)
+    ModelProtocol.Gemini -> toGeminiBody(provider, json)
 }
 
 private fun ChatRequest.toResponsesBody(provider: ProviderConfig, stream: Boolean): JsonObject = buildJsonObject {
@@ -174,7 +178,7 @@ internal class NativeModelStreamParser(private val protocol: ModelProtocol, priv
             val type = root.string("type")
             if (type == "error" || root["error"] is JsonObject) return listOf(ChatDelta.Error(root.errorMessage()))
             when (protocol) {
-                ModelProtocol.ChatCompletions -> emptyList()
+                ModelProtocol.ChatCompletions, ModelProtocol.Gemini -> emptyList()
                 ModelProtocol.Responses -> when (type) {
                     "response.output_text.delta" -> listOf(ChatDelta.Content(root.string("delta"))).also { textEmitted = true }
                     "response.reasoning_summary_text.delta" -> listOf(ChatDelta.Reasoning(root.string("delta"))).also { reasoningEmitted = true }

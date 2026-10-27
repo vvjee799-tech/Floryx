@@ -15,5 +15,6 @@ interface AttachmentDiagnosticsEntryPoint {
     fun providers(): ProviderRepository
     fun usage(): com.flowchat.app.data.usage.UsageTracker
     fun client(): ChatCompletionClient
+    fun modelCatalog(): com.flowchat.app.data.network.ModelCatalogClient
     fun workspaces(): com.flowchat.app.data.workspace.WorkspaceManager
 }

@@ -24,19 +24,21 @@
 
 Floryx 将多模型对话、手机操作与命令执行放进同一个会话。你可以从一句话开始，让它理解文档、查看画面、处理文件，并沿着已完成的步骤继续任务。
 
+1.5.19 新增独立设置页面、会话设置分组与资料分别编辑，并包含 Markdown 回复、流式阅读保护、会话管理、Gemini 原生适配与手机操作响应优化。项目与 GitHub 仓库统一使用 **Floryx**，更名范围和兼容标识见[项目更名记录](docs/project-rename-2026-10-27.md)。
+
 ## 下载与更新
 
 | | 版本与入口 |
 | --- | --- |
-| **已发布安装包** | [下载 Floryx 1.5.18 APK](https://github.com/vvjee799-tech/FlowChat/releases/download/v1.5.18/Floryx-1.5.18-retain-config.apk) · [发布页与校验文件](https://github.com/vvjee799-tech/FlowChat/releases/latest) |
-| **当前源码** | **1.5.18** · [查看更新记录](CHANGELOG.md) · [自行构建](#开发与构建) |
+| **已发布安装包** | [下载 Floryx 1.5.19 APK](https://github.com/vvjee799-tech/Floryx/releases/download/v1.5.19/Floryx-1.5.19-retain-config.apk) · [发布页与校验文件](https://github.com/vvjee799-tech/Floryx/releases/latest) |
+| **当前源码** | **1.5.19** · [查看更新记录](CHANGELOG.md) · [自行构建](#开发与构建) |
 
-安装包与源码版本分开标注；最新源码中的能力不一定已包含在上方发布的 APK 中。
+安装包与当前源码对应同一发布版本。版本内容见[更新记录](CHANGELOG.md)，打包与发布步骤见[发布流程](docs/releasing.md)。
 
 <details>
-<summary><b>已有 FlowChat / Floryx？覆盖更新即可保留数据</b></summary>
+<summary><b>已有 Floryx？覆盖更新即可保留数据</b></summary>
 
-Floryx 原名 FlowChat。已有安装可直接覆盖更新，保留配置与聊天记录，无需卸载；首次安装也可使用。
+已有安装可直接覆盖更新，保留配置与聊天记录，无需卸载；首次安装也可使用。历史项目名和保留兼容标识见[更名记录](docs/project-rename-2026-10-27.md)。
 
 发布的保留配置包是 **Release 构建**，为兼容历史安装沿用原签名和 `com.flowchat.app.debug` 包名，应用显示名称为 **Floryx**。
 
@@ -87,6 +89,8 @@ Floryx 原名 FlowChat。已有安装可直接覆盖更新，保留配置与聊�
 <summary><b>模型适配与图片理解</b></summary>
 
 - 支持多家预设服务商及自定义 OpenAI 兼容接口；Claude 官方服务使用 Messages API，部分模型按需要使用 Responses API。
+- 服务商配置中的「会话中可选模型」可分别勾选各服务商在聊天菜单中显示的型号，支持搜索、刷新和手动添加，保存后仅显示所选项。详见[模型选择说明与验证](docs/provider-model-selection-2026-10-27.md)。
+- Gemini 官方服务使用原生接口适配：支持思考摘要、签名工具续轮与图片，聊天底部的模型菜单会获取 Google 模型列表。旧的 `/v1beta/openai` 配置和已存 Key 可继续使用。模型列表不代表账号已获调用权限，接口会显示限流、停用和地区等具体错误。详见[Gemini 适配与验证](docs/gemini-adaptation-2026-10-27.md)。
 - 思考开关与程度按具体型号适配。“自动”采用适配规则或服务商默认值；固定思考型号会显示限制，未知型号不会盲发思考参数。工具续轮需要的推理数据会保留。
 - 图片可单独发送、搭配文字发送或继续追问，理解能力取决于模型。支持 TXT、PDF、Office、OpenDocument 等常用文档，单个附件最大 **20 MB**，详见[附件说明](docs/attachments.md)。
 - 专用联网搜索入口目前停用。
@@ -121,6 +125,7 @@ Floryx 原名 FlowChat。已有安装可直接覆盖更新，保留配置与聊�
 | **屏幕与手机操作** | [画面识别](docs/screen-vision-2026-10-25.md) · [动态画面](docs/screen-vision-motion-2026-10-25.md) · [清晰度与局部读取](docs/screen-vision-quality-2026-10-25.md) · [视觉点击](docs/visual-tap-2026-10-26.md) |
 | **命令与文件** | [内置 Linux 环境](docs/terminal.md) · [手机文件夹工作区](docs/workspace-2026-10-25.md) · [图片与文档附件](docs/attachments.md) |
 | **任务与记忆** | [会话检查点](docs/context-checkpoints.md) · [停止后的接续](docs/task-context.md) · [摘要记忆](docs/memory.md) |
+| **设置与发布** | [独立设置页面](docs/settings-navigation-2026-10-27.md) · [项目更名记录](docs/project-rename-2026-10-27.md) · [发布流程](docs/releasing.md) |
 | **体验与反馈** | [实际用量与余额](docs/usage-balance-2026-10-24.md) · [后台状态与计时](docs/floating-progress-2026-10-24.md) · [回复进度](docs/reply-feedback.md) · [界面设计](docs/ui-paper.md) |
 
 ## 开发与构建

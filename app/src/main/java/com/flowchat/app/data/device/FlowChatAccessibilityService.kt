@@ -15,6 +15,7 @@ import android.view.accessibility.AccessibilityNodeInfo
 import android.view.accessibility.AccessibilityWindowInfo
 import com.flowchat.app.domain.device.DeviceBounds
 import com.flowchat.app.domain.device.DeviceScreenGeometry
+import com.flowchat.app.domain.device.AutomationTimings
 import com.flowchat.app.domain.device.DeviceScreenSnapshot
 import com.flowchat.app.domain.device.DeviceScreenImage
 import com.flowchat.app.domain.device.DeviceSwipeDirection
@@ -36,6 +37,7 @@ class FlowChatAccessibilityService : AccessibilityService() {
     private val indexedNodes = linkedMapOf<Int, AccessibilityNodeInfo>()
     private var cachedSnapshot: DeviceScreenSnapshot? = null
     private var snapshotInvalidated = true
+    private val screenChanges = MutableStateFlow(0L)
     private val screenshotMutex = Mutex()
     private var lastScreenshotAt = -1_000L
 
@@ -51,7 +53,10 @@ class FlowChatAccessibilityService : AccessibilityService() {
             AccessibilityEvent.TYPE_WINDOWS_CHANGED,
             AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED,
             AccessibilityEvent.TYPE_VIEW_SCROLLED,
-            AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED -> snapshotInvalidated = true
+            AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED -> {
+                snapshotInvalidated = true
+                screenChanges.value += 1
+            }
         }
     }
 
@@ -67,7 +72,7 @@ class FlowChatAccessibilityService : AccessibilityService() {
     }
 
     suspend fun observeScreen(forceRefresh: Boolean = true): DeviceScreenSnapshot? =
-        withContext(Dispatchers.Main.immediate) {
+        AutomationTimings.measure("screen.read_controls") { withContext(Dispatchers.Main.immediate) {
             if (!forceRefresh && !snapshotInvalidated) return@withContext cachedSnapshot
             val root = rootInActiveWindow ?: run {
                 clearNodeCache()
@@ -91,20 +96,13 @@ class FlowChatAccessibilityService : AccessibilityService() {
                 @Suppress("DEPRECATION")
                 root.recycle()
             }
-        }
+        } }
 
-    // Two matching observations avoid returning a transient animation frame. Always bounded.
-    suspend fun observeSettledScreen(): DeviceScreenSnapshot? {
-        var previous = observeScreen()
-        repeat(6) {
-            delay(200)
-            val current = observeScreen()
-            if (current != null && (current.sensitive ||
-                    (current.elements.isNotEmpty() && previous?.hasSameUi(current) == true))) return current
-            previous = current
+    suspend fun observeSettledScreen(waitForChangeFrom: DeviceScreenSnapshot? = null): DeviceScreenSnapshot? =
+        AutomationTimings.measure("screen.await_ready") {
+            ScreenReadinessWaiter({ observeScreen() }, screenChanges, SystemClock::elapsedRealtime)
+                .observe(waitForChangeFrom)
         }
-        return previous
-    }
 
     @Suppress("DEPRECATION")
     private fun windowGeometry(window: AccessibilityWindowInfo): DeviceScreenGeometry? {
@@ -126,7 +124,7 @@ class FlowChatAccessibilityService : AccessibilityService() {
         suspend fun sample(windowCapture: Boolean): Bitmap {
             suspend fun capture(): Bitmap {
                 val remaining = 500L - (SystemClock.elapsedRealtime() - lastScreenshotAt)
-                if (remaining > 0) delay(remaining)
+                if (remaining > 0) AutomationTimings.measure("screen.capture_throttle") { delay(remaining) }
                 return withContext(Dispatchers.Main.immediate) {
                     if (!windowCapture && Build.VERSION.SDK_INT >= 34) {
                         val targetBounds = screen.geometry?.windowBounds ?: throw ScreenCaptureFailure("screen_window_unavailable")
@@ -140,8 +138,10 @@ class FlowChatAccessibilityService : AccessibilityService() {
                             throw ScreenCaptureFailure("visual_target_obscured")
                     }
                     lastScreenshotAt = SystemClock.elapsedRealtime()
-                    withTimeout(3_000) { captureBitmap(screen.windowId,
-                        screen.geometry?.displayId ?: Display.DEFAULT_DISPLAY, windowCapture) }
+                    AutomationTimings.measure("screen.capture_pixels") {
+                        withTimeout(3_000) { captureBitmap(screen.windowId,
+                            screen.geometry?.displayId ?: Display.DEFAULT_DISPLAY, windowCapture) }
+                    }
                 }
             }
             return if (windowCapture) capture() else withDisplayCapture { capture() }
@@ -175,8 +175,10 @@ class FlowChatAccessibilityService : AccessibilityService() {
                     if (Build.VERSION.SDK_INT >= 34) it.windowBounds
                     else DeviceBounds(0, 0, it.displayWidth, it.displayHeight)
                 }?.takeIf { it.width == pixels.width && it.height == pixels.height }
-                ScreenImageEncoder.encode(pixels, screen.screenId, capturedAt, region).copy(
-                    geometry = geometry.takeIf { bounds != null }, captureBounds = bounds)
+                AutomationTimings.measure("screen.encode_image") {
+                    ScreenImageEncoder.encode(pixels, screen.screenId, capturedAt, region).copy(
+                        geometry = geometry.takeIf { bounds != null }, captureBounds = bounds)
+                }
             }
         } finally { bitmap?.recycle() }
     }

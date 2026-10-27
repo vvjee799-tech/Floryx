@@ -55,8 +55,11 @@ data class ThinkingSupport(
                     canDisable = !name.contains("pro"), efforts = standard, fixedOn = name.contains("pro"))
                 name.startsWith("gemini-3") || name.startsWith("gemini-4") -> ThinkingSupport(ThinkingStyle.Gemini,
                     canDisable = false, fixedOn = true,
-                    efforts = if (name.startsWith("gemini-3-pro") || name.startsWith("gemini-3.1-pro"))
-                        listOf(ThinkingEffort.Low, ThinkingEffort.High) else standard)
+                    efforts = when {
+                        name.startsWith("gemini-3-pro") || name.startsWith("gemini-3.1-pro") -> listOf(ThinkingEffort.Low, ThinkingEffort.High)
+                        name.startsWith("gemini-4") || name.startsWith("gemini-3.8") -> standard
+                        else -> listOf(ThinkingEffort.Minimal) + standard
+                    })
                 name.startsWith("qwen3.8") -> ThinkingSupport(ThinkingStyle.Qwen,
                     efforts = listOf(ThinkingEffort.Low, ThinkingEffort.Medium, ThinkingEffort.XHigh))
                 name.startsWith("qwen3") || name.startsWith("qwen-plus") || name.startsWith("qwen-flash") -> {

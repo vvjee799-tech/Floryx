@@ -1,4 +1,4 @@
-# FlowChat Ink Native Design QA
+# Floryx Ink Native Design QA
 
 ## Scope
 
@@ -18,7 +18,7 @@
 
 ## Findings
 
-- Passed: left drawer now follows the option 2 structure more closely with a fixed-width dark drawer, FlowChat header, profile entry, provider/settings navigation, conversation history, selected conversation card, and a blue floating create button.
+- Passed: left drawer now follows the option 2 structure more closely with a fixed-width dark drawer, Floryx header, profile entry, provider/settings navigation, conversation history, selected conversation card, and a blue floating create button.
 - Passed: drawer top-right settings icon was removed. User profile and app settings no longer share one sheet.
 - Passed: user profile sheet now contains only avatar, name, and save.
 - Passed: app settings sheet now contains only common items: language and version. Provider, background mode, and app usage access entries were removed from this sheet.

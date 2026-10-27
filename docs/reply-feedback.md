@@ -1,6 +1,6 @@
-# Reply feedback — FlowChat 1.5.4
+# Reply feedback — Floryx 1.5.4
 
-Implemented on 2026-10-22. The change adapts Codex's progress/answer separation and concise, evidence-based communication to FlowChat's existing providers and phone/command tools.
+Implemented on 2026-10-22. The change adapts Codex's progress/answer separation and concise, evidence-based communication to Floryx's existing providers and phone/command tools.
 
 ## Source references
 

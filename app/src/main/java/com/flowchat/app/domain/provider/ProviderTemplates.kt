@@ -26,7 +26,7 @@ object ProviderTemplates {
         ProviderPreset(
             id = "preset-gemini",
             displayName = "Gemini",
-            baseUrl = "https://generativelanguage.googleapis.com/v1beta/openai",
+            baseUrl = "https://generativelanguage.googleapis.com/v1beta",
             defaultModel = "gemini-3.5-flash"
         ),
         ProviderPreset("preset-claude", "Claude", "https://api.anthropic.com/v1", "claude-sonnet-4-6"),

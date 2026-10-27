@@ -18,5 +18,7 @@ data class Conversation(
     val createdAt: Long = System.currentTimeMillis(),
     val updatedAt: Long = createdAt,
     val thinkingEffort: ThinkingEffort = ThinkingEffort.Auto,
-    val workspace: com.flowchat.app.domain.workspace.WorkspaceLocation? = null
+    val workspace: com.flowchat.app.domain.workspace.WorkspaceLocation? = null,
+    val isPinned: Boolean = false,
+    val isArchived: Boolean = false
 )

@@ -10,6 +10,8 @@ import com.flowchat.app.data.db.FlowChatDatabase
 import com.flowchat.app.data.db.MIGRATION_6_7
 import com.flowchat.app.data.db.MIGRATION_8_9
 import com.flowchat.app.data.db.MIGRATION_11_12
+import com.flowchat.app.data.db.MIGRATION_13_14
+import com.flowchat.app.data.db.MIGRATION_14_15
 import com.flowchat.app.data.db.MIGRATION_12_13
 import com.flowchat.app.domain.workspace.WorkspaceLocation
 import com.flowchat.app.data.db.MIGRATION_10_11
@@ -46,11 +48,15 @@ class ThinkingMigrationTest {
             }).build())
         helper.writableDatabase
         helper.close()
-        fun open() = Room.databaseBuilder(context, FlowChatDatabase::class.java, name).addMigrations(MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13).allowMainThreadQueries().build()
+        fun open() = Room.databaseBuilder(context, FlowChatDatabase::class.java, name).addMigrations(MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15).allowMainThreadQueries().build()
         try {
             val first = open()
             try {
                 val db = first
+                val provider = requireNotNull(db.providerDao().getProvider("p"))
+                assertNull(provider.conversationModelsJson)
+                assertEquals("existing-alias", provider.apiKeyAlias)
+                db.providerDao().upsert(provider.copy(conversationModelsJson = "[\"deepseek-v4-pro\",\"manual-model\"]"))
                 val repository = RoomChatRepository(db.conversationDao(), db.messageDao())
                 val migrated = repository.getConversation("c")!!
                 assertTrue(migrated.enableThinking)
@@ -62,6 +68,10 @@ class ThinkingMigrationTest {
                 assertNull(repository.getMessages("c").single().executionContext)
                 assertNull(repository.getContextCheckpoint("c"))
                 assertNull(migrated.workspace)
+                assertFalse(migrated.isPinned)
+                assertFalse(migrated.isArchived)
+                repository.setConversationPinned("c", true)
+                repository.setConversationArchived("c", true)
                 repository.updateExecutionContext("m", "persisted execution evidence")
                 repository.updateMessage("m", "Keep this message", com.flowchat.app.domain.model.MessageStatus.Sent, replyPhase = ReplyPhase.Commentary)
                 repository.updateThinkingSettings("c", false, ThinkingEffort.Max)
@@ -78,11 +88,15 @@ class ThinkingMigrationTest {
             val second = open()
             try {
                 val db = second
+                assertEquals("[\"deepseek-v4-pro\",\"manual-model\"]", db.providerDao().getProvider("p")!!.conversationModelsJson)
+                assertEquals("existing-alias", db.providerDao().getProvider("p")!!.apiKeyAlias)
                 val repository = RoomChatRepository(db.conversationDao(), db.messageDao())
                 assertFalse(repository.getConversation("c")!!.enableThinking)
                 assertEquals(ThinkingEffort.Max, repository.getConversation("c")!!.thinkingEffort)
                 assertEquals("Keep this prompt", repository.getConversation("c")!!.systemPrompt)
                 assertEquals("项目", repository.getConversation("c")!!.workspace!!.name)
+                assertTrue(repository.getConversation("c")!!.isPinned)
+                assertTrue(repository.getConversation("c")!!.isArchived)
                 assertEquals("Keep this message", repository.getMessages("c").first { it.id == "m" }.content)
                 val image = repository.getMessages("c").last()
                 assertEquals("attachments/images/migration.png", image.attachmentImagePath)

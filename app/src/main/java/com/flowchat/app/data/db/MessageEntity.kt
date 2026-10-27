@@ -20,7 +20,7 @@ import com.flowchat.app.domain.model.MessageStatus
             onDelete = ForeignKey.CASCADE
         )
     ],
-    indices = [Index("conversationId")]
+    indices = [Index("conversationId"), Index(value = ["conversationId", "createdAt"])]
 )
 data class MessageEntity(
     @PrimaryKey val id: String,

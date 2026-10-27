@@ -26,7 +26,7 @@ import kotlinx.coroutines.delay
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
-internal fun TerminalSettingsSheet(
+internal fun TerminalSettingsScreen(
     state: TerminalUiState, aiEnabled: Boolean, androidAvailable: Boolean,
     onAiEnabledChange: (Boolean) -> Unit, onPrepare: () -> Unit,
     onInstallTools: () -> Unit, onStop: (String) -> Unit, onDismiss: () -> Unit
@@ -39,10 +39,8 @@ internal fun TerminalSettingsSheet(
         while (hasRunningCommands) { nowMillis = System.currentTimeMillis(); delay(1_000) }
     }
     LaunchedEffect(Unit) { onPrepare() }
-    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
-        containerColor = MaterialTheme.colorScheme.surface) {
-        Column(Modifier.fillMaxWidth().fillMaxHeight(.93f).navigationBarsPadding()) {
-            FlowSheetHeader(stringResource(R.string.terminal_title), onDismiss, Modifier.padding(horizontal = FlowLayout.Gutter))
+    FlowSettingsPage(title = stringResource(R.string.terminal_title), onBack = onDismiss) {
+        Column(Modifier.fillMaxSize()) {
             LazyColumn(Modifier.weight(1f).fillMaxWidth().testTag("terminal-list"),
                 contentPadding = PaddingValues(horizontal = FlowLayout.Gutter, vertical = 12.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp)) {

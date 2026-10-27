@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Add a text-model-compatible Android automation layer to FlowChat so the assistant can observe accessible UI elements and perform bounded device actions through the existing tool-call conversation flow.
+**Goal:** Add a text-model-compatible Android automation layer to Floryx so the assistant can observe accessible UI elements and perform bounded device actions through the existing tool-call conversation flow.
 
-**Architecture:** Keep FlowChat's existing OpenAI-compatible tool loop and Shizuku gateway. Add an Android AccessibilityService for structured UI-tree observation and semantic element actions, while retaining Shizuku for device state and shell-level controls. Expose only narrowly typed tools, require explicit user intent for actions, confirm destructive actions, cap autonomous action rounds, and leave screenshot/VLM observation behind a future-compatible interface.
+**Architecture:** Keep Floryx's existing OpenAI-compatible tool loop and Shizuku gateway. Add an Android AccessibilityService for structured UI-tree observation and semantic element actions, while retaining Shizuku for device state and shell-level controls. Expose only narrowly typed tools, require explicit user intent for actions, confirm destructive actions, cap autonomous action rounds, and leave screenshot/VLM observation behind a future-compatible interface.
 
 **Tech Stack:** Kotlin, Jetpack Compose, Android AccessibilityService, Shizuku, Hilt, kotlinx.serialization, JUnit.
 

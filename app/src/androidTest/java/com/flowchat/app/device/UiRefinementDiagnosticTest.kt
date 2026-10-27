@@ -115,7 +115,7 @@ class UiRefinementDiagnosticTest {
                                         else MessageList(messages, null, null, false, Modifier.fillMaxSize())
                                     }
                                 }
-                                "settings" -> AppSettingsSheet(settings.value, listOf(memory),
+                                "settings", "profile" -> AppSettingsScreen(settings.value, listOf(memory),
                                     ShizukuConnectionState(ShizukuConnectionStatus.ConnectedDirectRoot),
                                     AccessibilityConnectionState(AccessibilityConnectionStatus.Connected), {},
                                     appearance.value, { appearance.value = it }, { page.value = "provider" }, { page.value = "terminal" },
@@ -130,13 +130,12 @@ class UiRefinementDiagnosticTest {
                                     { providerState.value = providerState.value.copy(presetApiKey = it) }, {},
                                     { providerState.value = providerState.value.copy(pendingPreset = null) }, {},
                                     Modifier.fillMaxSize().safeDrawingPadding().wrapContentWidth().widthIn(max = 720.dp).padding(horizontal = 20.dp))
-                                "memory" -> MemorySettingsDialog(true, listOf(memory), {}, { _, _ -> }, {}, {}, { page.value = "chat" })
-                                "terminal" -> TerminalSettingsSheet(TerminalUiState(
+                                "memory" -> MemorySettingsScreen(true, listOf(memory), {}, { _, _ -> }, {}, {}, { page.value = "chat" })
+                                "terminal" -> TerminalSettingsScreen(TerminalUiState(
                                     LinuxEnvironmentState(ready = true, version = "3.24.2", architecture = "x86_64", developerToolsReady = true), listOf(snapshot)),
                                     true, false, {}, {}, {}, { stopRequests++ }, { page.value = "chat" })
-                                "conversation" -> ConversationSettingsSheet(conversation.value, { page.value = "chat" }, { _, _, _, _, _, _, _ -> })
-                                "profile" -> UserProfileSheet("FlowChat", null, { page.value = "chat" }, { _, _ -> })
-                                "device" -> DeviceAssistantDialog(settings.value, ShizukuConnectionState(ShizukuConnectionStatus.ConnectedDirectRoot),
+                                "conversation" -> ConversationSettingsScreen(conversation.value, { page.value = "chat" }, { _, _, _, _, _, _, _ -> })
+                                "device" -> DeviceAssistantScreen(settings.value, ShizukuConnectionState(ShizukuConnectionStatus.ConnectedDirectRoot),
                                     AccessibilityConnectionState(AccessibilityConnectionStatus.Connected), {},
                                     { settings.value = settings.value.copy(powerModeEnabled = it) },
                                     { settings.value = settings.value.copy(powerConnectionMode = it) }, {}, {}, {}, { page.value = "chat" })
@@ -160,6 +159,9 @@ class UiRefinementDiagnosticTest {
             shell("input keyevent 111") // Dismiss an IME without navigating the fixture.
             compose.runOnIdle { page.value = target; appearance.value = mode; draft.value = "" }
             compose.waitForIdle()
+            if (target == "conversation") {
+                compose.onNodeWithText(fixtureContext.getString(R.string.max_tokens)).performScrollTo()
+            }
         }
         try {
             val captureOnly = args.getString("captureOnly") == "true"

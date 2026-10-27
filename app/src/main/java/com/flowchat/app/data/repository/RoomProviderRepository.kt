@@ -7,6 +7,7 @@ import com.flowchat.app.data.db.toEntity
 import com.flowchat.app.data.security.ApiKeyStore
 import com.flowchat.app.domain.model.ProviderConfig
 import com.flowchat.app.domain.provider.ProviderTemplates
+import com.flowchat.app.domain.provider.cleanModelSelection
 import com.flowchat.app.domain.repository.ProviderRepository
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -37,7 +38,8 @@ class RoomProviderRepository @Inject constructor(
         if (!apiKey.isNullOrBlank()) {
             apiKeyStore.save(requireNotNull(alias), apiKey.trim())
         }
-        providerDao.upsert(config.copy(apiKeyAlias = alias, updatedAt = System.currentTimeMillis()).toEntity())
+        val models = config.conversationModels?.let { cleanModelSelection(it + config.defaultModel) }
+        providerDao.upsert(config.copy(apiKeyAlias = alias, conversationModels = models, updatedAt = System.currentTimeMillis()).toEntity())
     }
 
     override suspend fun deleteProvider(id: String) {

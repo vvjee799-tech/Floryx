@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Let FlowChat's assistant directly open a uniquely matched launcher app after an explicit user request.
+**Goal:** Let Floryx's assistant directly open a uniquely matched launcher app after an explicit user request.
 
 **Architecture:** Reuse the existing OpenAI-compatible tool loop and tool timeline. Add a small `AppLauncher` Android boundary that discovers launcher activities, applies deterministic label/package matching, and starts an explicit activity; expose it through one new `open_app` tool.
 
@@ -180,7 +180,7 @@ Expected: BUILD SUCCESSFUL with signed debug and release APKs.
 
 - [ ] **Step 4: Install and test on LDPlayer**
 
-Install `app/build/outputs/apk/release/app-release.apk` on `emulator-5554`. Explicitly ask the model to open Settings, verify Android Settings becomes the resumed app, return to FlowChat, and verify the completed tool timeline plus final assistant follow-up remain visible.
+Install `app/build/outputs/apk/release/app-release.apk` on `emulator-5554`. Explicitly ask the model to open Settings, verify Android Settings becomes the resumed app, return to Floryx, and verify the completed tool timeline plus final assistant follow-up remain visible.
 
 - [ ] **Step 5: Commit and push**
 

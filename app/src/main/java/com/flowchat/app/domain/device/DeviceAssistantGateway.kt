@@ -117,6 +117,7 @@ interface DeviceAssistantGateway {
     suspend fun enablePowerMode(): DeviceToolResult
     suspend fun launchApp(packageName: String, activityName: String): DeviceToolResult = unsupportedAutomation()
     suspend fun observeScreen(): DeviceToolResult = unsupportedAutomation()
+    suspend fun waitForScreen(): DeviceToolResult = observeScreen()
     suspend fun captureScreen(region: ScreenImageRegion? = null): DeviceToolResult = observeScreen().copy(imageErrorCode = "screen_capture_unavailable")
     suspend fun tapUiElement(index: Int, longPress: Boolean = false, screenId: String? = null): DeviceToolResult = unsupportedAutomation()
     suspend fun tapVisualTarget(target: VisualTapTarget): DeviceToolResult = unsupportedAutomation()

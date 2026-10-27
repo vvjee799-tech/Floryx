@@ -12,7 +12,7 @@ class DeviceAssistantUiContractTest {
         val state = File("src/main/java/com/flowchat/app/presentation/chat/ChatUiState.kt").readText()
         val strings = File("src/main/res/values/strings.xml").readText()
         val zhStrings = File("src/main/res/values-zh-rCN/strings.xml").readText()
-        val dialogStart = screen.indexOf("internal fun DeviceAssistantDialog(")
+        val dialogStart = screen.indexOf("internal fun DeviceAssistantScreen(")
         val dialogEnd = screen.indexOf("private fun DeviceActionConfirmationDialog(", dialogStart)
         val dialog = screen.substring(dialogStart, dialogEnd)
 
@@ -40,7 +40,7 @@ class DeviceAssistantUiContractTest {
         val viewModel = File("src/main/java/com/flowchat/app/presentation/chat/ChatViewModel.kt").readText()
         val strings = File("src/main/res/values/strings.xml").readText()
         val zhStrings = File("src/main/res/values-zh-rCN/strings.xml").readText()
-        val dialogStart = screen.indexOf("internal fun DeviceAssistantDialog(")
+        val dialogStart = screen.indexOf("internal fun DeviceAssistantScreen(")
         val dialogEnd = screen.indexOf("private fun DeviceActionConfirmationDialog(", dialogStart)
         val dialog = screen.substring(dialogStart, dialogEnd)
 

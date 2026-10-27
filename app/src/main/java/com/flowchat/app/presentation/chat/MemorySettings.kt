@@ -29,16 +29,14 @@ internal fun MemoryToggle(enabled: Boolean, onEnabledChange: (Boolean) -> Unit, 
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-internal fun MemorySettingsDialog(
+internal fun MemorySettingsScreen(
     enabled: Boolean, memories: List<MemoryRecord>, onEnabledChange: (Boolean) -> Unit,
     onUpdate: (String, String) -> Unit, onDelete: (String) -> Unit, onClear: () -> Unit, onDismiss: () -> Unit
 ) {
     var confirmClear by remember { mutableStateOf(false) }
     var editing by remember { mutableStateOf<MemoryRecord?>(null) }
-    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
-        containerColor = MaterialTheme.colorScheme.surface) {
-        Column(Modifier.fillMaxWidth().fillMaxHeight(.92f).navigationBarsPadding()) {
-            FlowSheetHeader(stringResource(R.string.memory), onDismiss, Modifier.padding(horizontal = FlowLayout.Gutter))
+    FlowSettingsPage(title = stringResource(R.string.memory), onBack = onDismiss) {
+        Column(Modifier.fillMaxSize()) {
             LazyColumn(Modifier.weight(1f).testTag("memory-list"), contentPadding = PaddingValues(FlowLayout.Gutter),
                 verticalArrangement = Arrangement.spacedBy(16.dp)) {
                 item { FlowGroup { MemoryToggle(enabled, onEnabledChange) } }

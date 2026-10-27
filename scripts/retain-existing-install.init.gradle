@@ -1,0 +1,10 @@
+// Keep the signing identity and application ID of the established Floryx release channel.
+// This is still a non-debuggable, minified Release build; it does not enable debug sources.
+allprojects { project ->
+    project.plugins.withId('com.android.application') {
+        project.android.buildTypes.getByName('release') {
+            applicationIdSuffix = '.debug'
+            signingConfig = project.android.signingConfigs.getByName('debug')
+        }
+    }
+}

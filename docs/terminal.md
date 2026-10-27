@@ -1,6 +1,6 @@
 # 命令行环境
 
-FlowChat 1.5.0 内置 Linux 命令行，并复用 Power 模式的 Android 系统命令通道，不需要另装 Termux。
+Floryx 1.5.0 内置 Linux 命令行，并复用 Power 模式的 Android 系统命令通道，不需要另装 Termux。
 
 ## 使用
 
@@ -16,7 +16,7 @@ FlowChat 1.5.0 内置 Linux 命令行，并复用 Power 模式的 Android 系统
 
 ## 工作目录与输出
 
-未关联手机文件夹时，Linux 默认目录 `/workspace` 按会话保留文件；关闭面板、切换应用或重新打开 FlowChat 不会清除文件。Linux 发行版与安装的软件由本机所有会话共用。每条命令启动新的非交互 Shell，`cd` 和 `export` 不跨命令保留；在同一条命令中串联操作，或通过工具的 `working_directory` 指定目录。
+未关联手机文件夹时，Linux 默认目录 `/workspace` 按会话保留文件；关闭面板、切换应用或重新打开 Floryx 不会清除文件。Linux 发行版与安装的软件由本机所有会话共用。每条命令启动新的非交互 Shell，`cd` 和 `export` 不跨命令保留；在同一条命令中串联操作，或通过工具的 `working_directory` 指定目录。
 
 在设置中选择手机文件夹工作区后，命令默认进入 `/workspace/phone/<workspace-key>` 本地执行目录。通过 `workspace_inputs` 按需传入手机文件，通过 `workspace_outputs` 指定需要写回的输出；两者都是相对所选文件夹的路径。只有命令成功且文件保存校验通过，结果才出现在 `workspace_saved`；失败原因在 `workspace_errors`。停止后的输出与保存失败的结果保留在本地，可继续处理或在工作区设置中补存。详细说明见 [手机文件夹工作区](workspace-2026-10-25.md)。
 
@@ -26,7 +26,7 @@ FlowChat 1.5.0 内置 Linux 命令行，并复用 Power 模式的 Android 系统
 
 面板显示输出、退出码、失败、超时和停止状态。每个执行通道最多同时运行 4 条命令，内存中保留最多 24 条记录；单条输出保留最新 65,536 个字符。模型每次最多读取 12,000 个字符，并通过偏移量继续读取。进程与命令面板记录不跨应用进程重启恢复；聊天中的工具结果会保存。
 
-命令及读取的输出会发送给当前选择的模型。PRoot 用于兼容 Linux 文件系统和程序，不是安全沙箱；Linux 程序仍在 FlowChat 的 Android 应用权限范围内运行。不同会话的工作目录用于整理文件，不提供会话间的安全隔离。ARM64、x86_64 可使用内置 Linux；32 位设备仍可使用现有 Power 命令。
+命令及读取的输出会发送给当前选择的模型。PRoot 用于兼容 Linux 文件系统和程序，不是安全沙箱；Linux 程序仍在 Floryx 的 Android 应用权限范围内运行。不同会话的工作目录用于整理文件，不提供会话间的安全隔离。ARM64、x86_64 可使用内置 Linux；32 位设备仍可使用现有 Power 命令。
 
 ## 开发工具下载
 
@@ -50,7 +50,7 @@ FlowChat 1.5.0 内置 Linux 命令行，并复用 Power 模式的 Android 系统
 恢复已锁定的运行文件（不会自动升级版本）：
 
 ```powershell
-python tools/prepare_terminal_runtime.py --download-dir D:/download/FlowChat-runtime
+python tools/prepare_terminal_runtime.py --download-dir D:/download/Floryx-runtime
 ```
 
 Linux 基础包的 `.rootfs` 扩展名保留原始 gzip 内容，避免 Android 资源打包器改名或自动解压。首次初始化校验 SHA-256，在临时目录验证路径、链接和解压大小后激活；更新应用保留已有发行版及用户文件。
@@ -66,4 +66,4 @@ Linux 基础包的 `.rootfs` 扩展名保留原始 gzip 内容，避免 Android 
 - `TerminalRootDiagnosticTest`：实际 Root 通道与包管理器参数兼容。
 - Debug 专用 `TerminalShellProbe`：以 ADB Shell UID 2000 通过 AIDL 验证 Shizuku 服务命令实现。此测试不替代真实 Shizuku 应用的连接验证。
 
-诊断测试默认跳过；安装 Debug 与 AndroidTest APK 后，在明确的 MuMu 序列号上通过 `am instrument` 指定测试类和 `-e runTerminalDiagnostics true` 执行。Root 测试另需 `-e runRootTerminalDiagnostics true` 并已为 FlowChat Dev 授权。
+诊断测试默认跳过；安装 Debug 与 AndroidTest APK 后，在明确的 MuMu 序列号上通过 `am instrument` 指定测试类和 `-e runTerminalDiagnostics true` 执行。Root 测试另需 `-e runRootTerminalDiagnostics true` 并已为 Floryx Dev 授权。

@@ -135,6 +135,13 @@ fun ProviderSettingsScreen(
             onSavePresetApiKey = viewModel::savePresetApiKey,
             onDismissPresetApiKeyDialog = viewModel::dismissPresetApiKeyDialog,
             onSave = viewModel::save,
+            onOpenConversationModels = viewModel::openConversationModels,
+            onDismissConversationModels = viewModel::dismissConversationModels,
+            onRefreshConversationModels = viewModel::refreshConversationModels,
+            onConversationModelChecked = viewModel::setConversationModelChecked,
+            onSelectAllConversationModels = viewModel::selectAllConversationModels,
+            onAddConversationModel = viewModel::addConversationModel,
+            onSaveConversationModels = viewModel::saveConversationModels,
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
@@ -161,7 +168,14 @@ internal fun ProviderEditor(
     onSavePresetApiKey: () -> Unit,
     onDismissPresetApiKeyDialog: () -> Unit,
     onSave: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onOpenConversationModels: (ProviderConfig) -> Unit = {},
+    onDismissConversationModels: () -> Unit = {},
+    onRefreshConversationModels: () -> Unit = {},
+    onConversationModelChecked: (String, Boolean) -> Unit = { _, _ -> },
+    onSelectAllConversationModels: (Boolean) -> Unit = {},
+    onAddConversationModel: (String) -> Unit = {},
+    onSaveConversationModels: () -> Unit = {}
 ) {
     val provider = state.selected
     var customConfigurationExpanded by rememberSaveable {
@@ -191,6 +205,7 @@ internal fun ProviderEditor(
             Spacer(Modifier.width(8.dp))
             Text(stringResource(R.string.provider_edit_current))
         }
+        ProviderConversationModelsSection(state.providers, onOpenConversationModels)
         Text(stringResource(R.string.provider_quick_setup),
             style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
         ProviderPresetSection(state = state, onApplyPreset = onApplyPreset)
@@ -311,6 +326,10 @@ internal fun ProviderEditor(
             ProviderSaveButton(onSave = onSave)
         }
     }
+    state.modelSelection?.let { selection ->
+        ConversationModelsDialog(selection, onDismissConversationModels, onRefreshConversationModels,
+            onConversationModelChecked, onSelectAllConversationModels, onAddConversationModel, onSaveConversationModels)
+    }
     state.pendingPreset?.let { preset ->
         PresetApiKeyDialog(
             providerName = preset.displayName,
@@ -324,7 +343,7 @@ internal fun ProviderEditor(
 }
 
 @Composable
-private fun localizedProviderMessage(message: String): String {
+internal fun localizedProviderMessage(message: String): String {
     if (message.startsWith("Invalid provider:")) {
         val blankBaseUrl = stringResource(R.string.provider_error_blank_base_url)
         val invalidBaseUrl = stringResource(R.string.provider_error_invalid_base_url)
@@ -348,6 +367,7 @@ private fun localizedProviderMessage(message: String): String {
         "API key is required." -> stringResource(R.string.api_key_required)
         "No models found." -> stringResource(R.string.no_models_found)
         "Failed to load model list." -> stringResource(R.string.model_list_failed)
+        "Select at least one model." -> stringResource(R.string.select_at_least_one_model)
         else -> message
     }
 }

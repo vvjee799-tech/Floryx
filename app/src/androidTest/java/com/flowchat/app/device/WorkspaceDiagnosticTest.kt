@@ -22,7 +22,7 @@ import com.flowchat.app.domain.model.*
 import com.flowchat.app.domain.terminal.CommandEnvironment
 import com.flowchat.app.domain.workspace.*
 import com.flowchat.app.data.workspace.AndroidWorkspaceFileAccess
-import com.flowchat.app.presentation.chat.WorkspaceSettingsSheet
+import com.flowchat.app.presentation.chat.WorkspaceSettingsScreen
 import com.flowchat.app.ui.theme.AppAppearance
 import com.flowchat.app.ui.theme.FlowChatTheme
 import dagger.hilt.android.EntryPointAccessors
@@ -206,7 +206,7 @@ class WorkspaceDiagnosticTest {
             for (theme in listOf(AppAppearance.Light, AppAppearance.Dark)) {
                 scenario.onActivity { activity -> activity.setContent { FlowChatTheme(theme) {
                     Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
-                        WorkspaceSettingsSheet(state, false, false, {}, {}, {}, {}, {}, {})
+                        WorkspaceSettingsScreen(state, false, false, {}, {}, {}, {}, {}, {})
                     }
                 } } }
                 compose.waitForIdle()

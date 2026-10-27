@@ -7,6 +7,7 @@ import android.graphics.Paint
 import android.graphics.Rect
 import com.flowchat.app.domain.device.DeviceScreenImage
 import com.flowchat.app.domain.device.ScreenImageRegion
+import com.flowchat.app.domain.device.ScreenPixelBuffer
 import com.flowchat.app.domain.model.ChatImage
 import java.io.ByteArrayOutputStream
 import java.util.Base64
@@ -38,7 +39,12 @@ internal object ScreenImageEncoder {
                     if (encoded.size <= MaxBytes) return DeviceScreenImage(
                         ChatImage(if (format == Bitmap.CompressFormat.PNG) "image/png" else "image/jpeg", Base64.getEncoder().encodeToString(encoded)),
                         screenId, width, height, capturedAt, source.width, source.height, region,
-                        visualKey = ScreenImageMatcher.fingerprint(bitmap))
+                        visualKey = ScreenImageMatcher.fingerprint(bitmap),
+                        comparisonPixels = if (format == Bitmap.CompressFormat.PNG && maxOf(width, height) <= 800) {
+                            val pixels = IntArray(width * height)
+                            bitmap.getPixels(pixels, 0, width, 0, 0, width, height)
+                            ScreenPixelBuffer(width, height, pixels)
+                        } else null)
                 }
             } finally { bitmap.recycle() }
             scale *= .75f

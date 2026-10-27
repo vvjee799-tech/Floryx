@@ -39,6 +39,21 @@ class RoomChatRepository @Inject constructor(
     override fun observeMessages(conversationId: String): Flow<List<Message>> =
         messageDao.observeMessages(conversationId).map { rows -> rows.map { it.toDomain() } }
 
+    override fun observeMessageWindow(conversationId: String, limit: Int): Flow<com.flowchat.app.domain.repository.MessageWindow> {
+        val size = limit.coerceAtLeast(1)
+        return messageDao.observeRecentMessages(conversationId, size + 1).map { rows ->
+            com.flowchat.app.domain.repository.MessageWindow(rows.takeLast(size).map { it.toDomain() }, rows.size > size)
+        }
+    }
+
+    override fun searchConversationIds(query: String): Flow<Set<String>> {
+        val escaped = query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        return conversationDao.searchConversationIds("%$escaped%").map { it.toSet() }
+    }
+
+    override suspend fun setConversationPinned(id: String, pinned: Boolean) = conversationDao.setPinned(id, pinned)
+    override suspend fun setConversationArchived(id: String, archived: Boolean) = conversationDao.setArchived(id, archived)
+
     override suspend fun getConversation(id: String): Conversation? =
         conversationDao.getConversation(id)?.toDomain()
 

@@ -9,6 +9,7 @@ import android.os.Build
 import android.os.IBinder
 import android.os.SystemClock
 import android.provider.Settings
+import com.flowchat.app.domain.device.AutomationTimings
 import com.flowchat.app.BuildConfig
 import com.flowchat.app.data.preferences.AppSettingsStore
 import com.flowchat.app.domain.device.AccessibilityConnectionState
@@ -293,9 +294,14 @@ class ShizukuDeviceAssistantGateway @Inject constructor(
     private val snapshotGuard = com.flowchat.app.domain.device.DeviceSnapshotGuard()
     private val visualFrameGuard = VisualFrameGuard()
 
-    override suspend fun observeScreen(): DeviceToolResult = uiActionMutex.withLock {
+    override suspend fun observeScreen(): DeviceToolResult = AutomationTimings.measure("device.observe") { uiActionMutex.withLock {
         observeScreenLocked()
-    }
+    } }
+
+    override suspend fun waitForScreen(): DeviceToolResult = AutomationTimings.measure("device.wait") { uiActionMutex.withLock {
+        val baseline = snapshotGuard.latest()
+        observeScreenLocked(waitForChangeFrom = baseline)
+    } }
 
     override suspend fun captureScreen(region: com.flowchat.app.domain.device.ScreenImageRegion?): DeviceToolResult = uiActionMutex.withLock {
         captureStableVisualFrameLocked(region)
@@ -327,11 +333,12 @@ class ShizukuDeviceAssistantGateway @Inject constructor(
         }
     }
 
-    private suspend fun observeScreenLocked(waitForSettledUi: Boolean = true): DeviceToolResult {
+    private suspend fun observeScreenLocked(waitForSettledUi: Boolean = true,
+        waitForChangeFrom: DeviceScreenSnapshot? = null): DeviceToolResult {
         snapshotGuard.remember(null)
         visualFrameGuard.clear()
         val accessibility = requireAccessibilityService() ?: return accessibilityUnavailable()
-        val screen = (if (waitForSettledUi) accessibility.observeSettledScreen() else accessibility.observeScreen())
+        val screen = (if (waitForSettledUi) accessibility.observeSettledScreen(waitForChangeFrom) else accessibility.observeScreen())
             ?: return DeviceToolResult(
                 success = false,
                 summary = "The current screen could not be read.",
@@ -398,7 +405,7 @@ class ShizukuDeviceAssistantGateway @Inject constructor(
             success = false, summary = "The visual target could not be revalidated. No action was taken.",
             errorCode = refreshed.errorCode ?: refreshed.imageErrorCode ?: "visual_verification_failed")
         val comparison = try {
-            withContext(Dispatchers.Default) { ScreenImageMatcher.compare(frame.image, freshImage, target) }
+            AutomationTimings.measure("screen.compare_pixels") { withContext(Dispatchers.Default) { ScreenImageMatcher.compare(frame.image, freshImage, target) } }
         } catch (error: CancellationException) { throw error }
         catch (_: Exception) { null }
         if (freshScreen.packageName != frame.screen.packageName || freshScreen.windowId != frame.screen.windowId ||
@@ -420,7 +427,7 @@ class ShizukuDeviceAssistantGateway @Inject constructor(
         if (dispatchError != null) return@withLock after.copy(success = false, errorCode = dispatchError,
             summary = "The visual gesture was rejected or cancelled. Inspect the refreshed image before choosing another action.")
         val difference = after.screenImage?.let { image ->
-            try { withContext(Dispatchers.Default) { ScreenImageMatcher.compare(frame.image, image, target) } }
+            try { AutomationTimings.measure("screen.compare_pixels") { withContext(Dispatchers.Default) { ScreenImageMatcher.compare(frame.image, image, target) } } }
             catch (error: CancellationException) { throw error }
             catch (_: Exception) { null }
         }
@@ -508,7 +515,7 @@ class ShizukuDeviceAssistantGateway @Inject constructor(
         performScreenActionLocked(toolName, summary, allowFlowChat, expectedScreenId, requiresSnapshot, targetIndex) { service, screen ->
             currentCoroutineContext().ensureActive()
             taskControl.checkCanAct(task)
-            action(service, screen)
+            AutomationTimings.measure("device.dispatch.$toolName") { action(service, screen) }
         }
     }
 
@@ -550,7 +557,18 @@ class ShizukuDeviceAssistantGateway @Inject constructor(
                 screen = before
             )
         }
+        val isSwipe = toolName == com.flowchat.app.domain.tools.AgentToolDefinitions.SwipeScreenToolName
+        // Ordinary text lists can prove progress through their controls. Canvas/video pagers need pixels.
+        val verifySwipePixels = isSwipe && (before.elements.none { it.scrollable } ||
+            before.elements.none { it.displayText.isNotBlank() })
+        val visualBefore = if (verifySwipePixels && Build.VERSION.SDK_INT >= 30) captureStableVisualFrameLocked() else null
+        visualBefore?.screen?.let { fresh ->
+            if (fresh.sensitive || fresh.packageName != before.packageName || fresh.windowId != before.windowId || fresh.geometry != before.geometry)
+                return visualBefore.copy(success = false, errorCode = if (fresh.sensitive) "sensitive_screen_blocked" else "stale_screen",
+                    summary = "The app window changed while preparing the swipe. No gesture was dispatched; inspect the refreshed screen.")
+        }
         snapshotGuard.remember(null)
+        visualFrameGuard.clear()
         val accepted = try {
             action(accessibility, before)
         } catch (error: CancellationException) {
@@ -568,14 +586,36 @@ class ShizukuDeviceAssistantGateway @Inject constructor(
                 screen = refreshed
             )
         }
-        val after = accessibility.observeSettledScreen()
+        val after = accessibility.observeSettledScreen(waitForChangeFrom = before.takeIf { it.sensitive })
         snapshotGuard.remember(after)
-        if (toolName == com.flowchat.app.domain.tools.AgentToolDefinitions.SwipeScreenToolName &&
-            after != null && before.progressKey() == after.progressKey()) {
+        if (after?.sensitive == true) return DeviceToolResult(false,
+            "The action completed on a sensitive screen. Further automation is blocked.", errorCode = "sensitive_screen_blocked", screen = after)
+        if (isSwipe && visualBefore?.screenImage != null) {
+            val observedAfter = captureStableVisualFrameLocked()
+            val image = observedAfter.screenImage
+            if (!observedAfter.success || image == null) return observedAfter.copy(success = false,
+                errorCode = observedAfter.errorCode ?: observedAfter.imageErrorCode ?: "visual_verification_failed",
+                summary = "The swipe gesture completed, but the resulting image is unavailable. Its effect is unverified; do not repeat blindly.")
+            val oldImage = visualBefore.screenImage
+            val sameWindow = oldImage.geometry == image.geometry && oldImage.sourceWidth == image.sourceWidth && oldImage.sourceHeight == image.sourceHeight
+            val pixelsChanged = if (!sameWindow) true else try {
+                AutomationTimings.measure("screen.compare_pixels") { withContext(Dispatchers.Default) {
+                    ScreenImageMatcher.compare(oldImage, image, VisualTapTarget(oldImage.screenId, 500, 500, "swipe result")).pixelsChanged
+                } }
+            } catch (error: CancellationException) { throw error }
+            catch (_: Exception) { return observedAfter.copy(success = false, errorCode = "visual_verification_failed",
+                summary = "The swipe gesture completed, but pixel comparison failed. Inspect the returned image before continuing.") }
+            val unchanged = !pixelsChanged && before.progressKey() == observedAfter.screen?.progressKey()
+            return observedAfter.copy(success = !unchanged, errorCode = if (unchanged) "ui_no_change" else null,
+                summary = if (unchanged) "The swipe gesture completed, but neither pixels nor readable content changed. Do not repeat blindly."
+                    else "The swipe gesture completed and the resulting screen changed. Inspect the returned image to verify the intended result.",
+                before = before.packageName, after = observedAfter.screen?.packageName)
+        }
+        if (isSwipe && after != null && before.progressKey() == after.progressKey()) {
             return DeviceToolResult(
                 success = false,
-                summary = "The swipe gesture completed, but no new page content was observed. Do not count this as a video change or repeat blindly.",
-                errorCode = "ui_no_change",
+                summary = "The swipe gesture completed, but readable content is unchanged and visual progress was not verified. Observe an image before choosing another action; do not repeat blindly.",
+                errorCode = "ui_change_unverified",
                 screen = after
             )
         }

@@ -189,7 +189,8 @@ class ScreenVisionDiagnosticTest {
             compose.waitUntil(10000) { compose.onAllNodes(hasSetTextAction()).fetchSemanticsNodes().isNotEmpty() }
             compose.onNodeWithContentDescription(context.getString(R.string.open_navigation_drawer)).performClick()
             compose.onNodeWithText("Screen vision local QA").performClick()
-            compose.onNode(hasSetTextAction()).performTextInput("SCREEN_VISION_QA 请查看屏幕上的画面，说明图形和颜色。")
+            compose.onNode(hasSetTextAction() and hasAnyAncestor(hasTestTag("message_composer_panel")))
+                .performTextInput("SCREEN_VISION_QA 请查看屏幕上的画面，说明图形和颜色。")
             compose.onNodeWithContentDescription(context.getString(R.string.send)).performClick()
             fixture(animated = true)
             server.fixtureReady.countDown()

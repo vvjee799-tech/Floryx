@@ -4,6 +4,8 @@ package com.flowchat.app.domain.device
 class DeviceSnapshotGuard {
     private var observed: DeviceScreenSnapshot? = null
 
+    fun latest(): DeviceScreenSnapshot? = observed
+
     fun remember(screen: DeviceScreenSnapshot?) {
         observed = screen?.takeUnless { it.sensitive }
     }

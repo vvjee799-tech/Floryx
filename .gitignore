@@ -15,6 +15,7 @@ captures/
 *.keystore
 
 # Local manual-test artifacts
+/floryx*.png
 /flowchat*.png
 /reference-*.png
 /window*.xml

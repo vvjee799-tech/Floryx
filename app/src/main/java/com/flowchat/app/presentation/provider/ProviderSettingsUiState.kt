@@ -21,5 +21,15 @@ data class ProviderSettingsUiState(
     val isLoadingModels: Boolean = false,
     val modelOptionsExpanded: Boolean = false,
     val modelListError: String? = null,
-    val message: String? = null
+    val message: String? = null,
+    val modelSelection: ConversationModelSelection? = null
+)
+
+data class ConversationModelSelection(
+    val provider: ProviderConfig,
+    val options: List<String>,
+    val selected: List<String>,
+    val isLoading: Boolean = false,
+    val isSaving: Boolean = false,
+    val error: String? = null
 )

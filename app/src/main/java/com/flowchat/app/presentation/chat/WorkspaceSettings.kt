@@ -24,7 +24,7 @@ import com.flowchat.app.presentation.common.*
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-internal fun WorkspaceSettingsSheet(
+internal fun WorkspaceSettingsScreen(
     state: WorkspaceUiState,
     isDefault: Boolean,
     taskRunning: Boolean,
@@ -42,12 +42,10 @@ internal fun WorkspaceSettingsSheet(
         onRefresh()
         onDispose { lifecycle.removeObserver(observer) }
     }
-    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
-        containerColor = MaterialTheme.colorScheme.surface) {
-        Column(Modifier.fillMaxWidth().fillMaxHeight(.9f).verticalScroll(rememberScrollState()).navigationBarsPadding()
+    FlowSettingsPage(title = stringResource(R.string.workspace_title), onBack = onDismiss) {
+        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())
             .padding(horizontal = FlowLayout.Gutter, vertical = 12.dp).testTag("workspace_settings"),
             verticalArrangement = Arrangement.spacedBy(20.dp)) {
-            FlowSheetHeader(stringResource(R.string.workspace_title), onDismiss)
             Text(stringResource(R.string.workspace_description), style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
             if (state.busy) LinearProgressIndicator(Modifier.fillMaxWidth())

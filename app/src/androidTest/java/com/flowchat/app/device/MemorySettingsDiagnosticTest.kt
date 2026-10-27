@@ -12,7 +12,7 @@ import androidx.compose.ui.test.junit4.createEmptyComposeRule
 import androidx.test.platform.app.InstrumentationRegistry
 import com.flowchat.app.R
 import com.flowchat.app.domain.model.MemoryRecord
-import com.flowchat.app.presentation.chat.MemorySettingsDialog
+import com.flowchat.app.presentation.chat.MemorySettingsScreen
 import com.flowchat.app.ui.theme.AppAppearance
 import com.flowchat.app.ui.theme.FlowChatTheme
 import java.io.File
@@ -43,7 +43,7 @@ class MemorySettingsDiagnosticTest {
         ))
         instrumentation.runOnMainSync { activity.setContent {
             FlowChatTheme(appearance.value) {
-                Surface { MemorySettingsDialog(
+                Surface { MemorySettingsScreen(
                     enabled = enabled.value, memories = memories.value,
                     onEnabledChange = { enabled.value = it },
                     onUpdate = { id, summary -> memories.value = memories.value.map { if (it.id == id) it.copy(summary = summary) else it } },

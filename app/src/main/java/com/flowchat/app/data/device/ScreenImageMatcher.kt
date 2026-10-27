@@ -22,17 +22,17 @@ internal object ScreenImageMatcher {
             before.region == after.region && before.geometry == after.geometry && before.captureBounds == after.captureBounds) {
             "Image geometry changed."
         }
-        val old = decode(before)
+        val old = pixels(before)
         try {
-            val current = decode(after)
+            val current = pixels(after)
             try {
                 fun difference(left: Int, top: Int, right: Int, bottom: Int, maxSamplesPerEdge: Int): Double {
                     var changed = 0; var count = 0
                     val stepX = ((right - left) / maxSamplesPerEdge).coerceAtLeast(1)
                     val stepY = ((bottom - top) / maxSamplesPerEdge).coerceAtLeast(1)
                     for (y in top until bottom step stepY) for (x in left until right step stepX) {
-                        val a = old.getPixel(x, y)
-                        val b = current.getPixel((x.toLong() * current.width / old.width).toInt().coerceAtMost(current.width - 1),
+                        val a = old.pixel(x, y)
+                        val b = current.pixel((x.toLong() * current.width / old.width).toInt().coerceAtMost(current.width - 1),
                             (y.toLong() * current.height / old.height).toInt().coerceAtMost(current.height - 1))
                         if (maxOf(abs(Color.red(a) - Color.red(b)), abs(Color.green(a) - Color.green(b)),
                                 abs(Color.blue(a) - Color.blue(b))) > 28) changed++
@@ -48,8 +48,8 @@ internal object ScreenImageMatcher {
                     difference((x - radius).coerceAtLeast(0), (y - radius).coerceAtLeast(0),
                         (x + radius + 1).coerceAtMost(old.width), (y + radius + 1).coerceAtMost(old.height), 80)
                 )
-            } finally { current.recycle() }
-        } finally { old.recycle() }
+            } finally { current.close() }
+        } finally { old.close() }
     }
 
     fun fingerprint(bitmap: Bitmap): String {
@@ -65,8 +65,14 @@ internal object ScreenImageMatcher {
         return MessageDigest.getInstance("SHA-256").digest(samples).joinToString("") { "%02x".format(it) }
     }
 
-    private fun decode(image: DeviceScreenImage): Bitmap {
+    private class Pixels(val width: Int, val height: Int, val pixel: (Int, Int) -> Int, val close: () -> Unit)
+
+    private fun pixels(image: DeviceScreenImage): Pixels {
+        image.comparisonPixels?.takeIf { it.width == image.width && it.height == image.height }?.let {
+            return Pixels(it.width, it.height, it::pixel) {}
+        }
         val bytes = Base64.getDecoder().decode(image.image.base64)
-        return requireNotNull(BitmapFactory.decodeByteArray(bytes, 0, bytes.size)) { "Screen image could not be decoded." }
+        val bitmap = requireNotNull(BitmapFactory.decodeByteArray(bytes, 0, bytes.size)) { "Screen image could not be decoded." }
+        return Pixels(bitmap.width, bitmap.height, bitmap::getPixel, bitmap::recycle)
     }
 }

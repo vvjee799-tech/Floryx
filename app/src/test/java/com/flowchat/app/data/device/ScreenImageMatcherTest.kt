@@ -17,6 +17,22 @@ import org.robolectric.annotation.GraphicsMode
 @Config(sdk = [35])
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 class ScreenImageMatcherTest {
+    @Test fun nativeDetailPixelsMatchTheDecodedPngPathAndLargeFramesStayUncached() {
+        val bitmap = Bitmap.createBitmap(640, 640, Bitmap.Config.ARGB_8888)
+        try {
+            Canvas(bitmap).drawColor(Color.WHITE)
+            Canvas(bitmap).drawRect(200f, 200f, 400f, 400f, Paint().apply { color = Color.BLUE })
+            val first = ScreenImageEncoder.encode(bitmap, "first", 1)
+            Canvas(bitmap).drawRect(200f, 200f, 400f, 400f, Paint().apply { color = Color.GREEN })
+            val changed = ScreenImageEncoder.encode(bitmap, "changed", 2)
+            assertNotNull(first.comparisonPixels)
+            val point = VisualTapTarget("first", 500, 500, "target")
+            assertEquals(ScreenImageMatcher.compare(first.copy(comparisonPixels = null), changed.copy(comparisonPixels = null), point),
+                ScreenImageMatcher.compare(first, changed, point))
+        } finally { bitmap.recycle() }
+        assertNull(image().comparisonPixels)
+    }
+
     private val target = VisualTapTarget("screen", 700, 700, "blue square")
 
     private fun image(moved: Boolean = false, activated: Boolean = false, animateElsewhere: Boolean = false,

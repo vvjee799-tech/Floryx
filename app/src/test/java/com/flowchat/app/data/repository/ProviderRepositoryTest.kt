@@ -70,6 +70,19 @@ class ProviderRepositoryTest {
         assertEquals("sk-test", repository.getApiKey(savedAgain))
     }
 
+    @Test fun selectedConversationModelsPersistWithoutReplacingTheSavedKey() = runTest {
+        val provider = ProviderConfig(id = "models", displayName = "Models", baseUrl = "https://example.test/v1", defaultModel = "beta")
+        repository.upsertProvider(provider, "saved-key")
+        val saved = requireNotNull(repository.getProvider(provider.id))
+        repository.upsertProvider(saved.copy(conversationModels = listOf(" beta ", "manual-模型", "beta")), null)
+        val reread = requireNotNull(repository.getProvider(provider.id))
+        assertEquals(listOf("beta", "manual-模型"), reread.conversationModels)
+        assertEquals(saved.apiKeyAlias, reread.apiKeyAlias)
+        assertEquals("saved-key", repository.getApiKey(reread))
+        repository.upsertProvider(reread.copy(defaultModel = "new-default"), null)
+        assertEquals(listOf("beta", "manual-模型", "new-default"), repository.getProvider(provider.id)!!.conversationModels)
+    }
+
     private class FakeApiKeyStore : ApiKeyStore {
         private val values = mutableMapOf<String, String>()
 

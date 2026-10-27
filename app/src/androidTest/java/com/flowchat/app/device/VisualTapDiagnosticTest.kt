@@ -304,7 +304,8 @@ class VisualTapDiagnosticTest {
             compose.waitUntil(10_000) { compose.onAllNodes(hasSetTextAction()).fetchSemanticsNodes().isNotEmpty() }
             compose.onNodeWithContentDescription(context.getString(R.string.open_navigation_drawer)).performClick()
             compose.onNodeWithText("Visual tap local QA").performClick()
-            compose.onNode(hasSetTextAction()).performTextInput("VISUAL_TAP_QA 点击蓝色画面按钮，并检查它变为绿色。")
+            compose.onNode(hasSetTextAction() and hasAnyAncestor(hasTestTag("message_composer_panel")))
+                .performTextInput("VISUAL_TAP_QA 点击蓝色画面按钮，并检查它变为绿色。")
             compose.onNodeWithContentDescription(context.getString(R.string.send)).performClick()
             fixture()
             server.fixtureReady.countDown()
@@ -428,7 +429,8 @@ class VisualTapDiagnosticTest {
             compose.waitUntil(10_000) { compose.onAllNodes(hasSetTextAction()).fetchSemanticsNodes().isNotEmpty() }
             compose.onNodeWithContentDescription(context.getString(R.string.open_navigation_drawer)).performClick()
             compose.onNodeWithText("视觉精度真实模型测试").performClick()
-            compose.onNode(hasSetTextAction()).performTextInput("执行已授权的合成页面测试。包名 com.flowchat.app.debug.test，只操作这个测试页面。请主动查看屏幕，找到蓝色 GO 小按钮并点击，确认它变绿再结束。没有可读控件时使用截图视觉工具；若返回局部放大图且未点击，必须根据新图重新定位再点击，不复用整屏坐标。尚未显示页面时等待并重新查看，不要只回复计划或等待用户。不切换其他应用，不用命令工具，不操作其他位置。")
+            compose.onNode(hasSetTextAction() and hasAnyAncestor(hasTestTag("message_composer_panel")))
+                .performTextInput("执行已授权的合成页面测试。包名 com.flowchat.app.debug.test，只操作这个测试页面。请主动查看屏幕，找到蓝色 GO 小按钮并点击，确认它变绿再结束。没有可读控件时使用截图视觉工具；若返回局部放大图且未点击，必须根据新图重新定位再点击，不复用整屏坐标。尚未显示页面时等待并重新查看，不要只回复计划或等待用户。不切换其他应用，不用命令工具，不操作其他位置。")
             compose.onNodeWithContentDescription(context.getString(R.string.send)).performClick()
             fixture("small_target", "trace_touches")
             withTimeout(180_000) {

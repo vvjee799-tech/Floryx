@@ -96,11 +96,14 @@ public final class VisualTapFixtureActivity extends Activity {
         private long downAt;
         private boolean downInside;
         private float lastTouchX = -1, lastTouchY = -1;
+        private float downX, downY;
+        private int page = 0;
 
         TargetView(Context context) { super(context); }
 
         @Override protected void onDraw(Canvas canvas) {
             canvas.drawColor(Color.WHITE);
+            if (getIntent().getBooleanExtra("swipe_pages", false) && page > 0) canvas.drawColor(Color.rgb(210, 235, 250));
             float centerX = getWidth() * (moved ? .28f : getIntent().getBooleanExtra("top_target", false) ? .22f : .70f);
             float centerY = getHeight() * (getIntent().getBooleanExtra("top_target", false) ? .158f :
                 getIntent().getBooleanExtra("bottom_target", false) ? .86f : .68f);
@@ -127,10 +130,16 @@ public final class VisualTapFixtureActivity extends Activity {
 
         @Override public boolean onTouchEvent(MotionEvent event) {
             if (event.getActionMasked() == MotionEvent.ACTION_DOWN) {
+                downX = event.getX(); downY = event.getY();
                 downAt = event.getEventTime(); downInside = target.contains(event.getX(), event.getY());
                 return true;
             }
             if (event.getActionMasked() == MotionEvent.ACTION_UP) {
+                if (getIntent().getBooleanExtra("swipe_pages", false) &&
+                        Math.abs(event.getY() - downY) + Math.abs(event.getX() - downX) > 60) {
+                    if (!getIntent().getBooleanExtra("ignore_swipes", false)) { page++; invalidate(); }
+                    return true;
+                }
                 lastTouchX = event.getX(); lastTouchY = event.getY();
                 if (downInside && target.contains(event.getX(), event.getY()) &&
                     !getIntent().getBooleanExtra("ignore_touches", false) &&

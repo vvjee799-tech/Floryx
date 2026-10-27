@@ -2,10 +2,14 @@ package com.flowchat.app.data.network
 
 import com.flowchat.app.domain.model.ProviderConfig
 import com.flowchat.app.domain.provider.apiHost
+import com.flowchat.app.domain.provider.isGoogleGemini
+import com.flowchat.app.domain.provider.geminiApiBaseUrl
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.request.get
 import io.ktor.client.request.header
+import io.ktor.client.request.parameter
+import io.ktor.client.plugins.timeout
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
@@ -19,9 +23,11 @@ import kotlinx.serialization.json.jsonPrimitive
 @Singleton
 class KtorModelCatalogClient @Inject constructor(
     private val httpClient: HttpClient,
-    private val json: Json
+    private val json: Json,
+    @com.flowchat.app.di.GeminiHttp private val geminiHttpClient: HttpClient? = null
 ) : ModelCatalogClient {
     override suspend fun listModels(provider: ProviderConfig, apiKey: String?): List<String> {
+        if (provider.isGoogleGemini()) return requestGeminiModels(provider, apiKey)
         val primaryResult = runCatching {
             requestOpenAiCompatibleModels(provider, apiKey)
         }
@@ -39,6 +45,33 @@ class KtorModelCatalogClient @Inject constructor(
             throw error
         }
         return emptyList()
+    }
+
+    private suspend fun requestGeminiModels(provider: ProviderConfig, apiKey: String?): List<String> {
+        val names = sortedSetOf<String>()
+        val pages = mutableSetOf<String>()
+        var pageToken: String? = null
+        do {
+            val response = (geminiHttpClient ?: httpClient).get(provider.geminiApiBaseUrl() + "/models") {
+                timeout { connectTimeoutMillis = 15_000; requestTimeoutMillis = 45_000; socketTimeoutMillis = 30_000 }
+                header(HttpHeaders.Accept, "application/json")
+                if (!apiKey.isNullOrBlank()) header("x-goog-api-key", apiKey)
+                parameter("pageSize", 1000)
+                pageToken?.let { parameter("pageToken", it) }
+                if (provider.customHeadersJson.isNotBlank()) {
+                    json.parseToJsonElement(provider.customHeadersJson).jsonObject.forEach { (key, value) -> header(key, value.jsonPrimitive.content) }
+                }
+            }
+            if (!response.status.isSuccess()) {
+                val message = geminiApiError(response.status.value, response.bodyAsText(), json)
+                throw ModelCatalogException(if (apiKey.isNullOrBlank()) message else message.replace(apiKey, "[REDACTED]"))
+            }
+            val page = json.decodeFromString<GeminiModelsResponse>(response.bodyAsText())
+            names += page.toChatModelNames()
+            pageToken = page.nextPageToken?.takeIf { it.isNotBlank() }
+            check(pageToken == null || pages.add(pageToken!!)) { "Gemini returned a repeated model-list page." }
+        } while (pageToken != null)
+        return names.toList()
     }
 
     private suspend fun requestOpenAiCompatibleModels(provider: ProviderConfig, apiKey: String?): List<String> {

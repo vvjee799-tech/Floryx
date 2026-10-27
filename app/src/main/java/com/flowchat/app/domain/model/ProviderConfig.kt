@@ -11,5 +11,7 @@ data class ProviderConfig(
     val apiKeyAlias: String? = null,
     val isEnabled: Boolean = true,
     val createdAt: Long = System.currentTimeMillis(),
-    val updatedAt: Long = createdAt
+    val updatedAt: Long = createdAt,
+    /** Null preserves automatic discovery for existing configurations. */
+    val conversationModels: List<String>? = null
 )

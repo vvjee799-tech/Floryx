@@ -12,7 +12,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         MessageEntity::class,
         UsageRecord::class
     ],
-    version = 13,
+    version = 15,
     exportSchema = false
 )
 abstract class FlowChatDatabase : RoomDatabase() {
@@ -20,6 +20,20 @@ abstract class FlowChatDatabase : RoomDatabase() {
     abstract fun conversationDao(): ConversationDao
     abstract fun messageDao(): MessageDao
     abstract fun usageDao(): UsageDao
+}
+
+val MIGRATION_14_15 = object : Migration(14, 15) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE providers ADD COLUMN conversationModelsJson TEXT DEFAULT NULL")
+    }
+}
+
+val MIGRATION_13_14 = object : Migration(13, 14) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE conversations ADD COLUMN isPinned INTEGER NOT NULL DEFAULT 0")
+        db.execSQL("ALTER TABLE conversations ADD COLUMN isArchived INTEGER NOT NULL DEFAULT 0")
+        db.execSQL("CREATE INDEX IF NOT EXISTS index_messages_conversationId_createdAt ON messages(conversationId, createdAt)")
+    }
 }
 
 val MIGRATION_12_13 = object : Migration(12, 13) {
