@@ -1,5 +1,7 @@
 # DeepSeek 百万上下文适配（1.5.17）
 
+2026-11-03：已扩展到第三方地址与 V4.1 完整型号，见[第三方适配说明](deepseek-third-party-context-2026-11-03.md)。以下保留 1.5.17 实施记录。
+
 ## 行为
 
 DeepSeek 官方 Chat Completions 的 `deepseek-flash`、`deepseek-v4-pro`、`deepseek-v4-flash` 和 `deepseek-v4-flash-vision-exp` 使用百万上下文策略。地址须为 HTTPS、精确官方 host `api.deepseek.com`，基础路径为空、`/v1` 或 `/beta`；自定义配置只要实际指向这个接口也能识别。第三方地址、未知模型和其他供应商继续使用原来的 24k/32k 本地策略。

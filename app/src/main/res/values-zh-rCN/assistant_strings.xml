@@ -1,0 +1,31 @@
+<resources>
+    <string name="assistant_system_entry">系统助手</string>
+    <string name="assistant_selected">已选择 Floryx</string>
+    <string name="assistant_not_selected">尚未设为默认助手</string>
+    <string name="assistant_setup_hint">设为默认助手后，可用助手手势或快捷设置磁贴唤起。</string>
+    <string name="assistant_system_context_hint">唤起后可询问当前页面，勾选后才会发送页面文字。</string>
+    <string name="assistant_choose_default">选择默认助手</string>
+    <string name="assistant_try_panel">打开面板</string>
+    <string name="assistant_settings_unavailable">请在手机设置的“默认数字助手”中选择 Floryx。</string>
+    <string name="assistant_tile">Floryx 助手</string>
+    <string name="assistant_add_tile">快捷磁贴</string>
+    <string name="assistant_tile_added">已添加磁贴</string>
+    <string name="assistant_tile_manual">可在快捷设置编辑页添加“Floryx 助手”磁贴。</string>
+    <string name="assistant_input_hint">想让我帮你做什么？</string>
+    <string name="assistant_ready">在这里提问，关闭后任务继续</string>
+    <string name="assistant_preparing">正在准备…</string>
+    <string name="assistant_running">任务进行中</string>
+    <string name="assistant_status_model">%1$s · %2$s</string>
+    <string name="assistant_finished">最近的回复</string>
+    <string name="assistant_paused">任务已暂停 · 请在聊天中继续</string>
+    <string name="assistant_waiting">等待你的确认</string>
+    <string name="assistant_close">关闭</string>
+    <string name="assistant_full_chat">完整聊天</string>
+    <string name="assistant_include_page">附带页面文字</string>
+    <string name="assistant_page_preview">预览</string>
+    <string name="assistant_page_expired">页面快照已过期。请重新唤起系统助手读取当前页，或取消附带页面文字后发送。</string>
+    <string name="assistant_configure_provider">请先在应用中配置模型服务商。</string>
+    <string name="assistant_send_failed">未能开始任务，请检查模型配置，或先停止正在运行的任务。</string>
+    <string name="assistant_approve">允许</string>
+    <string name="assistant_decline">拒绝</string>
+</resources>

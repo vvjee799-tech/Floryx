@@ -29,7 +29,7 @@ internal fun NameEditorDialog(title: String, initialName: String, onDismiss: () 
         title = { FlowDialogSystemBars(); Text(title) },
         text = {
             OutlinedTextField(name, { name = it }, singleLine = true,
-                label = { Text(title) }, colors = flowFieldColors(), shape = MaterialTheme.shapes.medium,
+                colors = flowFieldColors(), shape = MaterialTheme.shapes.medium,
                 modifier = Modifier.fillMaxWidth().focusRequester(focus).testTag("name_editor"),
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
                 keyboardActions = KeyboardActions(onDone = { if (valid) onSave(name.trim()) }))
@@ -69,9 +69,8 @@ internal fun SystemPromptEditor(prompt: String, onChange: (String) -> Unit, onBa
     FlowSettingsPage(title = stringResource(R.string.system_prompt), onBack = onBack,
         actions = { TextButton(onClick = onBack) { Text(stringResource(R.string.done)) } }) {
         OutlinedTextField(prompt, onChange,
-            label = { Text(stringResource(R.string.system_prompt)) },
             placeholder = { Text(stringResource(R.string.system_prompt_placeholder)) },
-            colors = flowFieldColors(), shape = MaterialTheme.shapes.medium,
+            colors = flowFieldColors(), shape = androidx.compose.foundation.shape.RoundedCornerShape(24.dp),
             textStyle = MaterialTheme.typography.bodyLarge,
             modifier = Modifier.fillMaxSize().padding(horizontal = 24.dp, vertical = 16.dp).testTag("system_prompt_editor"))
     }
@@ -82,12 +81,15 @@ internal fun UnsavedSettingsDialog(onSave: () -> Unit, onDiscard: () -> Unit, on
     AlertDialog(
         onDismissRequest = onKeepEditing,
         title = { FlowDialogSystemBars(); Text(stringResource(R.string.unsaved_settings_title)) },
-        text = { Text(stringResource(R.string.unsaved_settings_message)) },
         confirmButton = {
-            Column(Modifier.fillMaxWidth()) {
-                Button(onClick = onSave, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.save_and_return)) }
-                TextButton(onClick = onDiscard, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.discard_changes)) }
-                TextButton(onClick = onKeepEditing, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.keep_editing)) }
+            TextButton(onClick = onSave) { Text(stringResource(R.string.save)) }
+        },
+        dismissButton = {
+            Row {
+                TextButton(onClick = onKeepEditing) { Text(stringResource(R.string.keep_editing)) }
+                TextButton(onClick = onDiscard, colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)) {
+                    Text(stringResource(R.string.discard_changes))
+                }
             }
         }
     )

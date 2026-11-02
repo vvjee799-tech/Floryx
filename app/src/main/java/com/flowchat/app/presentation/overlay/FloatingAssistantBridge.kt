@@ -26,6 +26,9 @@ data class FloatingAssistantState(
     val lastOpenedAppName: String? = null,
     val isStreaming: Boolean = false,
     val canChat: Boolean = false,
+    val canRecognizeScreen: Boolean = false,
+    val photoAnswerEnabled: Boolean = true,
+    val errorMessage: String? = null,
     val progress: FloatingTaskProgress? = null,
     val pendingDeviceActionConfirmation: DeviceActionConfirmationUi? = null
 ) {
@@ -93,6 +96,11 @@ data class FloatingAssistantState(
                 lastOpenedAppName = openedApp,
                 isStreaming = state.isStreaming,
                 canChat = conversation != null,
+                photoAnswerEnabled = state.appSettings.photoAnswerEnabled,
+                canRecognizeScreen = state.appSettings.photoAnswerEnabled && (conversation != null || state.providers.any {
+                    it.isEnabled && com.flowchat.app.domain.validation.ProviderConfigValidator.validate(it).isEmpty()
+                }),
+                errorMessage = state.errorMessage,
                 progress = FloatingTaskProgress(phase, startedAt.takeIf { phase.isActive }),
                 pendingDeviceActionConfirmation = state.pendingDeviceActionConfirmation
             )
@@ -117,23 +125,62 @@ class FloatingAssistantBridge @Inject constructor(
     private val mutableCommands = MutableSharedFlow<FloatingAssistantCommand>(extraBufferCapacity = 8)
     val commands: SharedFlow<FloatingAssistantCommand> = mutableCommands.asSharedFlow()
 
+    private val mutableScreenQuestion = MutableStateFlow(ScreenQuestionState())
+    val screenQuestion: StateFlow<ScreenQuestionState> = mutableScreenQuestion.asStateFlow()
+
+    private val mutableAnswerBanner = MutableStateFlow<AnswerBannerState?>(null)
+    val answerBanner: StateFlow<AnswerBannerState?> = mutableAnswerBanner.asStateFlow()
+
+    internal fun beginAnswerBanner(taskId: String, owner: String) {
+        mutableAnswerBanner.value = AnswerBannerState(taskId, owner)
+    }
+
+    internal fun updateAnswerBanner(taskId: String, text: String, streaming: Boolean, error: Boolean = false) {
+        mutableAnswerBanner.update { current ->
+            if (current?.taskId == taskId) current.copy(text = text.take(16_000), isStreaming = streaming, isError = error) else current
+        }
+    }
+
+    fun dismissAnswerBanner() { mutableAnswerBanner.update { it?.copy(dismissed = true) } }
+    fun clearAnswerBanner() { mutableAnswerBanner.value = null }
+
+    internal fun updateScreenQuestion(value: ScreenQuestionState) { mutableScreenQuestion.value = value }
+
+    fun clearScreenQuestion() {
+        if (screenQuestion.value.phase != ScreenQuestionPhase.Capturing) mutableScreenQuestion.value = ScreenQuestionState()
+    }
+
     private val mutableUiInteractionCount = MutableStateFlow(0)
     val uiInteractionCount: StateFlow<Int> = mutableUiInteractionCount.asStateFlow()
 
-    private val mutableAppInForeground = MutableStateFlow(true)
+    private val mutableAppInForeground = MutableStateFlow(false)
     val appInForeground: StateFlow<Boolean> = mutableAppInForeground.asStateFlow()
+
+    private val mutableAssistantPanels = MutableStateFlow(0)
+    val assistantPanels: StateFlow<Int> = mutableAssistantPanels.asStateFlow()
+
+    /** Hide duplicate floating output without declaring a user takeover of the full chat. */
+    fun showAssistantPanel(): java.io.Closeable {
+        mutableAssistantPanels.update { it + 1 }
+        val closed = java.util.concurrent.atomic.AtomicBoolean(false)
+        return java.io.Closeable {
+            if (closed.compareAndSet(false, true)) mutableAssistantPanels.update { (it - 1).coerceAtLeast(0) }
+        }
+    }
 
     fun publish(state: FloatingAssistantState) {
         mutableState.value = state
     }
 
     fun send(text: String) {
+        clearScreenQuestion()
         text.trim().takeIf { it.isNotEmpty() }?.let { value ->
             mutableCommands.tryEmit(FloatingAssistantCommand.Send(value))
         }
     }
 
     fun stop() {
+        clearScreenQuestion()
         mutableCommands.tryEmit(FloatingAssistantCommand.Stop)
     }
 

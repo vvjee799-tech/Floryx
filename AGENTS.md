@@ -1,11 +1,10 @@
 # Device testing
 
-- Use the user's MuMu Android emulator as the default device for installation, debugging, and device testing in this project.
-- Use a connected physical phone only when the user explicitly requests it. Do not automatically select a phone if multiple ADB devices are available.
-- Before running device commands, identify the MuMu emulator's ADB serial and target that serial explicitly.
-- If the MuMu emulator is unavailable, report the issue and troubleshoot it instead of switching to a phone.
-- If the existing MuMu instance is stopped, start it with the installed MuMuManager, wait for Android to boot, and reconnect to its verified ADB endpoint without asking the user to start it.
-- App behavior fixes require actual MuMu device testing before completion; a stopped instance or passing unit tests is not a reason to skip device verification.
+- Use the MuMu instance named `Floryx` as the default device for installation, debugging, and device testing, per the user's instruction on 2026-11-02. This supersedes the previous physical-phone default.
+- Before device commands, query `D:\ruanjian\MuMuPlayer\nx_main\MuMuManager.exe info -v all`, verify the instance name, and obtain its current ADB host/port from instance info. The instance was verified as index `1` on 2026-11-02; recheck the name rather than assuming the index or port never changes. Target its ADB serial explicitly for every command.
+- Starting the existing `Floryx` instance when needed is authorized. Do not install into, run tests on, or automatically fall back to another MuMu instance (including index `0`, named `火影脚本`). If `Floryx` is missing or unavailable, report the issue and continue independent work.
+- App behavior fixes require running device tests on `Floryx` before completion; passing unit tests alone does not replace device verification. Use the physical phone only when the user explicitly requests it; verify `10AD5J08C5000UJ` (iQOO Neo8 Pro / V2302A) before targeting it.
+- Instrumentation completion can force-stop Floryx Dev and leave its enabled accessibility service in `Crashed services`. After `am instrument` exits, restore any previously enabled Floryx accessibility service on the selected test device and verify it is bound and absent from the crash list before reporting completion. Preserve the original enabled-service list; an enabled switch or passing in-process test alone is insufficient. `scripts/restore-phone-accessibility.ps1` is phone-specific and must only be used for the verified phone, not MuMu.
 - Before native computer-use interactions, obtain the user's explicit confirmation for the planned scope, as required by the user's standing computer-use instructions. This does not require confirmation for ordinary shell commands or file edits.
 
 # Local Android build tools

@@ -1,7 +1,8 @@
 package com.flowchat.app.presentation
 
-internal const val BloomSplashDurationMillis = 1100
-internal const val BloomSplashBrandReadyMillis = 740
+internal const val BloomSplashDurationMillis = 1500
+internal const val BloomSplashBrandReadyMillis = 1100
+internal const val BloomSplashPetalCount = 6
 
 internal data class BloomSplashFrame(
     val seedProgress: Float,
@@ -11,16 +12,26 @@ internal data class BloomSplashFrame(
     val splashAlpha: Float
 )
 
-internal fun bloomSplashFrame(elapsedMillis: Float): BloomSplashFrame {
-    fun progress(start: Float, duration: Float): Float {
-        val remaining = 1f - ((elapsedMillis - start) / duration).coerceIn(0f, 1f)
-        return 1f - remaining * remaining * remaining
+// Shared timing functions keep the live draw path free of per-frame frame/list allocations.
+internal object BloomSplashMotion {
+    fun seed(elapsedMillis: Float) = progress(elapsedMillis, 0f, 240f)
+    fun petal(elapsedMillis: Float, index: Int) = progress(elapsedMillis, 140f + index * 34f, 500f)
+    fun wordmark(elapsedMillis: Float) = progress(elapsedMillis, 480f, 440f)
+    fun tagline(elapsedMillis: Float) = progress(elapsedMillis, 820f, 240f)
+    fun alpha(elapsedMillis: Float) = 1f - progress(elapsedMillis, 1220f, 280f)
+
+    private fun progress(elapsedMillis: Float, start: Float, duration: Float): Float {
+        val fraction = ((elapsedMillis - start) / duration).coerceIn(0f, 1f)
+        // Smoothstep has zero velocity at both ends, avoiding an abrupt first
+        // petal movement while preserving the allocation-free drawing path.
+        return fraction * fraction * (3f - 2f * fraction)
     }
-    return BloomSplashFrame(
-        seedProgress = progress(0f, 180f),
-        petalProgress = List(6) { progress(120f + it * 26f, 250f) },
-        wordmarkProgress = progress(360f, 340f),
-        taglineProgress = progress(500f, 200f),
-        splashAlpha = 1f - progress(880f, 220f)
-    )
 }
+
+internal fun bloomSplashFrame(elapsedMillis: Float) = BloomSplashFrame(
+    seedProgress = BloomSplashMotion.seed(elapsedMillis),
+    petalProgress = List(BloomSplashPetalCount) { BloomSplashMotion.petal(elapsedMillis, it) },
+    wordmarkProgress = BloomSplashMotion.wordmark(elapsedMillis),
+    taglineProgress = BloomSplashMotion.tagline(elapsedMillis),
+    splashAlpha = BloomSplashMotion.alpha(elapsedMillis)
+)

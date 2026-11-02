@@ -106,7 +106,11 @@ class WorkspaceDiagnosticTest {
             compose.onNodeWithText(context.getString(R.string.workspace_title)).performScrollTo().performClick()
             compose.onNodeWithTag("workspace_settings").assertIsDisplayed()
         }
-        fun closeWorkspace() { compose.onNodeWithContentDescription(context.getString(R.string.close)).performClick() }
+        fun closeWorkspace() {
+            compose.onNodeWithTag("settings_back").performClick()
+            compose.onNodeWithTag("app_settings_content").assertIsDisplayed()
+            compose.onNodeWithTag("settings_back").performClick()
+        }
         fun send(text: String) {
             compose.onNode(hasSetTextAction()).performTextInput(text)
             compose.onNodeWithContentDescription(context.getString(R.string.send)).performClick()
@@ -153,6 +157,24 @@ class WorkspaceDiagnosticTest {
             assertEquals("资料已修改", readPhone(location, "结果.txt"))
             assertEquals(5, server.agentRequests)
             assertTrue(server.sawWorkspaceTools)
+
+            if (InstrumentationRegistry.getArguments().getString("runWorkspaceAuditChecks") == "true") {
+                send("WORKSPACE_UNDECLARED_QA 生成文件但未声明需要写回的输出")
+                answer("WORKSPACE_UNDECLARED_OK")
+                val localRoot = File(context.filesDir, "terminal/workspaces/$owner")
+                val undeclared = File(localRoot, "phone/${location.key}/未声明输出.txt")
+                assertEquals("UNDECLARED_OUTPUT", undeclared.readText())
+                assertFalse(documentAccess.exists(location, "未声明输出.txt"))
+                assertTrue(data.workspaces().inspect(owner, location).pending.none { it.path == "未声明输出.txt" })
+                println("WORKSPACE_AUDIT_UNDECLARED=local_file_exists; phone_file_absent; no_pending_save")
+
+                send("WORKSPACE_CWD_QA 在另一个工作目录生成文件并声明输出")
+                answer("WORKSPACE_CWD_MISMATCH_OK")
+                assertEquals("OTHER_DIRECTORY_OUTPUT", File(localRoot, "工作目录结果.txt").readText())
+                assertFalse(documentAccess.exists(location, "工作目录结果.txt"))
+                assertTrue(data.workspaces().inspect(owner, location).pending.none { it.path == "工作目录结果.txt" })
+                println("WORKSPACE_AUDIT_CWD_MISMATCH=command_exit_0; publish_error; phone_file_absent; no_pending_save")
+            }
 
             send("WORKSPACE_CANCEL_QA 等待停止")
             withTimeout(10000) { while (terminal.terminal().state.value.commands.none { it.isRunning && it.output.contains("WORKSPACE_STOP_READY") }) delay(100) }
@@ -227,7 +249,7 @@ class WorkspaceDiagnosticTest {
         } finally {
             scenario?.close()
             terminal.terminal().cancelAll()
-            selectedUris.distinct().forEach { uri -> runCatching { context.contentResolver.releasePersistableUriPermission(uri,
+            selectedUris.distinct().filter { it.toString() != original.defaultWorkspace?.treeUri }.forEach { uri -> runCatching { context.contentResolver.releasePersistableUriPermission(uri,
                 Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION) } }
             owner?.let { data.chats().deleteConversation(it) }
             other?.let { data.chats().deleteConversation(it) }
@@ -279,6 +301,22 @@ class WorkspaceDiagnosticTest {
                                     else -> { check(result!!["exit_code"]!!.jsonPrimitive.int == 0 && result["workspace_saved"]!!.jsonArray.size == 1 && result["workspace_errors"]!!.jsonArray.isEmpty()); answer("WORKSPACE_AGENT_OK") }
                                 }
                             }
+                            user.contains("WORKSPACE_UNDECLARED_QA") -> if (!toolResult)
+                                call("run_command", """{"environment":"linux","command":"printf UNDECLARED_OUTPUT > '未声明输出.txt'"}""")
+                                else {
+                                    check(result!!["exit_code"]!!.jsonPrimitive.int == 0)
+                                    check(result["workspace_saved"]!!.jsonArray.isEmpty() && result["workspace_errors"]!!.jsonArray.isEmpty())
+                                    println("WORKSPACE_AUDIT_UNDECLARED_RESULT=$result")
+                                    answer("WORKSPACE_UNDECLARED_OK")
+                                }
+                            user.contains("WORKSPACE_CWD_QA") -> if (!toolResult)
+                                call("run_command", """{"environment":"linux","working_directory":"/workspace","command":"printf OTHER_DIRECTORY_OUTPUT > '工作目录结果.txt'","workspace_outputs":["工作目录结果.txt"]}""")
+                                else {
+                                    check(result!!["exit_code"]!!.jsonPrimitive.int == 0)
+                                    check(result["workspace_saved"]!!.jsonArray.isEmpty() && result["workspace_errors"]!!.jsonArray.isNotEmpty())
+                                    println("WORKSPACE_AUDIT_CWD_RESULT=$result")
+                                    answer("WORKSPACE_CWD_MISMATCH_OK")
+                                }
                             user.contains("WORKSPACE_CANCEL_QA") -> if (!toolResult) call("run_command", """{"environment":"linux","command":"printf partial > '继续.txt'; printf WORKSPACE_STOP_READY; sleep 30; printf BAD >> '继续.txt'","workspace_outputs":["继续.txt"]}""") else answer("STOPPED")
                             user.contains("WORKSPACE_RESUME_QA") -> if (!toolResult) call("run_command", """{"environment":"linux","command":"printf ' complete' >> '继续.txt'","workspace_outputs":["继续.txt"]}""")
                                 else { check(result!!["workspace_saved"]!!.jsonArray.size == 1); answer("WORKSPACE_RESUME_OK") }

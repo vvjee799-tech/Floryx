@@ -1,5 +1,18 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <application>
+        <activity android:name="com.flowchat.app.device.ScreenQuestionFixtureActivity"
+            android:exported="true" android:theme="@android:style/Theme.Material.Light.NoActionBar" />
+        <activity android:name="com.flowchat.app.device.ExecutionDisplaySecureFixtureActivity"
+            android:exported="true" android:resizeableActivity="true"
+            android:theme="@android:style/Theme.Material.Light.NoActionBar" />
+        <activity android:name="com.flowchat.app.device.ExecutionDisplayPrimaryFixtureActivity"
+            android:exported="true" android:resizeableActivity="true"
+            android:theme="@android:style/Theme.Material.Light.NoActionBar" />
+        <activity android:name="com.flowchat.app.device.ExecutionDisplayFixtureActivity"
+            android:exported="true" android:resizeableActivity="true"
+            android:theme="@android:style/Theme.Material.Light.NoActionBar" />
+        <activity android:name="com.flowchat.app.device.AssistantContextFixtureActivity"
+            android:exported="true" android:theme="@android:style/Theme.Material.Light.NoActionBar" />
         <activity android:name="com.flowchat.app.device.VisualTapFixtureActivity"
             android:exported="true" android:configChanges="orientation|screenSize"
             android:theme="@android:style/Theme.Material.Light.NoActionBar" />

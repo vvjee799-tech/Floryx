@@ -1,7 +1,6 @@
 package com.flowchat.app.device
 
 import android.os.SystemClock
-import androidx.lifecycle.viewModelScope
 import androidx.test.platform.app.InstrumentationRegistry
 import com.flowchat.app.data.chat.ContextBudget
 import com.flowchat.app.data.chat.TaskContextManager
@@ -12,7 +11,7 @@ import com.flowchat.app.diagnostics.AttachmentDiagnosticsEntryPoint
 import com.flowchat.app.diagnostics.DeepSeekContextDiagnosticsEntryPoint
 import com.flowchat.app.domain.chat.*
 import com.flowchat.app.domain.model.*
-import com.flowchat.app.presentation.chat.ChatViewModel
+import com.flowchat.app.presentation.chat.ChatTaskRuntime
 import dagger.hilt.android.EntryPointAccessors
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.cio.CIO
@@ -38,21 +37,29 @@ import org.junit.Assert.*
 import org.junit.Assume.assumeTrue
 import org.junit.Test
 
-/** Official identity is resolved before a test-only HTTP transport redirects to loopback.
- * No credential is supplied, no production URL rule is relaxed, and no paid API is called.
+/** Official and third-party model IDs are resolved before the test transport redirects to loopback.
+ * No credential is supplied and no paid API is called.
  */
 class DeepSeekLongContextDiagnosticTest {
     @Test fun officialBudgetAcrossRoomVmWireCompactionStopAndRecreation() = runBlocking {
+        verifyBudget("https://api.deepseek.com", "deepseek-flash", "deepseek-context")
+    }
+
+    @Test fun thirdPartyV41BudgetAcrossRoomVmWireCompactionStopAndRecreation() = runBlocking {
+        verifyBudget("https://gateway.example.test/compatible-mode/v1", "deepseek-v4.1-flash-1017", "deepseek-third-party-context")
+    }
+
+    private suspend fun verifyBudget(baseUrl: String, modelName: String, reportDirectory: String) = coroutineScope {
         assumeTrue(InstrumentationRegistry.getArguments().getString("runDeepSeekContextDiagnostics") == "true")
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val data = EntryPointAccessors.fromApplication(context, AttachmentDiagnosticsEntryPoint::class.java)
         val deps = EntryPointAccessors.fromApplication(context, DeepSeekContextDiagnosticsEntryPoint::class.java)
-        val model = LocalModel()
+        val model = LocalModel(modelName)
         val json = Json { ignoreUnknownKeys = true; explicitNulls = false }
         val http = HttpClient(CIO) { install(HttpTimeout); install(ContentNegotiation) { json(json) } }
         var redirected = 0
         http.plugin(HttpSend).intercept { request ->
-            check(request.url.host == "api.deepseek.com")
+            check(request.url.build().toString() == "$baseUrl/chat/completions")
             check(request.headers["Authorization"] == null)
             redirected++
             request.url.protocol = URLProtocol.HTTP
@@ -62,23 +69,31 @@ class DeepSeekLongContextDiagnosticTest {
         }
         val client = KtorOpenAiCompatibleClient(http, json)
         val provider = ProviderConfig(id = "deepseek-context-${UUID.randomUUID()}", displayName = "Synthetic DeepSeek context QA",
-            baseUrl = "https://api.deepseek.com", defaultModel = "deepseek-flash")
+            baseUrl = baseUrl, defaultModel = modelName)
         val manager = TaskContextManager(client, data.chats())
+        val configuredModel = InstrumentationRegistry.getArguments().getString("configuredDeepSeekModel")
+        if (configuredModel != null) {
+            val configured = requireNotNull(data.providers().getProvidersOnce().firstOrNull { it.defaultModel == configuredModel })
+            val usage = manager.contextWindow(ChatRequest(configuredModel, listOf(ChatRequestMessage("user", "Synthetic budget check")),
+                0.0, 1.0, null), configured)
+            assertEquals(1_000_000, usage.modelWindowTokens)
+            assertEquals(884_464, usage.totalTokens)
+        }
         var owner: String? = null
-        var vm: ChatViewModel? = null
+        var vm: ChatTaskRuntime? = null
         var collector: Job? = null
         val samples = java.util.Collections.synchronizedList(mutableListOf<ContextWindowUsage>())
         val measurements = mutableListOf<JsonObject>()
-        val report = File(context.getExternalFilesDir(null), "deepseek-context/result.json")
+        val report = File(context.getExternalFilesDir(null), "$reportDirectory/result.json")
         report.parentFile?.mkdirs()
         suspend fun dispose() {
             collector?.cancelAndJoin(); collector = null
-            vm?.let { current -> withContext(Dispatchers.Main) { current.viewModelScope.cancel() } }
+            vm?.let { current -> withContext(Dispatchers.Main) { current.close() } }
             vm = null
         }
         suspend fun open(id: String) {
             vm = withContext(Dispatchers.Main) {
-                ChatViewModel(data.chats(), data.providers(), client, deps.appUsage(), deps.launcher(),
+                ChatTaskRuntime(data.chats(), data.providers(), client, deps.appUsage(), deps.launcher(),
                     promptProfileRepository = deps.profiles(), memoryRepository = deps.memories(),
                     appSettingsStore = AppSettingsStore(AppSettings(powerModeEnabled = false, memoryEnabled = false,
                         commandExecutionEnabled = false, installId = "deepseek-context-qa")), taskContextManager = manager)
@@ -186,6 +201,7 @@ class DeepSeekLongContextDiagnosticTest {
             model.failure?.let { throw it }
             assertTrue(redirected == model.answerRequests + model.summaryRequests)
             report.writeText(buildJsonObject { put("result", "PASS"); put("model_capacity", 1_000_000)
+                put("model", modelName); put("configured_model_checked", configuredModel != null)
                 put("input_budget", 884_464); put("answer_requests", model.answerRequests); put("summary_requests", model.summaryRequests)
                 put("largest_answer_request_bytes", model.largestAnswerBytes); put("summary_max_bytes", model.summaryMaxBytes)
                 put("native_pair", model.sawNativePair); put("early_evidence_read", model.sawEvidence)
@@ -201,7 +217,7 @@ class DeepSeekLongContextDiagnosticTest {
         }
     }
 
-    private class LocalModel : AutoCloseable {
+    private class LocalModel(private val expectedModel: String) : AutoCloseable {
         private val server = ServerSocket(0, 8, InetAddress.getByName("127.0.0.1"))
         val port get() = server.localPort
         @Volatile var evidenceId = ""
@@ -234,6 +250,7 @@ class DeepSeekLongContextDiagnosticTest {
             var offset = 0
             while (offset < size) { val n = input.read(bytes, offset, size - offset); check(n > 0); offset += n }
             val body = Json.parseToJsonElement(bytes.toString(Charsets.UTF_8)).jsonObject
+            check(body["model"]!!.jsonPrimitive.content == expectedModel)
             val messages = body.getValue("messages").jsonArray.map { it.jsonObject }
             val summary = messages.first()["content"]!!.jsonPrimitive.content.contains("# Floryx context checkpoint writer")
             val delta: JsonObject

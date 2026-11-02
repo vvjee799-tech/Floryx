@@ -10,8 +10,29 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class DeviceTaskControlTest {
+    @Test fun displayCleanupRunsExactlyOnceForFinishReplacementAndLateRegistration() {
+        val control = DeviceTaskControl()
+        val first = control.begin()
+        var firstCloses = 0
+        control.onFinish(first) { firstCloses++ }
+        val second = control.begin()
+        control.finish(first)
+        assertEquals(1, firstCloses)
+        var secondCloses = 0
+        control.onFinish(second) { secondCloses++ }
+        val prepared = control.prepare()
+        control.activate(prepared)
+        assertEquals(1, secondCloses)
+        control.finish(prepared)
+        var lateCloses = 0
+        control.onFinish(prepared) { lateCloses++ }
+        control.finish(prepared)
+        assertEquals(1, lateCloses)
+        assertNotEquals(first.id, second.id)
+    }
     @Test fun returningToFlowChatLatchesTakeoverUntilAnExplicitNewTask() {
         val control = DeviceTaskControl()
+        control.setAppInForeground(true)
         val first = control.begin()
         control.arm(first)
         control.setAppInForeground(true) // onStart followed by onResume is not a return.
@@ -25,6 +46,22 @@ class DeviceTaskControlTest {
         control.arm(resumed)
         control.checkCanAct(resumed)
         assertThrows(CancellationException::class.java) { control.checkCanAct(first) }
+    }
+
+    @Test fun aColdAssistantTaskYieldsWhenTheFullAppFirstOpensButPanelVisibilityDoesNotTakeOver() {
+        val control = DeviceTaskControl()
+        val bridge = com.flowchat.app.presentation.overlay.FloatingAssistantBridge(control)
+        val task = control.begin()
+        control.arm(task)
+        val panel = bridge.showAssistantPanel()
+        assertFalse(bridge.appInForeground.value)
+        assertFalse(task.interrupted)
+        panel.close(); panel.close()
+        assertEquals(0, bridge.assistantPanels.value)
+        assertFalse(task.interrupted)
+        bridge.setAppInForeground(true)
+        assertTrue(task.interrupted)
+        assertThrows(CancellationException::class.java) { control.checkCanAct(task) }
     }
 
     @Test fun returningWhileTheModelIsStillPlanningBlocksItsLateFirstAction() {

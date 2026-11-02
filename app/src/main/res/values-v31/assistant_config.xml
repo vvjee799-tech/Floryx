@@ -1,0 +1,3 @@
+<resources>
+    <bool name="assistant_voice_supported">true</bool>
+</resources>

@@ -519,7 +519,35 @@ class TaskContextManagerTest {
         assertFalse(manager.shouldCompact(request, official))
         manager.requireFits(request, chat.id, official)
         assertTrue(client.requests.isEmpty())
-        assertThrows(IllegalStateException::class.java) { manager.requireFits(request, chat.id, provider) }
+        assertThrows(IllegalStateException::class.java) { manager.requireFits(request.copy(model = provider.defaultModel), chat.id, provider) }
+    }
+
+    @Test fun thirdPartyV41KeepsLargeHistoryAndSharesTheDisplayedCompactionAndSendBudgets() = runTest {
+        val gateway = provider.copy(baseUrl = "https://gateway.test/compatible-mode/v1", defaultModel = "deepseek-v4.1-flash-1017")
+        val chat = conversation.copy(modelName = gateway.defaultModel)
+        val rows = (1..20).flatMap { index -> listOf(
+            Message(id = "gateway-u$index", conversationId = chat.id, role = MessageRole.User, content = "Q $index"),
+            Message(id = "gateway-a$index", conversationId = chat.id, role = MessageRole.Assistant, content = "x".repeat(15_000))) }
+        val client = Client { error("100k must not summarize on a third-party V4.1 endpoint") }
+        val manager = TaskContextManager(client, Repo(rows))
+        val prepared = manager.prepare(chat, rows, gateway, null,
+            projectWindow = { ChatRequestFactory.create(chat, it.messages, checkpoint = it.checkpoint) })
+        val request = ChatRequestFactory.create(chat, prepared.messages)
+        val usage = manager.contextWindow(request, gateway)
+        assertEquals(rows, prepared.messages)
+        assertNull(prepared.checkpoint)
+        assertTrue(usage.usedTokens > 100_000)
+        assertEquals(1_000_000, usage.modelWindowTokens)
+        assertEquals(884_464, usage.totalTokens)
+        assertEquals(65_536, usage.outputReserveTokens)
+        assertFalse(manager.shouldCompact(request, gateway))
+        manager.requireFits(request, chat.id, gateway)
+        val huge = request.copy(messages = listOf(ChatRequestMessage("user", "x".repeat(2_700_000))))
+        assertTrue(manager.shouldCompact(huge, gateway))
+        assertThrows(IllegalStateException::class.java) { manager.requireFits(huge, chat.id, gateway) }
+        assertEquals(818_928, manager.contextWindow(request.copy(thinkingEffort = ThinkingEffort.Max), gateway).totalTokens)
+        assertEquals(941_808, manager.contextWindow(request.copy(enableThinking = false), gateway).totalTokens)
+        assertTrue(client.requests.isEmpty())
     }
 
     @Test fun deepSeekWatermarksFollowOutputAndThinkingChangesAndHardBudgetIsEnforced() {

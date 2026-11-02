@@ -33,6 +33,14 @@ class ContextBudgetTest {
         }
         val other = provider.copy(baseUrl = "https://proxy.test")
         assertEquals(ContextBudget.request(request, other), estimator.request(request, other))
+        for (host in listOf("proxy.test", "openrouter.ai", "workspace.cn-beijing.maas.aliyuncs.com")) {
+            val gateway = provider.copy(baseUrl = "https://$host/v1")
+            val versioned = request.copy(model = "deepseek-ai/DeepSeek-V4.1-Flash-1017")
+            for (selected in listOf(versioned, versioned.copy(enableThinking = false), versioned.copy(tools = emptyList()),
+                versioned.copy(maxTokens = 4_096), versioned.copy(thinkingEffort = com.flowchat.app.domain.model.ThinkingEffort.Max))) {
+                assertEquals(ContextBudget.request(selected, gateway), estimator.request(selected, gateway))
+            }
+        }
     }
 
     @Test

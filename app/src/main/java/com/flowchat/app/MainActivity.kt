@@ -1,6 +1,7 @@
 package com.flowchat.app
 
 import android.content.Context
+import android.content.Intent
 import android.os.Bundle
 import android.os.Build
 import android.view.WindowManager
@@ -37,6 +38,7 @@ class MainActivity : ComponentActivity() {
     @Inject lateinit var floatingAssistantManager: FloatingAssistantManager
     @Inject lateinit var deviceAssistantGateway: DeviceAssistantGateway
     private var nativeSplashDismissed by mutableStateOf(Build.VERSION.SDK_INT < Build.VERSION_CODES.S)
+    private var answerConversationId by mutableStateOf<String?>(null)
 
     override fun attachBaseContext(newBase: Context) {
         super.attachBaseContext(AppLocale.wrapContext(newBase))
@@ -44,6 +46,8 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        answerConversationId = if (savedInstanceState != null) savedInstanceState.getString("answer_navigation")
+            else answerOwner(intent)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             splashScreen.setOnExitAnimationListener { startingWindow ->
                 startingWindow.remove()
@@ -55,7 +59,7 @@ class MainActivity : ComponentActivity() {
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
                 appSettingsStore.state
-                    .map { settings -> settings.powerModeEnabled }
+                    .map { settings -> settings.powerModeEnabled || settings.photoAnswerEnabled }
                     .distinctUntilChanged()
                     .collect { floatingAssistantManager.syncEnabled() }
             }
@@ -79,7 +83,8 @@ class MainActivity : ComponentActivity() {
                     FlowChatRoot(appAppearance = appAppearance, onAppAppearanceChange = { appearance ->
                         appAppearance = appearance
                         AppAppearance.save(this, appearance)
-                    })
+                    }, answerConversationId = answerConversationId,
+                        onAnswerNotificationHandled = { answerConversationId = null })
                 }
             }
         }
@@ -89,6 +94,21 @@ class MainActivity : ComponentActivity() {
         super.onStart()
         floatingAssistantManager.onAppForeground()
     }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        answerConversationId = answerOwner(intent)
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        outState.putString("answer_navigation", answerConversationId)
+        super.onSaveInstanceState(outState)
+    }
+
+    private fun answerOwner(intent: Intent?): String? = intent?.takeIf {
+        it.action == com.flowchat.app.presentation.overlay.AnswerModeNavigation.OpenAnswerAction
+    }?.getStringExtra(com.flowchat.app.presentation.overlay.AnswerModeNavigation.ConversationExtra)?.takeIf { it.isNotBlank() }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)

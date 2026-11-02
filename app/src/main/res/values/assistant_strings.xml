@@ -1,0 +1,31 @@
+<resources>
+    <string name="assistant_system_entry">System assistant</string>
+    <string name="assistant_selected">Floryx is selected</string>
+    <string name="assistant_not_selected">Default assistant not selected</string>
+    <string name="assistant_setup_hint">Set Floryx as the default assistant to open its panel with the assistant gesture or a quick settings tile.</string>
+    <string name="assistant_system_context_hint">Ask about the current page from the panel. Page text is sent only when selected.</string>
+    <string name="assistant_choose_default">Choose default assistant</string>
+    <string name="assistant_try_panel">Open panel</string>
+    <string name="assistant_settings_unavailable">Open your phone settings and choose Floryx under Default digital assistant.</string>
+    <string name="assistant_tile">Floryx assistant</string>
+    <string name="assistant_add_tile">Add quick settings tile</string>
+    <string name="assistant_tile_added">Tile added</string>
+    <string name="assistant_tile_manual">Add the Floryx assistant tile from the quick settings editor.</string>
+    <string name="assistant_input_hint">What would you like me to do?</string>
+    <string name="assistant_ready">Ask here; the task continues after closing</string>
+    <string name="assistant_preparing">Preparing…</string>
+    <string name="assistant_running">Task running</string>
+    <string name="assistant_status_model">%1$s · %2$s</string>
+    <string name="assistant_finished">Latest response</string>
+    <string name="assistant_paused">Task paused · Continue in chat</string>
+    <string name="assistant_waiting">Waiting for your confirmation</string>
+    <string name="assistant_close">Close</string>
+    <string name="assistant_full_chat">Full chat</string>
+    <string name="assistant_include_page">Include page text</string>
+    <string name="assistant_page_preview">Preview</string>
+    <string name="assistant_page_expired">This page snapshot has expired. Invoke the system assistant again to read the current page, or send without it.</string>
+    <string name="assistant_configure_provider">Configure a model provider in the app first.</string>
+    <string name="assistant_send_failed">Could not start this task. Check the model configuration or stop the running task first.</string>
+    <string name="assistant_approve">Allow</string>
+    <string name="assistant_decline">Decline</string>
+</resources>

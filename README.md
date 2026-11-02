@@ -12,7 +12,7 @@
 <p align="center">
   <code>Android 8.0+ (API 26+)</code>&nbsp; • &nbsp;
   <code>Kotlin · Jetpack Compose</code>&nbsp; • &nbsp;
-  <code>Version 1.5.20</code>&nbsp; • &nbsp;
+  <code>Version 1.5.22</code>&nbsp; • &nbsp;
   <a href="LICENSE"><code>MIT License</code></a>
 </p>
 
@@ -99,9 +99,10 @@
 
 ## 📦 快速下载
 
-从 [GitHub Releases 页面](https://github.com/vvjee799-tech/Floryx/releases/latest) 下载经过全量单元测试与真机验证的构建：
+从 [GitHub Releases 页面](https://github.com/vvjee799-tech/Floryx/releases/latest) 下载经过单元测试与 MuMu 设备回归的构建：
 
-- **正式版安装包**：[⬇️ 下载 Floryx 1.5.20 APK](https://github.com/vvjee799-tech/Floryx/releases/download/v1.5.20/Floryx-1.5.20-retain-config.apk)
+- **正式版安装包**：[⬇️ 下载 Floryx 1.5.22 APK](https://github.com/vvjee799-tech/Floryx/releases/download/v1.5.22/Floryx-1.5.22-retain-config.apk)
+- **版本说明与验证范围**：[1.5.22 发布记录](docs/release-1.5.22.md)。后台执行屏仍为默认关闭的实验功能，需 Android 15+ 与 Root 等权限。
 - **架构支持**：ARM64-v8a / x86_64
 - **系统要求**：Android 8.0 (API 26) 及以上
 - **升级兼容**：支持直接覆盖旧版本，保留所有历史会话、工作区配置与加密 Key。
@@ -143,7 +144,7 @@ Floryx 采用严格的现代 Android 架构设计模式（Modern Android Archite
 - **网络与传输**：Ktor + OkHttp 双栈引擎，支持 HTTP/2、TLS 握手自愈与 SSE 流式解析；
 - **终端运行时**：定制版 PRoot 5.1 + Alpine Linux 3.24 根镜像，二进制原生对齐 16KB ELF 规范以适配 Android 15+；
 - **系统桥接**：Shizuku AIDL + Android AccessibilityService 双通道分发引擎；
-- **数据持久化**：Room 数据库（已迭代至 Version 15，平滑迁移） + Android Keystore。
+- **数据持久化**：Room 数据库（已迭代至 Version 16，平滑迁移） + Android Keystore。
 
 ### 本地编译指令
 

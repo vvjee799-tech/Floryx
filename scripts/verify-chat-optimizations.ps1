@@ -14,18 +14,8 @@ New-Item -ItemType Directory -Path $outputDirectory -Force | Out-Null
 if ($LASTEXITCODE -ne 0) { throw 'Android build or unit tests failed.' }
 if ($BuildOnly) { return }
 
-$device = (& $manager info -v 0 | ConvertFrom-Json)
-if (!$device.is_android_started) {
-    & $manager control -v 0 launch
-    if ($LASTEXITCODE -ne 0) { throw 'Could not start MuMu instance 0.' }
-    for ($attempt = 0; $attempt -lt 60; $attempt++) {
-        Start-Sleep -Seconds 2
-        $device = (& $manager info -v 0 | ConvertFrom-Json)
-        if ($device.is_android_started) { break }
-    }
-}
-if (!$device.is_android_started -or !$device.adb_host_ip -or !$device.adb_port) { throw 'MuMu ADB endpoint is unavailable.' }
-$serial = '{0}:{1}' -f $device.adb_host_ip, $device.adb_port
+$device = & (Join-Path $PSScriptRoot 'resolve-floryx-mumu.ps1') -Start
+$serial = $device.Serial
 & $adb connect $serial
 & $adb -s $serial wait-for-device
 $booted = $false

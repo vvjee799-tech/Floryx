@@ -1,0 +1,4 @@
+<resources>
+    <string name="root_ready">Root 已就绪</string>
+    <string name="root_ready_description">空闲时自动断开，下次操作时重新连接。</string>
+</resources>

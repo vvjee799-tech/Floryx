@@ -71,6 +71,13 @@ class ShizukuDeviceAssistantGateway @Inject constructor(
     private val floatingAssistantBridge: com.flowchat.app.presentation.overlay.FloatingAssistantBridge =
         com.flowchat.app.presentation.overlay.FloatingAssistantBridge(taskControl)
 ) : DeviceAssistantGateway {
+    override val backgroundExecutionRequested: Boolean get() = appSettingsStore.state.value.backgroundExecutionEnabled
+    private val background = BackgroundDeviceController(rootConnection, taskControl, context.packageName) {
+        val settings = appSettingsStore.state.value
+        settings.backgroundExecutionEnabled && settings.powerModeEnabled && settings.powerConnectionMode == PowerConnectionMode.Root
+    }
+    private fun backgroundUnsupported() = DeviceToolResult(false,
+        "This operation affects the physical phone. Switch off background execution to use it.", errorCode = "background_action_unsupported")
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val mutableConnectionState = MutableStateFlow(ShizukuConnectionState())
     override val connectionState: StateFlow<ShizukuConnectionState> = mutableConnectionState.asStateFlow()
@@ -136,15 +143,21 @@ class ShizukuDeviceAssistantGateway @Inject constructor(
             }
         }
         scope.launch {
-            appSettingsStore.state.map { it.powerConnectionMode }.distinctUntilChanged().collect { mode ->
-                if (mode == PowerConnectionMode.Root) {
+            appSettingsStore.state.map { Triple(it.powerConnectionMode, it.powerModeEnabled, it.backgroundExecutionEnabled) }.distinctUntilChanged().collect { (mode, enabled, _) ->
+                background.release()
+                if (mode == PowerConnectionMode.Root && enabled) {
                     publishRootState(rootConnection.state.value)
                     scope.launch {
                         if (isRootMode) {
-                            rootConnection.refresh(requestPermission = appSettingsStore.state.value.powerModeEnabled)
+                            rootConnection.refresh(requestPermission = true)
                         }
                     }
                 } else {
+                    rootConnection.release()
+                    if (mode == PowerConnectionMode.Root) {
+                        publishRootState(rootConnection.state.value)
+                        return@collect
+                    }
                     mutableConnectionState.value = ShizukuConnectionState()
                     refreshConnection()
                 }
@@ -247,9 +260,10 @@ class ShizukuDeviceAssistantGateway @Inject constructor(
 
     override suspend fun getDeviceStatus(): DeviceToolResult = callService { it.getDeviceStatus() }
 
-    override suspend fun getForegroundApp(): DeviceToolResult = callService { it.getForegroundApp() }
+    override suspend fun getForegroundApp(): DeviceToolResult = if (backgroundExecutionRequested) background.foreground() else callService { it.getForegroundApp() }
 
     override suspend fun launchApp(packageName: String, activityName: String): DeviceToolResult {
+        if (backgroundExecutionRequested) return background.launch(packageName, activityName)
         currentCoroutineContext().ensureActive()
         val task = taskControl.currentTask
         taskControl.checkCanAct(task)
@@ -261,12 +275,13 @@ class ShizukuDeviceAssistantGateway @Inject constructor(
     }
 
     override suspend fun setScreenBrightness(percent: Int): DeviceToolResult =
-        callService { it.setScreenBrightness(percent.coerceIn(1, 100)) }
+        if (backgroundExecutionRequested) backgroundUnsupported() else callService { it.setScreenBrightness(percent.coerceIn(1, 100)) }
 
     override suspend fun setMediaVolume(percent: Int): DeviceToolResult =
-        callService { it.setMediaVolume(percent.coerceIn(0, 100)) }
+        if (backgroundExecutionRequested) backgroundUnsupported() else callService { it.setMediaVolume(percent.coerceIn(0, 100)) }
 
     override suspend fun forceStopApp(appName: String): DeviceToolResult {
+        if (backgroundExecutionRequested) return backgroundUnsupported()
         val app = withContext(Dispatchers.IO) { resolveLaunchableApp(appName) }
         if (app.packageName == context.packageName) {
             return DeviceToolResult(
@@ -295,21 +310,29 @@ class ShizukuDeviceAssistantGateway @Inject constructor(
     private val visualFrameGuard = VisualFrameGuard()
 
     override suspend fun observeScreen(): DeviceToolResult = AutomationTimings.measure("device.observe") { uiActionMutex.withLock {
+        if (backgroundExecutionRequested) return@withLock background.observe()
         observeScreenLocked()
     } }
 
     override suspend fun waitForScreen(): DeviceToolResult = AutomationTimings.measure("device.wait") { uiActionMutex.withLock {
+        if (backgroundExecutionRequested) return@withLock background.observe()
         val baseline = snapshotGuard.latest()
         observeScreenLocked(waitForChangeFrom = baseline)
     } }
 
     override suspend fun captureScreen(region: com.flowchat.app.domain.device.ScreenImageRegion?): DeviceToolResult = uiActionMutex.withLock {
+        if (backgroundExecutionRequested) return@withLock background.observe(region)
         captureStableVisualFrameLocked(region)
     }
 
-    private suspend fun captureScreenLocked(region: com.flowchat.app.domain.device.ScreenImageRegion? = null): DeviceToolResult {
+    override suspend fun captureForegroundScreen(): DeviceToolResult = uiActionMutex.withLock {
+        captureScreenLocked(foregroundOnly = true)
+    }
+
+    private suspend fun captureScreenLocked(region: com.flowchat.app.domain.device.ScreenImageRegion? = null,
+        foregroundOnly: Boolean = false): DeviceToolResult {
         val owner = taskControl.currentTask
-        val observed = observeScreenLocked(waitForSettledUi = false)
+        val observed = observeScreenLocked(waitForSettledUi = false, foregroundOnly = foregroundOnly)
         val before = observed.screen
         if (!observed.success || before == null || before.sensitive) return observed.copy(
             imageErrorCode = observed.errorCode ?: "screen_unavailable")
@@ -318,7 +341,8 @@ class ShizukuDeviceAssistantGateway @Inject constructor(
             val image = accessibility.captureScreenImage(before, region) { capture ->
                 floatingAssistantBridge.withDisplayCapture(capture)
             }
-            val after = accessibility.observeScreen()
+            val after = if (foregroundOnly) accessibility.observeScreenOnDisplay(android.view.Display.DEFAULT_DISPLAY)
+                else accessibility.observeScreen()
             val result = com.flowchat.app.domain.device.ScreenCapturePolicy.complete(before, after, image)
             snapshotGuard.remember(result.screen)
             if (owner === taskControl.currentTask) visualFrameGuard.remember(result, SystemClock.elapsedRealtime(), owner)
@@ -334,11 +358,12 @@ class ShizukuDeviceAssistantGateway @Inject constructor(
     }
 
     private suspend fun observeScreenLocked(waitForSettledUi: Boolean = true,
-        waitForChangeFrom: DeviceScreenSnapshot? = null): DeviceToolResult {
+        waitForChangeFrom: DeviceScreenSnapshot? = null, foregroundOnly: Boolean = false): DeviceToolResult {
         snapshotGuard.remember(null)
         visualFrameGuard.clear()
         val accessibility = requireAccessibilityService() ?: return accessibilityUnavailable()
-        val screen = (if (waitForSettledUi) accessibility.observeSettledScreen(waitForChangeFrom) else accessibility.observeScreen())
+        val screen = (if (foregroundOnly) accessibility.observeScreenOnDisplay(android.view.Display.DEFAULT_DISPLAY)
+            else if (waitForSettledUi) accessibility.observeSettledScreen(waitForChangeFrom) else accessibility.observeScreen())
             ?: return DeviceToolResult(
                 success = false,
                 summary = "The current screen could not be read.",
@@ -358,7 +383,7 @@ class ShizukuDeviceAssistantGateway @Inject constructor(
     }
 
     override suspend fun tapUiElement(index: Int, longPress: Boolean, screenId: String?): DeviceToolResult =
-        performScreenAction(
+        if (backgroundExecutionRequested) background.tap(index, longPress, screenId) else performScreenAction(
             toolName = com.flowchat.app.domain.tools.AgentToolDefinitions.TapUiElementToolName,
             summary = if (longPress) "Long pressed UI element [$index]." else "Tapped UI element [$index].",
             expectedScreenId = screenId,
@@ -370,6 +395,7 @@ class ShizukuDeviceAssistantGateway @Inject constructor(
         }
 
     override suspend fun tapVisualTarget(target: VisualTapTarget): DeviceToolResult = uiActionMutex.withLock {
+        if (backgroundExecutionRequested) return@withLock background.visual(target)
         val task = taskControl.currentTask
         currentCoroutineContext().ensureActive()
         taskControl.checkCanAct(task)
@@ -466,7 +492,7 @@ class ShizukuDeviceAssistantGateway @Inject constructor(
         text: String,
         clearExisting: Boolean,
         screenId: String?
-    ): DeviceToolResult = performScreenAction(
+    ): DeviceToolResult = if (backgroundExecutionRequested) background.input(index, text, clearExisting, screenId) else performScreenAction(
         toolName = com.flowchat.app.domain.tools.AgentToolDefinitions.InputTextToolName,
         summary = "Entered text into UI element [$index].",
         expectedScreenId = screenId,
@@ -481,20 +507,20 @@ class ShizukuDeviceAssistantGateway @Inject constructor(
     override suspend fun swipeScreen(
         direction: DeviceSwipeDirection,
         distancePercent: Int
-    ): DeviceToolResult = performScreenAction(
+    ): DeviceToolResult = if (backgroundExecutionRequested) background.swipe(direction, distancePercent) else performScreenAction(
         toolName = com.flowchat.app.domain.tools.AgentToolDefinitions.SwipeScreenToolName,
         summary = "Swiped ${direction.name.lowercase()} on the current screen."
     ) { accessibility, _ ->
         accessibility.swipeScreen(direction, distancePercent.coerceIn(20, 80))
     }
 
-    override suspend fun pressBack(): DeviceToolResult = performScreenAction(
+    override suspend fun pressBack(): DeviceToolResult = if (backgroundExecutionRequested) background.back() else performScreenAction(
         toolName = com.flowchat.app.domain.tools.AgentToolDefinitions.PressBackToolName,
         summary = "Pressed Back.",
         allowFlowChat = true
     ) { accessibility, _ -> accessibility.pressBack() }
 
-    override suspend fun pressHome(): DeviceToolResult = performScreenAction(
+    override suspend fun pressHome(): DeviceToolResult = if (backgroundExecutionRequested) background.home() else performScreenAction(
         toolName = com.flowchat.app.domain.tools.AgentToolDefinitions.PressHomeToolName,
         summary = "Opened the Home screen.",
         allowFlowChat = true
@@ -716,7 +742,8 @@ class ShizukuDeviceAssistantGateway @Inject constructor(
         service?.asBinder()?.isBinderAlive == true
 
     override suspend fun startShellCommand(command: String, workingDirectory: String, timeoutSeconds: Int): CommandSnapshot =
-        callCommandService(null) { it.startShellCommand(command, workingDirectory, timeoutSeconds) }
+        if (backgroundExecutionRequested) error("Android shell commands are disabled during background execution. Use the display-specific device tools.")
+        else callCommandService(null) { it.startShellCommand(command, workingDirectory, timeoutSeconds) }
 
     override suspend fun readShellCommand(commandId: String): CommandSnapshot =
         callCommandService(commandId) { it.readShellCommand(commandId) }
@@ -726,8 +753,11 @@ class ShizukuDeviceAssistantGateway @Inject constructor(
 
     private suspend fun callCommandService(commandId: String?, operation: (IFlowChatShizukuService) -> String): CommandSnapshot = withContext(Dispatchers.IO) {
         val useRoot = commandId?.startsWith("root-") ?: isRootMode
-        val connected = commandId?.let(commandServices::get) ?: if (useRoot) rootConnection.requireService() else awaitService()
         currentCoroutineContext().ensureActive()
+        if (useRoot) return@withContext rootConnection.withService { connected ->
+            commandJson.decodeFromString<CommandSnapshot>(operation(connected))
+        }
+        val connected = commandId?.let(commandServices::get) ?: awaitService()
         try {
             commandJson.decodeFromString<CommandSnapshot>(operation(connected)).also { snapshot ->
                 if (snapshot.isRunning) commandServices[snapshot.id] = connected else commandServices.remove(snapshot.id)
@@ -743,12 +773,16 @@ class ShizukuDeviceAssistantGateway @Inject constructor(
     ): DeviceToolResult = withContext(Dispatchers.IO) {
         val root = isRootMode
         runCatching {
-            val connectedService = if (root) rootConnection.requireService() else awaitService()
             currentCoroutineContext().ensureActive()
             check(isRootMode == root) { "Power connection changed. Retry the operation." }
-            parseResult(operation(connectedService))
+            val raw = if (root) rootConnection.withService { connected ->
+                check(isRootMode) { "Power connection changed. Retry the operation." }
+                operation(connected)
+            } else operation(awaitService())
+            parseResult(raw).also { if (root && !it.success) rootConnection.invalidate() }
         }.getOrElse { error ->
             if (error is CancellationException) throw error
+            if (root) rootConnection.invalidate()
             refreshConnection()
             DeviceToolResult(
                 success = false,

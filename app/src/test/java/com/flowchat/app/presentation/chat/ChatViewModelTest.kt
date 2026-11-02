@@ -1,6 +1,5 @@
 package com.flowchat.app.presentation.chat
 
-import androidx.lifecycle.viewModelScope
 import com.flowchat.app.data.network.ChatCompletionClient
 import com.flowchat.app.data.preferences.AppSettings
 import com.flowchat.app.data.preferences.AppSettingsStore
@@ -60,9 +59,40 @@ import org.junit.Before
 import org.junit.Test
 
 @OptIn(ExperimentalCoroutinesApi::class)
-class ChatViewModelTest {
+class ChatTaskRuntimeTest {
     private val dispatcher = StandardTestDispatcher()
-    private val testModels = mutableListOf<ChatViewModel>()
+    private val testModels = mutableListOf<ChatTaskRuntime>()
+
+    @Test fun screenQuestionRejectsKnownTextOnlyModelWithoutSendingOrConsumingTheDraft() = runTest(dispatcher) {
+        val provider = ProviderConfig(id = "text-only", displayName = "Text", baseUrl = "https://api.deepseek.com", defaultModel = "deepseek-chat")
+        val owner = Conversation(id = "screen-owner", providerId = provider.id, modelName = provider.defaultModel)
+        val chats = FakeChatRepository(listOf(owner), owner)
+        val client = FakeChatCompletionClient()
+        val bridge = FloatingAssistantBridge()
+        val runtime = ChatTaskRuntime(chats, FakeProviderRepository(provider), client, FakeAppUsageReader(),
+            FakeAppLauncher(), FakeDeviceAssistantGateway(), FakePromptProfileRepository(), FakeMemoryRepository(),
+            AppSettingsStore(AppSettings(powerModeEnabled = false, memoryEnabled = false)), floatingAssistantBridge = bridge,
+            contextDispatcher = dispatcher).also { testModels += it }
+        backgroundScope.launch { runtime.uiState.collect {} }
+        advanceUntilIdle()
+        runtime.selectConversation(owner.id)
+        runtime.updateInput("Keep my draft")
+        runtime.attachTextFile("keep.txt", "Keep my attachment")
+        assertTrue(runtime.recognizeScreen(owner.id))
+        assertFalse(runtime.recognizeScreen(owner.id))
+        advanceUntilIdle()
+        assertEquals("vision_unsupported", bridge.screenQuestion.value.errorCode)
+        assertTrue(client.requests.isEmpty())
+        assertTrue(chats.getMessages(owner.id).isEmpty())
+        assertEquals("Keep my draft", runtime.uiState.value.input)
+        assertEquals("keep.txt", runtime.uiState.value.pendingAttachment?.name)
+        runtime.setPhotoAnswerEnabled(false)
+        bridge.clearScreenQuestion()
+        assertFalse(runtime.recognizeScreen(owner.id))
+        advanceUntilIdle()
+        assertEquals(com.flowchat.app.presentation.overlay.ScreenQuestionPhase.Idle, bridge.screenQuestion.value.phase)
+        assertTrue(chats.getMessages(owner.id).isEmpty())
+    }
 
     @Before
     fun setUp() {
@@ -73,13 +103,118 @@ class ChatViewModelTest {
     fun tearDown() {
         try {
             runTest(dispatcher) {
-                val jobs = testModels.mapNotNull { it.viewModelScope.coroutineContext[kotlinx.coroutines.Job] }
+                val jobs = testModels.mapNotNull { it.scope.coroutineContext[kotlinx.coroutines.Job] }
                 jobs.forEach { it.cancel() }
                 jobs.forEach { it.join() }
             }
         } finally {
             kotlinx.coroutines.Dispatchers.resetMain()
         }
+    }
+
+    @Test
+    fun assistantEntryKeepsTheEditorSelectionAndDraftAndStopsOnlyItsOwnConversation() = runTest(dispatcher) {
+        val provider = ProviderConfig(id = "provider-1", displayName = "Test", baseUrl = "https://example.test", defaultModel = "test")
+        val editor = Conversation(id = "editor", providerId = provider.id, modelName = "test")
+        val assistant = editor.copy(id = "assistant")
+        val chats = FakeChatRepository(listOf(editor, assistant), assistant)
+        val client = FakeChatCompletionClient()
+        client.responseGates[0] = kotlinx.coroutines.CompletableDeferred()
+        val runtime = ChatTaskRuntime(chats, FakeProviderRepository(provider), client, FakeAppUsageReader(),
+            FakeAppLauncher(), FakeDeviceAssistantGateway(), FakePromptProfileRepository(), FakeMemoryRepository(),
+            AppSettingsStore(AppSettings(powerModeEnabled = false, memoryEnabled = false)), contextDispatcher = dispatcher)
+            .also { testModels += it }
+        val editorCollection = backgroundScope.launch { runtime.uiState.collect {} }
+        val snapshots = mutableListOf<ChatUiState>()
+        val assistantCollection = backgroundScope.launch { runtime.observeFromAssistant(assistant.id).collect { snapshots += it } }
+        advanceUntilIdle()
+        runtime.selectConversation(editor.id)
+        runtime.updateInput("KEEP_EDITOR_DRAFT")
+        runtime.attachTextFile("editor.txt", "KEEP_EDITOR_ATTACHMENT")
+        assertTrue(runtime.sendFromAssistant(assistant.id, "ONLY_ASSISTANT_REQUEST", "PAGE_CONTEXT_OPTED_IN"))
+        runCurrent()
+        assertFalse(runtime.sendFromAssistant(assistant.id, "DUPLICATE"))
+        assertEquals(editor.id, runtime.uiState.value.currentConversation?.id)
+        assertEquals("KEEP_EDITOR_DRAFT", runtime.uiState.value.input)
+        assertEquals("editor.txt", runtime.uiState.value.pendingAttachment?.name)
+        assertTrue(chats.getMessages(editor.id).isEmpty())
+        val user = chats.getMessages(assistant.id).first { it.role == MessageRole.User }
+        assertEquals("ONLY_ASSISTANT_REQUEST", user.content)
+        assertEquals("PAGE_CONTEXT_OPTED_IN", user.attachmentText)
+        assertTrue(snapshots.last().isStreaming)
+        runtime.stopFromAssistant(assistant.id)
+        advanceUntilIdle()
+        assertTrue(chats.getMessages(assistant.id).any { it.status == MessageStatus.Stopped })
+        assertFalse(snapshots.last().isStreaming)
+        assertEquals("KEEP_EDITOR_DRAFT", runtime.uiState.value.input)
+        assertEquals(1, client.requests.size)
+        editorCollection.cancel(); assistantCollection.cancel()
+    }
+
+    @Test
+    fun assistantEntryDoesNotInheritAnEditorAttachmentWhenPageContextIsOmitted() = runTest(dispatcher) {
+        val client = FakeChatCompletionClient(listOf(listOf(ChatDelta.Content("DONE"), ChatDelta.Done)))
+        val runtime = deviceTestViewModel(client, FakeDeviceAssistantGateway(), memoryEnabled = false)
+        val collection = backgroundScope.launch { runtime.uiState.collect {} }
+        advanceUntilIdle()
+        runtime.updateInput("KEEP_DRAFT")
+        runtime.attachTextFile("private-editor.txt", "PRIVATE_EDITOR_TEXT")
+        assertTrue(runtime.sendFromAssistant("device-test", "Assistant request"))
+        advanceUntilIdle()
+        assertFalse(client.requests.single().messages.any { it.content.orEmpty().contains("PRIVATE_EDITOR_TEXT") })
+        assertEquals("KEEP_DRAFT", runtime.uiState.value.input)
+        assertEquals("private-editor.txt", runtime.uiState.value.pendingAttachment?.name)
+        collection.cancel()
+    }
+
+    @Test
+    fun clearingTheUiViewModelDoesNotCancelTheSharedTask() = runTest(dispatcher) {
+        val client = FakeChatCompletionClient(listOf(listOf(ChatDelta.Content("FINISHED_AFTER_UI_CLEAR"), ChatDelta.Done)))
+        val gate = kotlinx.coroutines.CompletableDeferred<Unit>()
+        client.responseGates[0] = gate
+        val runtime = deviceTestViewModel(client, FakeDeviceAssistantGateway(), memoryEnabled = false)
+        val collection = backgroundScope.launch { runtime.uiState.collect {} }
+        advanceUntilIdle()
+        val store = androidx.lifecycle.ViewModelStore()
+        val original = ChatViewModel(runtime)
+        store.put("chat", original)
+        original.updateInput("Complete this synthetic task")
+        original.send()
+        runCurrent()
+        assertEquals(1, client.requests.size)
+        store.clear()
+        runCurrent()
+        assertTrue(runtime.uiState.value.isStreaming)
+        val replacement = ChatViewModel(runtime)
+        assertTrue(replacement.uiState === original.uiState)
+        gate.complete(Unit)
+        advanceUntilIdle()
+        assertFalse(replacement.uiState.value.isStreaming)
+        assertTrue(replacement.uiState.value.messages.any { it.content == "FINISHED_AFTER_UI_CLEAR" && it.status == MessageStatus.Complete })
+        assertEquals(1, client.requests.size)
+        collection.cancel()
+    }
+
+    @Test
+    fun aFreshUiViewModelCanStopATaskStartedByItsClearedPredecessor() = runTest(dispatcher) {
+        val client = FakeChatCompletionClient()
+        client.responseGates[0] = kotlinx.coroutines.CompletableDeferred()
+        val runtime = deviceTestViewModel(client, FakeDeviceAssistantGateway(), memoryEnabled = false)
+        val collection = backgroundScope.launch { runtime.uiState.collect {} }
+        advanceUntilIdle()
+        val store = androidx.lifecycle.ViewModelStore()
+        val original = ChatViewModel(runtime)
+        store.put("chat", original)
+        original.updateInput("Synthetic task awaiting a response")
+        original.send()
+        runCurrent()
+        store.clear()
+        ChatViewModel(runtime).stop()
+        advanceUntilIdle()
+        assertTrue(runtime.activeConversations.value.isEmpty())
+        assertTrue(runtime.uiState.value.messages.any { it.role == MessageRole.Assistant && it.status == MessageStatus.Stopped })
+        assertEquals(1, client.requests.size)
+        collection.cancel()
     }
 
     @Test
@@ -599,7 +734,8 @@ class ChatViewModelTest {
                     normalRequests += request
                     round++
                     if (round <= 7) {
-                        emit(ChatDelta.Reasoning("PRIVATE_REASONING_" + "r".repeat(10_000)))
+                        // Known third-party DeepSeek now has a 1M window; cross its compaction threshold.
+                        emit(ChatDelta.Reasoning("PRIVATE_REASONING_" + "r".repeat(400_000)))
                         emit(ChatDelta.ProviderData(kotlinx.serialization.json.Json.parseToJsonElement("""[{"type":"reasoning","id":"opaque-$round"}]""").jsonArray))
                         emit(ChatDelta.ToolCalls(listOf(ChatToolCall("step-$round", AgentToolDefinitions.SetBrightnessToolName, """{"percent":${round + 20}}"""))))
                     } else { emit(ChatDelta.Content("已完成本轮测试。")); emit(ChatDelta.Done) }
@@ -824,6 +960,29 @@ class ChatViewModelTest {
         collection.cancel()
     }
 
+    @Test
+    fun idleRootReadinessDoesNotReopenPowerSetupOrSendModelRequests() = runTest(dispatcher) {
+        val gateway = FakeDeviceAssistantGateway()
+        gateway.connectionState.value = gateway.connectionState.value.copy(status = ShizukuConnectionStatus.ConnectedDirectRoot)
+        val client = FakeChatCompletionClient()
+        val runtime = deviceTestViewModel(client, gateway)
+        val collection = backgroundScope.launch { runtime.uiState.collect {} }
+        advanceUntilIdle()
+        assertEquals(1, gateway.powerSetupCalls)
+        gateway.connectionState.value = gateway.connectionState.value.copy(status = ShizukuConnectionStatus.RootReady)
+        advanceUntilIdle()
+        assertEquals(1, gateway.powerSetupCalls)
+        assertTrue(runtime.uiState.value.shizukuState.isConnected)
+        assertTrue(runtime.uiState.value.shizukuState.capabilities.isNotEmpty())
+        gateway.connectionState.value = gateway.connectionState.value.copy(status = ShizukuConnectionStatus.Connecting)
+        advanceUntilIdle()
+        gateway.connectionState.value = gateway.connectionState.value.copy(status = ShizukuConnectionStatus.ConnectedDirectRoot)
+        advanceUntilIdle()
+        assertEquals(2, gateway.powerSetupCalls)
+        assertTrue(client.requests.isEmpty())
+        collection.cancel()
+    }
+
     private fun deviceTestViewModel(
         client: ChatCompletionClient,
         gateway: FakeDeviceAssistantGateway,
@@ -834,10 +993,10 @@ class ChatViewModelTest {
         memory: FakeMemoryRepository = FakeMemoryRepository(),
         memoryEnabled: Boolean = true,
         providerBaseUrl: String = "https://example.test"
-    ): ChatViewModel {
+    ): ChatTaskRuntime {
         val provider = ProviderConfig(id = "provider-1", displayName = "Test", baseUrl = providerBaseUrl, defaultModel = model)
         val conversation = Conversation(id = "device-test", title = "Device test", providerId = provider.id, modelName = model)
-        return ChatViewModel(
+        return ChatTaskRuntime(
             chatRepository = FakeChatRepository(listOf(conversation), conversation),
             providerRepository = FakeProviderRepository(provider), chatClient = client,
             appUsageReader = FakeAppUsageReader(), appLauncher = launcher, deviceAssistantGateway = gateway,
@@ -874,7 +1033,7 @@ class ChatViewModelTest {
             initialConversations = listOf(oldConversation),
             nextConversation = newConversation
         )
-        val viewModel = ChatViewModel(
+        val viewModel = ChatTaskRuntime(
             chatRepository = chatRepository,
             providerRepository = FakeProviderRepository(provider),
             chatClient = FakeChatCompletionClient(),
@@ -919,7 +1078,7 @@ class ChatViewModelTest {
             initialConversations = emptyList(),
             nextConversation = newConversation
         )
-        val viewModel = ChatViewModel(
+        val viewModel = ChatTaskRuntime(
             chatRepository = chatRepository,
             providerRepository = FakeProviderRepository(
                 providers = listOf(customDraft, deepSeek),
@@ -963,7 +1122,7 @@ class ChatViewModelTest {
             nextConversation = conversation
         )
         val chatClient = FakeChatCompletionClient()
-        val viewModel = ChatViewModel(
+        val viewModel = ChatTaskRuntime(
             chatRepository = chatRepository,
             providerRepository = FakeProviderRepository(provider),
             chatClient = chatClient,
@@ -1025,7 +1184,7 @@ class ChatViewModelTest {
                 listOf(ChatDelta.Content("Here is the result."), ChatDelta.Done)
             )
         )
-        val viewModel = ChatViewModel(
+        val viewModel = ChatTaskRuntime(
             chatRepository = chatRepository,
             providerRepository = FakeProviderRepository(provider),
             chatClient = chatClient,
@@ -1086,7 +1245,7 @@ class ChatViewModelTest {
             )
         )
         val appLauncher = FakeAppLauncher()
-        val viewModel = ChatViewModel(
+        val viewModel = ChatTaskRuntime(
             chatRepository = chatRepository,
             providerRepository = FakeProviderRepository(provider),
             chatClient = chatClient,
@@ -1145,7 +1304,7 @@ class ChatViewModelTest {
             )
         )
         val deviceGateway = FakeDeviceAssistantGateway()
-        val viewModel = ChatViewModel(
+        val viewModel = ChatTaskRuntime(
             chatRepository = FakeChatRepository(listOf(conversation), conversation),
             providerRepository = FakeProviderRepository(provider),
             chatClient = chatClient,
@@ -1171,6 +1330,7 @@ class ChatViewModelTest {
 
         assertTrue(viewModel.uiState.value.pendingDeviceActionConfirmation != null)
         assertTrue(deviceGateway.forceStoppedApps.isEmpty())
+        assertFalse(viewModel.backgroundWorkActive.value)
 
         viewModel.confirmDeviceAction()
         advanceUntilIdle()
@@ -1178,6 +1338,7 @@ class ChatViewModelTest {
         assertEquals(listOf("Example"), deviceGateway.forceStoppedApps)
         assertEquals(2, chatClient.requests.size)
         assertTrue(viewModel.uiState.value.pendingDeviceActionConfirmation == null)
+        assertFalse(viewModel.backgroundWorkActive.value)
         collection.cancel()
     }
 
@@ -1214,7 +1375,7 @@ class ChatViewModelTest {
             )
         )
         val deviceGateway = FakeDeviceAssistantGateway()
-        val viewModel = ChatViewModel(
+        val viewModel = ChatTaskRuntime(
             chatRepository = chatRepository,
             providerRepository = FakeProviderRepository(provider),
             chatClient = chatClient,
@@ -1264,7 +1425,7 @@ class ChatViewModelTest {
             modelName = provider.defaultModel
         )
         val chatClient = FakeChatCompletionClient()
-        val viewModel = ChatViewModel(
+        val viewModel = ChatTaskRuntime(
             chatRepository = FakeChatRepository(listOf(conversation), conversation),
             providerRepository = FakeProviderRepository(provider),
             chatClient = chatClient,
@@ -1339,7 +1500,7 @@ class ChatViewModelTest {
             )
         )
         val deviceGateway = FakeDeviceAssistantGateway()
-        val viewModel = ChatViewModel(
+        val viewModel = ChatTaskRuntime(
             chatRepository = FakeChatRepository(listOf(conversation), conversation),
             providerRepository = FakeProviderRepository(provider),
             chatClient = chatClient,
@@ -1392,7 +1553,7 @@ class ChatViewModelTest {
         )
         val chatClient = FakeChatCompletionClient(scriptedResponses)
         val deviceGateway = FakeDeviceAssistantGateway()
-        val viewModel = ChatViewModel(
+        val viewModel = ChatTaskRuntime(
             chatRepository = FakeChatRepository(listOf(conversation), conversation),
             providerRepository = FakeProviderRepository(provider),
             chatClient = chatClient,
@@ -1452,7 +1613,7 @@ class ChatViewModelTest {
             )
         )
         val deviceGateway = FakeDeviceAssistantGateway()
-        val viewModel = ChatViewModel(
+        val viewModel = ChatTaskRuntime(
             chatRepository = FakeChatRepository(listOf(conversation), conversation),
             providerRepository = FakeProviderRepository(provider),
             chatClient = chatClient,
@@ -1494,7 +1655,7 @@ class ChatViewModelTest {
             modelName = provider.defaultModel
         )
         val chatClient = FakeChatCompletionClient()
-        val viewModel = ChatViewModel(
+        val viewModel = ChatTaskRuntime(
             chatRepository = FakeChatRepository(listOf(conversation), conversation),
             providerRepository = FakeProviderRepository(provider),
             chatClient = chatClient,
@@ -1527,7 +1688,7 @@ class ChatViewModelTest {
             listOf(ChatDelta.ToolCalls(listOf(ChatToolCall("second", AgentToolDefinitions.ForceStopAppToolName, """{"app_name":"Second"}""")))),
             listOf(ChatDelta.Content("Finished"), ChatDelta.Done)
         ))
-        val vm = ChatViewModel(repository, FakeProviderRepository(provider), client, FakeAppUsageReader(),
+        val vm = ChatTaskRuntime(repository, FakeProviderRepository(provider), client, FakeAppUsageReader(),
             FakeAppLauncher(), gateway, FakePromptProfileRepository(), FakeMemoryRepository(),
             AppSettingsStore(AppSettings(powerModeEnabled = true, memoryEnabled = false, installId = "test")),
             floatingAssistantBridge = bridge, contextDispatcher = dispatcher).also { testModels += it }
@@ -1600,7 +1761,7 @@ class ChatViewModelTest {
             listOf(ChatDelta.Content("answer B"), ChatDelta.Done),
             listOf(ChatDelta.Content("answer A"), ChatDelta.Done)
         ))
-        val vm = ChatViewModel(repository, FakeProviderRepository(provider), client, FakeAppUsageReader(),
+        val vm = ChatTaskRuntime(repository, FakeProviderRepository(provider), client, FakeAppUsageReader(),
             FakeAppLauncher(), gateway, FakePromptProfileRepository(), FakeMemoryRepository(),
             AppSettingsStore(AppSettings(powerModeEnabled = true, memoryEnabled = false, installId = "test")), contextDispatcher = dispatcher).also { testModels += it }
         val collection = backgroundScope.launch { vm.uiState.collect {} }
@@ -1628,9 +1789,9 @@ class ChatViewModelTest {
         collection.cancel()
     }
 
-    private fun conversationTestViewModel(repository: FakeChatRepository, client: ChatCompletionClient): ChatViewModel {
+    private fun conversationTestViewModel(repository: FakeChatRepository, client: ChatCompletionClient): ChatTaskRuntime {
         val provider = ProviderConfig(id = "provider-1", displayName = "Test", baseUrl = "https://example.test", defaultModel = "test")
-        return ChatViewModel(
+        return ChatTaskRuntime(
             chatRepository = repository,
             providerRepository = FakeProviderRepository(provider),
             chatClient = client,
@@ -1729,7 +1890,7 @@ class ChatViewModelTest {
         val chat = Conversation(id = "capacity-chat", providerId = provider.id, modelName = provider.defaultModel)
         val repository = FakeChatRepository(listOf(chat), chat)
         val client = FakeChatCompletionClient()
-        val vm = ChatViewModel(repository, FakeProviderRepository(provider), client, FakeAppUsageReader(), FakeAppLauncher(),
+        val vm = ChatTaskRuntime(repository, FakeProviderRepository(provider), client, FakeAppUsageReader(), FakeAppLauncher(),
             promptProfileRepository = FakePromptProfileRepository(), memoryRepository = FakeMemoryRepository(),
             appSettingsStore = AppSettingsStore(AppSettings(powerModeEnabled = false, memoryEnabled = false, installId = "test")),
             contextDispatcher = dispatcher).also { testModels += it }
@@ -2230,7 +2391,7 @@ class ChatViewModelTest {
     }
 
     private class FakeDeviceAssistantGateway : DeviceAssistantGateway {
-        override val connectionState: StateFlow<ShizukuConnectionState> = MutableStateFlow(
+        override val connectionState: MutableStateFlow<ShizukuConnectionState> = MutableStateFlow(
             ShizukuConnectionState(
                 status = ShizukuConnectionStatus.ConnectedAdb,
                 capabilities = DeviceCapability.entries.toSet()
@@ -2240,6 +2401,7 @@ class ChatViewModelTest {
             AccessibilityConnectionState(AccessibilityConnectionStatus.Connected)
         )
         val forceStoppedApps = mutableListOf<String>()
+        var powerSetupCalls = 0
         val brightnessValues = mutableListOf<Int>()
         var observeCount = 0
         var waitCount = 0
@@ -2257,7 +2419,7 @@ class ChatViewModelTest {
         override suspend fun getForegroundApp() = DeviceToolResult(true, "foreground_package=test")
         override suspend fun setScreenBrightness(percent: Int): DeviceToolResult { brightnessValues += percent; return DeviceToolResult(true, "brightness=$percent") }
         override suspend fun setMediaVolume(percent: Int) = DeviceToolResult(true, "volume=$percent")
-        override suspend fun enablePowerMode() = DeviceToolResult(true, "power mode")
+        override suspend fun enablePowerMode(): DeviceToolResult { powerSetupCalls++; return DeviceToolResult(true, "power mode") }
         override suspend fun forceStopApp(appName: String): DeviceToolResult {
             forceStoppedApps += appName
             return DeviceToolResult(true, "stopped $appName")

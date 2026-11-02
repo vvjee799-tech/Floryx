@@ -20,13 +20,33 @@ class DeepSeekContextProfileTest {
         }
     }
 
-    @Test fun unverifiedEndpointsAndModelNamesDoNotAcquireTheOfficialCapacity() {
-        val urls = listOf("http://api.deepseek.com", "https://api.deepseek.com.example.org", "https://other.test/api.deepseek.com",
-            "https://api.deepseek.com/anthropic", "https://api.deepseek.com/custom/v1", "https://api.deepseek.com:8443",
-            "https://other.test", "https://user@api.deepseek.com", "https://api.deepseek.com?v=1", "not a URL")
+    @Test fun thirdPartyV41AndKnownVersionedAliasesUseTheSameCapacityWithoutRewritingModelIds() {
+        val models = listOf("deepseek-v4.1-flash", "deepseek-v4.1-flash-1017", "deepseek-v4-pro-0813",
+            "deepseek-v4-flash-0731", "DeepSeek-V4.1-Flash-1017", "deepseek-ai/DeepSeek-V4.1-Flash",
+            "deepseek/deepseek-v4.1-flash-1017", "DeepSeek-Flash")
+        val urls = listOf("https://gateway.test/v1", "https://gateway.test:8443/custom/compatible-mode/v1",
+            "https://openrouter.ai/api/v1", "https://workspace.cn-beijing.maas.aliyuncs.com/compatible-mode/v1",
+            "http://127.0.0.1:8181/v1")
+        for (url in urls) for (model in models) {
+            val gateway = provider.copy(baseUrl = url)
+            val selected = request.copy(model = model)
+            val profile = requireNotNull(DeepSeekContextProfile.resolve(gateway, selected))
+            assertEquals(1_000_000, profile.windowTokens)
+            assertEquals(884_464, profile.inputTokens)
+            assertEquals(model, selected.toOpenAiRequest(gateway).model)
+            assertEquals(65_536, selected.toOpenAiRequest(gateway).maxTokens)
+        }
+    }
+
+    @Test fun invalidEndpointsOtherProtocolsAndUnknownModelsDoNotAcquireTheCapacity() {
+        val urls = listOf("ftp://gateway.test", "https://user@api.deepseek.com", "https://api.deepseek.com?v=1",
+            "https://gateway.test/v1#fragment", "not a URL", "https://api.anthropic.com", "https://generativelanguage.googleapis.com")
         urls.forEach { assertNull(it, DeepSeekContextProfile.resolve(provider.copy(baseUrl = it), request)) }
-        listOf("deepseek-chat", "deepseek-reasoner", "deepseek-v5", "deepseek/flash", "DeepSeek-Flash").forEach {
-            assertNull(it, DeepSeekContextProfile.resolve(provider, request.copy(model = it)))
+        listOf("deepseek-chat", "deepseek-reasoner", "deepseek-v3.2", "deepseek-r1", "deepseek-v5", "deepseek/flash",
+            "deepseek-v4.1-pro", "deepseek-v4.1-flash-free", "deepseek-v4.1-flash-distill", "not-deepseek-v4.1-flash").forEach {
+            for (url in listOf(provider.baseUrl, "https://gateway.test/v1")) {
+                assertNull(it, DeepSeekContextProfile.resolve(provider.copy(baseUrl = url), request.copy(model = it)))
+            }
         }
         assertNull(DeepSeekContextProfile.resolve(null, request))
     }
@@ -41,20 +61,23 @@ class DeepSeekContextProfileTest {
             request.copy(maxTokens = 393_216) to 393_216,
             request.copy(enableThinking = false, maxTokens = 4_096) to 4_096
         )
-        cases.forEach { (selected, expected) ->
-            val profile = requireNotNull(DeepSeekContextProfile.resolve(provider, selected))
-            assertEquals(expected, profile.outputTokens)
-            assertEquals(expected, selected.toOpenAiRequest(provider).maxTokens)
-            assertEquals(1_000_000 - expected - 50_000, profile.inputTokens)
+        for (endpoint in listOf(provider, provider.copy(baseUrl = "https://proxy.test/v1"))) {
+            cases.forEach { (selected, expected) ->
+                val profile = requireNotNull(DeepSeekContextProfile.resolve(endpoint, selected))
+                assertEquals(expected, profile.outputTokens)
+                assertEquals(expected, selected.toOpenAiRequest(endpoint).maxTokens)
+                assertEquals(1_000_000 - expected - 50_000, profile.inputTokens)
+            }
         }
-        assertNull(request.toOpenAiRequest(provider.copy(baseUrl = "https://proxy.test")).maxTokens)
     }
 
     @Test fun invalidExplicitOutputIsRejectedBeforeSendingAndNeverClamped() {
         listOf(0, -1, 393_217, Int.MAX_VALUE).forEach { value ->
             val invalid = request.copy(maxTokens = value)
-            assertThrows(IllegalArgumentException::class.java) { DeepSeekContextProfile.resolve(provider, invalid) }
-            assertThrows(IllegalArgumentException::class.java) { invalid.toOpenAiRequest(provider) }
+            for (endpoint in listOf(provider, provider.copy(baseUrl = "https://proxy.test/v1"))) {
+                assertThrows(IllegalArgumentException::class.java) { DeepSeekContextProfile.resolve(endpoint, invalid) }
+                assertThrows(IllegalArgumentException::class.java) { invalid.toOpenAiRequest(endpoint) }
+            }
         }
     }
 }

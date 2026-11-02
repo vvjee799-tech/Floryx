@@ -4,8 +4,9 @@ import com.flowchat.app.domain.model.ChatRequest
 import com.flowchat.app.domain.model.ProviderConfig
 import com.flowchat.app.domain.model.ThinkingEffort
 import java.net.URI
+import java.util.Locale
 
-/** Official API capabilities verified 2026-10-26. 1M is budgeted conservatively as 1,000,000. */
+/** Known DeepSeek models on official or compatible endpoints. 1M is budgeted as 1,000,000. */
 data class DeepSeekContextProfile(val outputTokens: Int) {
     val windowTokens: Int = 1_000_000
     val safetyTokens: Int = 50_000
@@ -13,17 +14,23 @@ data class DeepSeekContextProfile(val outputTokens: Int) {
 
     companion object {
         const val MaxOutputTokens = 393_216
-        private val models = setOf("deepseek-flash", "deepseek-v4-pro", "deepseek-v4-flash", "deepseek-v4-flash-vision-exp")
+        private val models = setOf(
+            "deepseek-flash", "deepseek-v4-pro", "deepseek-v4-pro-0813",
+            "deepseek-v4-flash", "deepseek-v4-flash-0731", "deepseek-v4-flash-vision-exp",
+            "deepseek-v4.1-flash", "deepseek-v4.1-flash-1017"
+        )
 
         fun resolve(provider: ProviderConfig?, request: ChatRequest): DeepSeekContextProfile? {
-            if (provider == null || request.model !in models) return null
-            val official = runCatching {
+            // Normalize only for capability lookup; preserve the gateway's exact model ID on the wire.
+            val model = request.model.trim().lowercase(Locale.ROOT).substringAfterLast('/')
+            if (provider == null || model !in models) return null
+            if (provider.isGoogleGemini() || provider.apiHost() == "api.anthropic.com") return null
+            val compatible = runCatching {
                 val uri = URI(provider.baseUrl)
-                uri.scheme.equals("https", true) && uri.host.equals("api.deepseek.com", true) &&
-                    uri.port in setOf(-1, 443) && uri.rawUserInfo == null && uri.rawQuery == null && uri.rawFragment == null &&
-                    uri.rawPath.orEmpty().trimEnd('/') in setOf("", "/v1", "/beta")
+                (uri.scheme.equals("https", true) || uri.scheme.equals("http", true)) &&
+                    !uri.host.isNullOrBlank() && uri.rawUserInfo == null && uri.rawQuery == null && uri.rawFragment == null
             }.getOrDefault(false)
-            if (!official) return null
+            if (!compatible) return null
             val support = ThinkingSupport.resolve(provider, request.model)
             val output = request.maxTokens ?: when {
                 !support.isEnabled(request.enableThinking) -> 8_192

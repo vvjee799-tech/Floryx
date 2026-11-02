@@ -8,7 +8,7 @@ import org.junit.Test
 class ChatViewModelContractTest {
     @Test
     fun rawKtorTimeoutMessageIsMappedToReadableChatError() {
-        val source = File("src/main/java/com/flowchat/app/presentation/chat/ChatViewModel.kt").readText()
+        val source = File("src/main/java/com/flowchat/app/presentation/chat/ChatTaskRuntime.kt").readText()
 
         assertTrue(source.contains("throwable.userFacingChatError()"))
         assertTrue(source.contains("private fun Throwable.userFacingChatError(): String"))
@@ -17,7 +17,7 @@ class ChatViewModelContractTest {
 
     @Test
     fun newConversationPrefersSavedValidProviderOverBlankCustomDraft() {
-        val source = File("src/main/java/com/flowchat/app/presentation/chat/ChatViewModel.kt").readText()
+        val source = File("src/main/java/com/flowchat/app/presentation/chat/ChatTaskRuntime.kt").readText()
         val newConversationStart = source.indexOf("fun newConversation()")
         val updateSettingsStart = source.indexOf("fun updateConversationSettings(", newConversationStart)
         val block = source.substring(newConversationStart, updateSettingsStart)
@@ -32,7 +32,7 @@ class ChatViewModelContractTest {
 
     @Test
     fun toolCallRoundsCreateAssistantSegmentsAroundToolMessages() {
-        val source = File("src/main/java/com/flowchat/app/presentation/chat/ChatViewModel.kt").readText()
+        val source = File("src/main/java/com/flowchat/app/presentation/chat/ChatTaskRuntime.kt").readText()
         val sendStart = source.indexOf("fun send()")
         val collectStart = source.indexOf("private suspend fun collectAssistantResponse", sendStart)
         val sendBlock = source.substring(sendStart, collectStart)

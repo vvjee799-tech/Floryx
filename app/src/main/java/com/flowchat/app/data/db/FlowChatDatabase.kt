@@ -10,9 +10,10 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         ProviderConfigEntity::class,
         ConversationEntity::class,
         MessageEntity::class,
-        UsageRecord::class
+        UsageRecord::class,
+        TaskRunEntity::class
     ],
-    version = 15,
+    version = 16,
     exportSchema = false
 )
 abstract class FlowChatDatabase : RoomDatabase() {
@@ -20,6 +21,15 @@ abstract class FlowChatDatabase : RoomDatabase() {
     abstract fun conversationDao(): ConversationDao
     abstract fun messageDao(): MessageDao
     abstract fun usageDao(): UsageDao
+    abstract fun taskRunDao(): TaskRunDao
+}
+
+val MIGRATION_15_16 = object : Migration(15, 16) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("CREATE TABLE IF NOT EXISTS task_runs (id TEXT NOT NULL PRIMARY KEY, conversationId TEXT NOT NULL, instruction TEXT NOT NULL, modelName TEXT NOT NULL, state TEXT NOT NULL, startedAt INTEGER NOT NULL, updatedAt INTEGER NOT NULL, assistantMessageId TEXT, FOREIGN KEY(conversationId) REFERENCES conversations(id) ON UPDATE NO ACTION ON DELETE CASCADE)")
+        db.execSQL("CREATE INDEX IF NOT EXISTS index_task_runs_conversationId ON task_runs(conversationId)")
+        db.execSQL("CREATE INDEX IF NOT EXISTS index_task_runs_state ON task_runs(state)")
+    }
 }
 
 val MIGRATION_14_15 = object : Migration(14, 15) {

@@ -34,7 +34,7 @@ class AndroidAppLauncher @Inject constructor(
         }
         currentCoroutineContext().ensureActive()
         taskControl.checkCanAct(task)
-        if (deviceGateway.connectionState.value.isConnected) {
+        if (deviceGateway.backgroundExecutionRequested || deviceGateway.connectionState.value.isConnected) {
             val result = deviceGateway.launchApp(app.packageName, app.activityName)
             check(result.success) { result.summary }
             return app.label

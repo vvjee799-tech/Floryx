@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="background_execution_title">后台执行</string>
+    <string name="background_execution_description">手机任务在独立副屏执行，你可继续使用主屏。需要 Root、Power 模式、无障碍和 Android 15 以上；部分应用不支持副屏。切换会停止当前手机任务，此模式下不提供亮度、音量和 Android 命令操作。</string>
+</resources>

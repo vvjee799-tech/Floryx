@@ -50,7 +50,7 @@ class PhoneAutomationDiagnosticTest {
             }
         }
         withTimeout(10_000) { while (FlowChatAccessibilityService.current() == null) delay(200) }
-        val root = RootDeviceConnection()
+        val root = RootDeviceConnection(context)
         val gateway = ShizukuDeviceAssistantGateway(context, AppSettingsStore(context), root)
         root.refresh(requestPermission = true)
         check(root.state.value.isConnected) { "Root connection is unavailable." }

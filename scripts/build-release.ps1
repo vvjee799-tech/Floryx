@@ -16,9 +16,13 @@ if (!$OutputDirectory) { $OutputDirectory = Join-Path $projectRoot "build\releas
 $outputRoot = [IO.Path]::GetFullPath($OutputDirectory)
 New-Item -ItemType Directory -Path $outputRoot -Force | Out-Null
 $initScript = Join-Path $PSScriptRoot 'retain-existing-install.init.gradle'
-& $gradle -I $initScript :app:testDebugUnitTest :app:lintRelease :app:assembleRelease --console=plain 2>&1 |
+& $gradle -I $initScript :app:testDebugUnitTest :app:lintRelease --max-workers=1 --no-parallel --console=plain 2>&1 |
     Tee-Object -FilePath (Join-Path $outputRoot 'build.log')
-if ($LASTEXITCODE -ne 0) { throw 'Release build or verification failed.' }
+if ($LASTEXITCODE -ne 0) { throw 'Release verification failed.' }
+# Finish the test worker before R8 starts to keep peak memory use lower.
+& $gradle -I $initScript :app:assembleRelease --max-workers=1 --no-parallel --console=plain 2>&1 |
+    Tee-Object -FilePath (Join-Path $outputRoot 'build.log') -Append
+if ($LASTEXITCODE -ne 0) { throw 'Release build failed.' }
 $artifact = Join-Path $outputRoot "Floryx-$version-retain-config.apk"
 Copy-Item -LiteralPath (Join-Path $projectRoot 'app\build\outputs\apk\release\app-release.apk') -Destination $artifact
 $certificate = & (Join-Path $buildTools 'apksigner.bat') verify --verbose --print-certs $artifact

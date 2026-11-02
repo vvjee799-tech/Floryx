@@ -14,10 +14,12 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 
 @Keep
-class FlowChatShizukuService : IFlowChatShizukuService.Stub {
+open class FlowChatShizukuService : IFlowChatShizukuService.Stub {
     private val commandExecutor: DeviceCommandExecutor
     private var rootCommands = false
-    private val shellCommands by lazy { ManagedCommandRegistry(if (rootCommands) "root-" else "shizuku-") }
+    private var commandsAlreadyRoot = false
+    private var sharedCommands: ManagedCommandRegistry? = null
+    private val shellCommands by lazy { sharedCommands ?: ManagedCommandRegistry(if (rootCommands) "root-" else "shizuku-") }
     private val shellJson = Json { encodeDefaults = true }
 
     constructor() : super() {
@@ -29,9 +31,12 @@ class FlowChatShizukuService : IFlowChatShizukuService.Stub {
 
     internal constructor(commandExecutor: DeviceCommandExecutor) : this(commandExecutor, false)
 
-    internal constructor(commandExecutor: DeviceCommandExecutor, rootCommands: Boolean) : super() {
+    internal constructor(commandExecutor: DeviceCommandExecutor, rootCommands: Boolean,
+        commandsAlreadyRoot: Boolean = false, sharedCommands: ManagedCommandRegistry? = null) : super() {
         this.commandExecutor = commandExecutor
         this.rootCommands = rootCommands
+        this.commandsAlreadyRoot = commandsAlreadyRoot
+        this.sharedCommands = sharedCommands
     }
 
     override fun destroy() {
@@ -49,7 +54,7 @@ class FlowChatShizukuService : IFlowChatShizukuService.Stub {
 
     override fun startShellCommand(command: String, workingDirectory: String, timeoutSeconds: Int): String =
         shellJson.encodeToString(shellCommands.start(command, CommandEnvironment.Android, workingDirectory, timeoutSeconds,
-            CommandProcessSpec(listOf("/system/bin/sh", "-c", "cd ${ManagedCommandRegistry.shellQuote(workingDirectory)} || exit; $command"), root = rootCommands)))
+            CommandProcessSpec(listOf("/system/bin/sh", "-c", "cd ${ManagedCommandRegistry.shellQuote(workingDirectory)} || exit; $command"), root = rootCommands && !commandsAlreadyRoot)))
 
     override fun readShellCommand(commandId: String): String = shellJson.encodeToString(shellCommands.read(commandId))
     override fun cancelShellCommand(commandId: String): String = shellJson.encodeToString(shellCommands.cancel(commandId))

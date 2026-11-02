@@ -12,6 +12,8 @@ class DeviceReadinessTest {
         assertEquals(DeviceReadiness.Off, deviceReadiness(false, root, connected))
         assertEquals(DeviceReadiness.NeedsSetup, deviceReadiness(true, root, disabled))
         assertEquals(DeviceReadiness.Ready, deviceReadiness(true, root, connected))
+        assertEquals(DeviceReadiness.Ready, deviceReadiness(true,
+            root.copy(status = ShizukuConnectionStatus.RootReady), connected))
         assertEquals(DeviceReadiness.ScreenOnly, deviceReadiness(true, ShizukuConnectionState(), connected))
     }
 }

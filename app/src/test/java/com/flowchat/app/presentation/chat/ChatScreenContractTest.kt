@@ -35,7 +35,7 @@ class ChatScreenContractTest {
         assertTrue(settingsBlock.contains("R.string.memory"))
         assertTrue(settingsBlock.contains("R.string.language"))
         assertTrue(settingsBlock.contains("R.string.appearance"))
-        assertTrue(settingsBlock.contains("BuildConfig.VERSION_NAME"))
+        assertFalse(settingsBlock.contains("BuildConfig.VERSION_NAME"))
         assertFalse(source.contains("showLifeToolsDialog"))
         assertFalse(source.contains("private fun LifeToolsDialog("))
         assertTrue(deviceAssistantBlock.contains("onPowerModeEnabledChange: (Boolean) -> Unit"))
@@ -227,7 +227,7 @@ class ChatScreenContractTest {
         assertTrue(source.contains("internal fun AppSettingsScreen("))
         assertFalse(source.contains("private fun UserProfileSettingsSheet("))
         assertFalse(source.contains("onOpenWebSearch"))
-        assertTrue(source.contains("private fun LanguageDialog("))
+        assertTrue(source.contains("R.string.appearance_and_language"))
         assertFalse(source.contains("private fun LanguageSelector("))
         assertTrue(source.contains("onOpenProviders: () -> Unit"))
         assertTrue(strings.contains("<string name=\"user_display_name\">User</string>"))
@@ -241,84 +241,15 @@ class ChatScreenContractTest {
     }
 
     @Test
-    fun appSettingsProvidesAppearanceAndLanguageDialogs() {
+    fun appSettingsProvidesAppearanceAndLanguagePage() {
         val source = File("src/main/java/com/flowchat/app/presentation/chat/ChatScreen.kt").readText()
-        val appearanceSource = File("src/main/java/com/flowchat/app/ui/theme/AppAppearance.kt").readText()
-        val themeSource = File("src/main/java/com/flowchat/app/ui/theme/Theme.kt").readText()
-        val strings = File("src/main/res/values/strings.xml").readText()
-        val zhStrings = File("src/main/res/values-zh-rCN/strings.xml").readText()
-        val sheetStart = source.indexOf("internal fun AppSettingsScreen(")
-        val sheetEnd = source.indexOf("private fun SettingsRow", sheetStart)
-        val sheetBlock = source.substring(sheetStart, sheetEnd)
-        val dialogStart = source.indexOf("private fun AppearanceDialog(")
-        val dialogEnd = source.indexOf("private fun SettingsSelectionOptionRow(", dialogStart)
-        val dialogBlock = source.substring(dialogStart, dialogEnd)
-        val dotStart = source.indexOf("private fun AppearanceRadioDot(")
-        val dotEnd = source.indexOf("internal fun ConversationSettingsScreen(", dotStart)
-        val dotBlock = source.substring(dotStart, dotEnd)
-        val languageIndex = sheetBlock.indexOf("R.string.language")
-        val appearanceIndex = sheetBlock.indexOf("R.string.appearance")
-        val versionIndex = sheetBlock.indexOf("BuildConfig.VERSION_NAME")
-
-        assertTrue(source.contains("appAppearance: AppAppearance"))
-        assertTrue(source.contains("onAppAppearanceChange: (AppAppearance) -> Unit"))
-        assertTrue(File("src/main/java/com/flowchat/app/presentation/chat/SettingsRoutes.kt").readText().contains("appAppearance = appAppearance"))
-        assertTrue(File("src/main/java/com/flowchat/app/presentation/chat/SettingsRoutes.kt").readText().contains("onAppAppearanceChange = onAppAppearanceChange"))
-        assertTrue(appearanceSource.contains("System(\"system\")"))
-        assertTrue(themeSource.contains("import androidx.compose.foundation.isSystemInDarkTheme"))
-        assertTrue(themeSource.contains("AppAppearance.System -> isSystemInDarkTheme()"))
-        assertTrue(sheetBlock.contains("R.string.settings"))
-        assertTrue(sheetBlock.contains("var showAppearanceDialog by remember { mutableStateOf(false) }"))
-        assertTrue(sheetBlock.contains("var showLanguageDialog by remember { mutableStateOf(false) }"))
-        assertTrue(sheetBlock.contains("R.string.language"))
-        assertTrue(sheetBlock.contains("trailingText = stringResource(currentLanguage.labelRes())"))
-        assertTrue(sheetBlock.contains("showLanguageDialog = true"))
-        assertTrue(sheetBlock.contains("LanguageDialog("))
-        assertTrue(sheetBlock.contains("selected = currentLanguage"))
-        assertFalse(sheetBlock.contains("LanguageSelector("))
-        assertTrue(sheetBlock.contains("R.string.appearance"))
-        assertTrue(sheetBlock.contains("trailingText = stringResource(appAppearance.labelRes())"))
-        assertTrue(sheetBlock.contains("showAppearanceDialog = true"))
-        assertTrue(sheetBlock.contains("BuildConfig.VERSION_NAME"))
-        assertTrue(sheetBlock.contains("BuildConfig.VERSION_NAME"))
-        assertTrue(languageIndex >= 0)
-        assertTrue(appearanceIndex >= 0)
-        assertTrue(versionIndex > appearanceIndex)
-        assertTrue(sheetBlock.contains("AppearanceDialog("))
-        assertTrue(sheetBlock.contains("selected = appAppearance"))
-        assertTrue(sheetBlock.contains("onSelect = onAppAppearanceChange"))
-        assertTrue(dialogBlock.contains("Dialog(onDismissRequest = onDismiss)"))
-        assertTrue(dialogBlock.contains("SettingsSelectionOptionRow("))
-        assertTrue(dialogBlock.contains("label = stringResource(R.string.appearance_system)"))
-        assertTrue(dialogBlock.contains("label = stringResource(R.string.appearance_light)"))
-        assertTrue(dialogBlock.contains("label = stringResource(R.string.appearance_dark)"))
-        val languageDialogStart = source.indexOf("private fun LanguageDialog(")
-        val languageDialogEnd = source.indexOf("private fun SettingsSelectionOptionRow(", languageDialogStart)
-        val languageDialogBlock = source.substring(languageDialogStart, languageDialogEnd)
-        assertTrue(languageDialogBlock.contains("Dialog(onDismissRequest = onDismiss)"))
-        assertTrue(languageDialogBlock.contains("AppLanguage.System"))
-        assertTrue(languageDialogBlock.contains("AppLanguage.ChineseSimplified"))
-        assertTrue(languageDialogBlock.contains("AppLanguage.English"))
-        assertTrue(languageDialogBlock.contains("SettingsSelectionOptionRow("))
-        assertTrue(source.contains("private fun AppearanceRadioDot("))
-        assertTrue(dotBlock.contains("drawCircle("))
-        assertTrue(dotBlock.contains("style = Stroke(width = 2.5.dp.toPx())"))
-        assertTrue(dotBlock.contains("if (selected)"))
-        assertTrue(dotBlock.contains("radius = size.minDimension * 0.18f"))
-        assertFalse(dotBlock.contains("RadioButton("))
-        assertFalse(sheetBlock.contains("R.string.background_settings"))
-        assertFalse(sheetBlock.contains("BackgroundModeButton("))
-        assertFalse(source.contains("private fun BackgroundModeButton("))
-        assertTrue(strings.contains("<string name=\"appearance\">Appearance</string>"))
-        assertTrue(strings.contains("<string name=\"appearance_system\">Follow system</string>"))
-        assertTrue(strings.contains("<string name=\"appearance_light\">Light</string>"))
-        assertTrue(strings.contains("<string name=\"appearance_dark\">Dark</string>"))
-        assertTrue(strings.contains("<string name=\"version\">Version</string>"))
-        assertTrue(zhStrings.contains("name=\"appearance\""))
-        assertTrue(zhStrings.contains("name=\"appearance_system\""))
-        assertTrue(zhStrings.contains("name=\"appearance_light\""))
-        assertTrue(zhStrings.contains("name=\"appearance_dark\""))
-        assertTrue(zhStrings.contains("name=\"version\""))
+        val settings = source.substring(source.indexOf("internal fun AppSettingsScreen("), source.indexOf("internal fun DeviceAssistantScreen("))
+        assertTrue(settings.contains("R.string.appearance_and_language"))
+        assertTrue(settings.contains("AppAppearance.entries.forEach"))
+        assertTrue(settings.contains("AppLanguage.entries.forEach"))
+        assertTrue(settings.contains("onAppAppearanceChange(option)"))
+        assertTrue(settings.contains("AppLocale.setLanguage(context, option)"))
+        assertFalse(settings.contains("BuildConfig.VERSION_NAME"))
     }
 
     @Test
@@ -412,7 +343,7 @@ class ChatScreenContractTest {
 
     @Test
     fun chatViewModelDoesNotCreateDefaultConversationOnStartup() {
-        val source = File("src/main/java/com/flowchat/app/presentation/chat/ChatViewModel.kt").readText()
+        val source = File("src/main/java/com/flowchat/app/presentation/chat/ChatTaskRuntime.kt").readText()
         val initStart = source.indexOf("init {")
         val initEnd = source.indexOf("\n    fun", initStart)
         val initBlock = source.substring(initStart, initEnd)
@@ -425,7 +356,7 @@ class ChatScreenContractTest {
 
     @Test
     fun blankAssistantCompletionIsMarkedFailedInsteadOfDisplayedAsDots() {
-        val source = File("src/main/java/com/flowchat/app/presentation/chat/ChatViewModel.kt").readText()
+        val source = File("src/main/java/com/flowchat/app/presentation/chat/ChatTaskRuntime.kt").readText()
         val screenSource = File("src/main/java/com/flowchat/app/presentation/chat/ChatScreen.kt").readText()
 
         assertTrue(source.contains("ReplyPolicy.incompleteResult"))
@@ -518,12 +449,12 @@ class ChatScreenContractTest {
         val databaseSource = File("src/main/java/com/flowchat/app/data/db/FlowChatDatabase.kt").readText()
         val appModuleSource = File("src/main/java/com/flowchat/app/di/AppModule.kt").readText()
 
-        assertTrue(databaseSource.contains("version = 15"))
+        assertTrue(databaseSource.contains("version = 16"))
         assertTrue(databaseSource.contains("MIGRATION_1_2"))
         assertTrue(databaseSource.contains("ALTER TABLE conversations ADD COLUMN assistantName TEXT NOT NULL DEFAULT ''"))
         assertTrue(databaseSource.contains("ALTER TABLE conversations ADD COLUMN assistantAvatarPath TEXT"))
         assertTrue(databaseSource.contains("MIGRATION_2_3"))
-        assertTrue(appModuleSource.contains(".addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15)"))
+        assertTrue(appModuleSource.contains(".addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16)"))
         assertFalse(appModuleSource.contains("fallbackToDestructiveMigration"))
     }
 
@@ -577,10 +508,10 @@ class ChatScreenContractTest {
         assertTrue(modelSource.contains("val showAvatars: Boolean = false"))
         assertTrue(entitySource.contains("val showAvatars: Boolean"))
         assertTrue(entitySource.contains("showAvatars = showAvatars"))
-        assertTrue(databaseSource.contains("version = 15"))
+        assertTrue(databaseSource.contains("version = 16"))
         assertTrue(databaseSource.contains("MIGRATION_2_3"))
         assertTrue(databaseSource.contains("ALTER TABLE conversations ADD COLUMN showAvatars INTEGER NOT NULL DEFAULT 0"))
-        assertTrue(appModuleSource.contains(".addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15)"))
+        assertTrue(appModuleSource.contains(".addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16)"))
         assertTrue(sheetBlock.contains("var showAvatars by rememberSaveable(conversation.id) { mutableStateOf(conversation.showAvatars) }"))
         assertTrue(sheetBlock.contains("Switch("))
         assertTrue(sheetBlock.contains("checked = showAvatars"))
@@ -600,7 +531,7 @@ class ChatScreenContractTest {
     @Test
     fun composerHasThinkingControlAndMessagesRenderReasoningContent() {
         val source = File("src/main/java/com/flowchat/app/presentation/chat/ChatScreen.kt").readText()
-        val viewModelSource = File("src/main/java/com/flowchat/app/presentation/chat/ChatViewModel.kt").readText()
+        val viewModelSource = File("src/main/java/com/flowchat/app/presentation/chat/ChatTaskRuntime.kt").readText()
         val requestFactorySource = File("src/main/java/com/flowchat/app/domain/chat/ChatRequestFactory.kt").readText()
         val modelSource = File("src/main/java/com/flowchat/app/domain/model/Conversation.kt").readText()
         val entitySource = File("src/main/java/com/flowchat/app/data/db/ConversationEntity.kt").readText()
@@ -632,13 +563,13 @@ class ChatScreenContractTest {
         assertTrue(messageEntitySource.contains("val reasoningDurationMillis: Long"))
         assertTrue(messageEntitySource.contains("reasoningContent = reasoningContent"))
         assertTrue(messageEntitySource.contains("reasoningDurationMillis = reasoningDurationMillis"))
-        assertTrue(databaseSource.contains("version = 15"))
+        assertTrue(databaseSource.contains("version = 16"))
         assertTrue(databaseSource.contains("MIGRATION_3_4"))
         assertTrue(databaseSource.contains("ALTER TABLE conversations ADD COLUMN enableThinking INTEGER NOT NULL DEFAULT 0"))
         assertTrue(databaseSource.contains("ALTER TABLE messages ADD COLUMN reasoningContent TEXT NOT NULL DEFAULT ''"))
         assertTrue(databaseSource.contains("MIGRATION_4_5"))
         assertTrue(databaseSource.contains("ALTER TABLE messages ADD COLUMN reasoningDurationMillis INTEGER NOT NULL DEFAULT 0"))
-        assertTrue(appModuleSource.contains(".addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15)"))
+        assertTrue(appModuleSource.contains(".addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16)"))
         assertFalse(sheetBlock.contains("var enableThinking"))
         assertFalse(sheetBlock.contains("R.string.deep_thinking"))
         assertFalse(sheetBlock.contains("checked = enableThinking"))
@@ -691,7 +622,7 @@ class ChatScreenContractTest {
     }
 
     @Test
-    fun bothAvatarsUseTheSameCornerPencilWithAnAccessibleTouchTarget() {
+    fun avatarEditingUsesLibraryIconsAndAnAccessibleTouchTarget() {
         val source = File("src/main/java/com/flowchat/app/presentation/chat/ChatScreen.kt").readText()
         val start = source.indexOf("private fun EditableAvatar(")
         val end = source.indexOf("private fun ProfileAvatar(", start)
@@ -700,9 +631,9 @@ class ChatScreenContractTest {
         assertTrue(source.contains("EditableAvatar(assistantAvatarPath"))
         assertTrue(avatar.contains(".align(Alignment.BottomEnd)"))
         assertTrue(avatar.contains(".size(48.dp)"))
-        assertTrue(avatar.contains(".background(Color(0xFF3A3A3A), CircleShape)"))
-        assertTrue(avatar.contains("val pencilColor = Color.White"))
-        assertTrue(avatar.contains("Canvas(modifier = Modifier.size(17.dp))"))
+        assertTrue(avatar.contains(".background(MaterialTheme.colorScheme.primary, CircleShape)"))
+        assertTrue(avatar.contains("Icons.Outlined.Edit"))
+        assertFalse(avatar.contains("Canvas("))
     }
 
     @Test
@@ -730,13 +661,13 @@ class ChatScreenContractTest {
         assertTrue(zhStrings.contains("<string name=\"select_text\">选取文字</string>"))
     }
     @Test
-    fun paperMessagesUseTransparentSurfacesAndUserUnderline() {
+    fun paperMessagesUseTransparentAssistantAndTintedUserSurfaces() {
         val source = File("src/main/java/com/flowchat/app/presentation/chat/ChatScreen.kt").readText()
         val bubbleStart = source.indexOf("internal fun MessageBubble(")
         val bubbleEnd = source.indexOf("private fun StreamingJumpingDots", bubbleStart)
         val bubbleBlock = source.substring(bubbleStart, bubbleEnd)
 
-        assertTrue(bubbleBlock.contains("val bubbleColor = Color.Transparent"))
+        assertTrue(bubbleBlock.contains("if (isUser) MaterialTheme.colorScheme.primaryContainer.copy(alpha = .65f) else Color.Transparent"))
         assertTrue(bubbleBlock.contains("if (isUser) drawLine(messageRule"))
         assertTrue(bubbleBlock.contains("MaterialTheme.colorScheme.onBackground"))
         assertFalse(bubbleBlock.contains("MaterialTheme.colorScheme.surfaceVariant\n    }"))
@@ -745,22 +676,13 @@ class ChatScreenContractTest {
     }
 
     @Test
-    fun messageTimeRemainsAvailableInsideMessageActions() {
+    fun messageActionsKeepCopyAndSelectionWithoutTimestamps() {
         val source = File("src/main/java/com/flowchat/app/presentation/chat/ChatScreen.kt").readText()
-        val bubbleStart = source.indexOf("internal fun MessageBubble(")
-        val bubbleEnd = source.indexOf("private fun StreamingJumpingDots", bubbleStart)
-        val bubbleBlock = source.substring(bubbleStart, bubbleEnd)
-
-        assertTrue(bubbleBlock.contains("val context = LocalContext.current"))
-        assertTrue(bubbleBlock.contains("val messageTime = remember(context, message.createdAt)"))
-        assertTrue(bubbleBlock.contains("formatMessageTime(context, message.createdAt)"))
-        assertTrue(bubbleBlock.contains("text = messageTime"))
-        assertTrue(bubbleBlock.contains("style = MaterialTheme.typography.labelSmall"))
-        assertTrue(bubbleBlock.contains("color = MaterialTheme.colorScheme.onSurfaceVariant"))
-        assertTrue(bubbleBlock.indexOf("Text(messageTime,") > bubbleBlock.indexOf("expanded = showMessageActions"))
-        assertTrue(source.contains("private fun formatMessageTime(context: Context, timestampMillis: Long): String"))
-        assertTrue(source.contains("android.text.format.DateFormat.getTimeFormat(context)"))
-        assertTrue(source.contains("Date(timestampMillis)"))
+        val bubble = source.substring(source.indexOf("internal fun MessageBubble("), source.indexOf("private fun StreamingJumpingDots"))
+        assertFalse(bubble.contains("text = messageTime"))
+        assertTrue(bubble.contains("R.string.copy_message"))
+        assertTrue(bubble.contains("R.string.select_text"))
+        assertTrue(bubble.contains("clipboardManager.setText(AnnotatedString(copyText))"))
     }
 
     @Test
@@ -797,7 +719,7 @@ class ChatScreenContractTest {
         assertTrue(modelSwitchBlock.contains(".heightIn(min = ComposerToolHeight)"))
         assertFalse(modelSwitchBlock.contains("IconButton("))
         assertTrue(modelSwitchBlock.contains(".clickable(enabled = enabled) { expanded = true; onOpen() }"))
-        assertTrue(modelSwitchBlock.contains("DropdownMenu("))
+        assertTrue(modelSwitchBlock.contains("ModalBottomSheet("))
         assertTrue(modelSwitchBlock.contains("DropdownMenuItem("))
         assertTrue(modelSwitchBlock.contains("ProviderLogoImage("))
         assertTrue(modelSwitchBlock.contains("currentModelName?.takeIf"))

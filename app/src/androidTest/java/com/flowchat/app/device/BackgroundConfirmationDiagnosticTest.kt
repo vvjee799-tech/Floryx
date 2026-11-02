@@ -249,6 +249,12 @@ class BackgroundConfirmationDiagnosticTest {
             }
             instrumentation.startActivitySync(Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
             delay(1_500) // Let the real startup animation finish; no virtual Compose clock.
+            // The application runtime can already exist when several tests share an instrumentation run.
+            // Bind the synthetic request to its local provider instead of relying on latest-chat selection.
+            val runtime = EntryPointAccessors.fromApplication(context,
+                com.flowchat.app.diagnostics.TaskRuntimeDiagnosticsEntryPoint::class.java).runtime()
+            withContext(Dispatchers.Main) { runtime.selectConversation(conversation.id) }
+            waitFor("Synthetic local conversation explicitly selected") { runtime.uiState.value.currentConversation?.id == conversation.id }
             entry.device().requestPermission()
             waitFor("Power connected: actual Root gateway") { entry.device().connectionState.value.isConnected }
             report("Connection: ${entry.device().connectionState.value.status}")

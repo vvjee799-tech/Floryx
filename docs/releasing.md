@@ -14,7 +14,7 @@
 .\scripts\build-release.ps1
 ```
 
-脚本要求本机已有发布渠道的密钥，执行全量 Debug 单元测试、Release lint 和 Release/R8 构建，然后核对 APK 版本、名称、包名、非调试标志和既有签名。输出位于 `build/releases/<版本>/`：
+脚本要求本机已有发布渠道的密钥，先执行全量 Debug 单元测试与 Release lint，再执行 Release/R8 构建；各阶段使用单 worker，降低内存峰值。随后核对 APK 版本、名称、包名、非调试标志和既有签名。输出位于 `build/releases/<版本>/`：
 
 - `Floryx-<版本>-retain-config.apk`
 - `SHA256SUMS-<版本>.txt`

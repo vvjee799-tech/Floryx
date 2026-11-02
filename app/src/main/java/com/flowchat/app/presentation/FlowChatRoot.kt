@@ -14,6 +14,7 @@ import androidx.navigation.compose.rememberNavController
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.LaunchedEffect
 import com.flowchat.app.presentation.chat.ChatViewModel
 import com.flowchat.app.presentation.chat.AppSettingsRoute
 import com.flowchat.app.presentation.chat.ConversationSettingsScreen
@@ -26,11 +27,22 @@ import com.flowchat.app.ui.theme.AppAppearance
 @Composable
 fun FlowChatRoot(
     appAppearance: AppAppearance,
-    onAppAppearanceChange: (AppAppearance) -> Unit
+    onAppAppearanceChange: (AppAppearance) -> Unit,
+    answerConversationId: String? = null,
+    onAnswerNotificationHandled: () -> Unit = {}
 ) {
     val navController = rememberNavController()
     // Keep active replies and the composer alive across settings destinations.
     val chatViewModel: ChatViewModel = hiltViewModel()
+    LaunchedEffect(answerConversationId) {
+        answerConversationId?.let { owner ->
+            if (chatViewModel.openAnswerConversation(owner)) navController.navigate(Route.Chat) {
+                popUpTo(Route.Chat) { inclusive = false }
+                launchSingleTop = true
+            }
+            onAnswerNotificationHandled()
+        }
+    }
     Box(
         modifier = Modifier
             .fillMaxSize()

@@ -14,6 +14,7 @@ import android.view.Gravity
 import android.view.View
 import android.view.WindowManager
 import android.view.inputmethod.InputMethodManager
+import android.widget.Toast
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
@@ -25,6 +26,8 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.draggable
 import androidx.compose.foundation.gestures.rememberDraggableState
@@ -78,6 +81,8 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
@@ -110,12 +115,14 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 
 @AndroidEntryPoint
 class FloatingAssistantService : Service(), LifecycleOwner, ViewModelStoreOwner, SavedStateRegistryOwner {
     @Inject lateinit var bridge: FloatingAssistantBridge
+    @Inject lateinit var runtime: com.flowchat.app.presentation.chat.ChatTaskRuntime
 
     private val lifecycleRegistry = LifecycleRegistry(this)
     private val serviceViewModelStore = ViewModelStore()
@@ -126,6 +133,7 @@ class FloatingAssistantService : Service(), LifecycleOwner, ViewModelStoreOwner,
     private lateinit var layoutParams: WindowManager.LayoutParams
     private lateinit var controlsView: ComposeView
     private lateinit var controlsLayoutParams: WindowManager.LayoutParams
+    private lateinit var answerBannerWindow: AnswerBannerWindow
     private var overlayAttached = false
     private var controlsAttached = false
     private var visibilityJob: Job? = null
@@ -150,7 +158,38 @@ class FloatingAssistantService : Service(), LifecycleOwner, ViewModelStoreOwner,
         appearance = AppAppearance.load(this)
         startForegroundServiceNotification()
         createOverlayView()
+        answerBannerWindow = AnswerBannerWindow(this, onOpen = { owner ->
+            startActivity(AnswerModeNavigation.intent(this, owner))
+            bridge.dismissAnswerBanner()
+        }, onDismiss = bridge::dismissAnswerBanner)
+        // Remove completed-answer notifications left by the earlier notification-based implementation.
+        getSystemService(NotificationManager::class.java).activeNotifications
+            .filter { it.tag?.startsWith("photo-answer:") == true }.forEach {
+                getSystemService(NotificationManager::class.java).cancel(it.tag, it.id)
+            }
         observeVisibility()
+        serviceScope.launch {
+            val occupied = combine(bridge.appInForeground, bridge.assistantPanels) { app, panels -> app || panels > 0 }
+            val captureHidden = combine(bridge.screenCaptureCount, bridge.displayCaptureCount) { screen, display -> screen > 0 || display > 0 }
+            combine(bridge.answerBanner, bridge.state, occupied, captureHidden, bridge.uiInteractionCount) {
+                banner, state, hiddenByApp, capturing, interactions ->
+                banner to (state.photoAnswerEnabled && !hiddenByApp && !capturing && interactions == 0)
+            }.collect { (banner, visible) ->
+                answerBannerWindow.render(banner, visible && FloatingAssistantPermission.isGranted(this@FloatingAssistantService) &&
+                    !getSystemService(android.app.KeyguardManager::class.java).isKeyguardLocked)
+            }
+        }
+        serviceScope.launch {
+            bridge.screenQuestion.collectLatest { question ->
+                if (question.phase == ScreenQuestionPhase.Failed) {
+                    Toast.makeText(this@FloatingAssistantService, screenQuestionErrorResource(question.errorCode), Toast.LENGTH_SHORT).show()
+                }
+                if (question.errorCode == "task_busy") {
+                    kotlinx.coroutines.delay(2_500)
+                    bridge.clearScreenQuestion()
+                }
+            }
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -165,6 +204,7 @@ class FloatingAssistantService : Service(), LifecycleOwner, ViewModelStoreOwner,
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onDestroy() {
+        if (::answerBannerWindow.isInitialized) answerBannerWindow.hide()
         removeOverlay()
         visibilityJob?.cancel()
         serviceScope.cancel()
@@ -220,11 +260,14 @@ class FloatingAssistantService : Service(), LifecycleOwner, ViewModelStoreOwner,
             setContent {
                 FlowChatTheme(appAppearance = appearance) {
                     val state by bridge.state.collectAsState()
+                    val question by bridge.screenQuestion.collectAsState()
                     FloatingAssistantOverlay(
                         state = state,
+                        question = question,
                         expanded = expanded,
                         watching = watching,
                         onExpand = { updateExpanded(true) },
+                        onRecognizeScreen = if (state.photoAnswerEnabled) ({ runtime.recognizeScreen(); Unit }) else null,
                         onCollapse = { updateExpanded(false) },
                         onDrag = ::moveVertically,
                         onDragFinished = ::savePosition,
@@ -278,8 +321,9 @@ class FloatingAssistantService : Service(), LifecycleOwner, ViewModelStoreOwner,
     private fun observeVisibility() {
         visibilityJob = serviceScope.launch {
             var displayedConfirmationId: String? = null
-            combine(bridge.state, bridge.appInForeground, bridge.uiInteractionCount, bridge.screenCaptureCount, bridge.displayCaptureCount) { state, appInForeground, interactions, captures, displayCaptures ->
-                OverlayVisibility(!appInForeground && state.canChat, state.isStreaming, interactions > 0,
+            val occupied = combine(bridge.appInForeground, bridge.assistantPanels) { foreground, panels -> foreground || panels > 0 }
+            combine(bridge.state, occupied, bridge.uiInteractionCount, bridge.screenCaptureCount, bridge.displayCaptureCount) { state, appInForeground, interactions, captures, displayCaptures ->
+                OverlayVisibility(!appInForeground && (state.canChat || state.canRecognizeScreen), state.isStreaming, interactions > 0,
                     (Build.VERSION.SDK_INT < 34 && captures > 0) || displayCaptures > 0,
                     state.pendingDeviceActionConfirmation?.requestId)
             }.distinctUntilChanged().collect { (shouldShow, streaming, busy, captureHidden, confirmationId) ->
@@ -464,9 +508,11 @@ class FloatingAssistantService : Service(), LifecycleOwner, ViewModelStoreOwner,
 @Composable
 private fun FloatingAssistantOverlay(
     state: FloatingAssistantState,
+    question: ScreenQuestionState,
     expanded: Boolean,
     watching: Boolean,
     onExpand: () -> Unit,
+    onRecognizeScreen: (() -> Unit)?,
     onCollapse: () -> Unit,
     onDrag: (Float) -> Unit,
     onDragFinished: () -> Unit,
@@ -484,6 +530,7 @@ private fun FloatingAssistantOverlay(
         if (isExpanded) {
             ExpandedAssistantPanel(
                 state = state,
+                question = question,
                 watching = isWatching,
                 onCollapse = onCollapse,
                 onSend = onSend,
@@ -492,8 +539,9 @@ private fun FloatingAssistantOverlay(
             )
         } else {
             FloatingAssistantBubble(
-                isStreaming = state.isStreaming,
+                isStreaming = state.isStreaming || question.phase == ScreenQuestionPhase.Capturing,
                 onClick = onExpand,
+                onLongClick = onRecognizeScreen,
                 onDrag = onDrag,
                 onDragFinished = onDragFinished
             )
@@ -501,14 +549,17 @@ private fun FloatingAssistantOverlay(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun FloatingAssistantBubble(
     isStreaming: Boolean,
     onClick: () -> Unit,
+    onLongClick: (() -> Unit)?,
     onDrag: (Float) -> Unit,
     onDragFinished: () -> Unit
 ) {
     val dragState = rememberDraggableState { delta -> onDrag(delta) }
+    val haptics = LocalHapticFeedback.current
     val pulse = if (isStreaming) {
         val transition = rememberInfiniteTransition(label = "assistant-activity")
         val animatedPulse by transition.animateFloat(
@@ -528,10 +579,15 @@ private fun FloatingAssistantBubble(
         modifier = Modifier
             .size(BubbleSizeDp.dp)
             .clip(CircleShape)
-            .clickable(
+            .combinedClickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,
-                onClick = onClick
+                onClick = onClick,
+                onLongClickLabel = stringResource(R.string.screen_question_action),
+                onLongClick = onLongClick?.let { action -> {
+                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                    action()
+                } }
             )
             .draggable(
                 state = dragState,
@@ -557,17 +613,16 @@ private fun FloatingAssistantBubble(
             tonalElevation = 0.dp
         ) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                FlowChatMark(modifier = Modifier.size(28.dp))
-                if (isStreaming) CircularProgressIndicator(
-                    modifier = Modifier.fillMaxSize().padding(3.dp), strokeWidth = 2.dp)
+                FlowChatMark(modifier = Modifier.fillMaxSize())
             }
         }
     }
 }
 
 @Composable
-private fun ExpandedAssistantPanel(
+internal fun ExpandedAssistantPanel(
     state: FloatingAssistantState,
+    question: ScreenQuestionState,
     watching: Boolean,
     onCollapse: () -> Unit,
     onSend: (String) -> Unit,
@@ -582,10 +637,10 @@ private fun ExpandedAssistantPanel(
     }
     Surface(
         modifier = Modifier
-            .width(272.dp)
+            .width((androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp - 32).coerceIn(1, 360).dp)
             .then(if (confirmation != null) Modifier.heightIn(max = maxConfirmationHeight) else Modifier)
             .shadow(4.dp, RoundedCornerShape(20.dp)),
-        shape = RoundedCornerShape(18.dp),
+        shape = RoundedCornerShape(20.dp),
         color = MaterialTheme.colorScheme.surface,
         contentColor = MaterialTheme.colorScheme.onSurface,
         border = androidx.compose.foundation.BorderStroke(
@@ -594,15 +649,18 @@ private fun ExpandedAssistantPanel(
         ),
         tonalElevation = 0.dp
     ) {
-        Column(modifier = Modifier.padding(10.dp)) {
+        Column(modifier = Modifier.padding(16.dp)) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                FloatingProgressStatus(state, Modifier.weight(1f))
+                Text(stringResource(R.string.app_name), style = com.flowchat.app.ui.theme.PaperWordmark.copy(fontSize = 20.sp),
+                    color = MaterialTheme.colorScheme.tertiary, modifier = Modifier.weight(1f))
                 if (!watching) IconButton(onClick = onCollapse, modifier = Modifier.size(48.dp)) {
                     Icon(Icons.Rounded.KeyboardArrowUp,
                         contentDescription = stringResource(R.string.collapse_floating_assistant),
                         tint = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
+            FloatingProgressStatus(if (question.phase == ScreenQuestionPhase.Failed) state.copy(
+                progress = FloatingTaskProgress(FloatingTaskPhase.Failed)) else state)
             Spacer(Modifier.height(8.dp))
             if (confirmation != null && state.conversationId != null) {
                 Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState())) {
@@ -642,8 +700,9 @@ private fun ExpandedAssistantPanel(
                         .background(MaterialTheme.colorScheme.background.copy(alpha = 0.30f))
                 ) {
                     Text(
-                        text = state.assistantText.ifBlank {
+                        text = screenQuestionNotice(question) ?: state.errorMessage ?: state.assistantText.ifBlank {
                             if (state.isStreaming) stringResource(R.string.floating_assistant_thinking)
+                            else if (!state.photoAnswerEnabled) stringResource(R.string.photo_answer_disabled_hint)
                             else stringResource(R.string.floating_assistant_ready)
                         },
                         style = MaterialTheme.typography.bodyMedium,
@@ -660,6 +719,25 @@ private fun ExpandedAssistantPanel(
         }
     }
 }
+
+@Composable
+private fun screenQuestionNotice(question: ScreenQuestionState): String? {
+    if (question.phase == ScreenQuestionPhase.Capturing) return stringResource(R.string.screen_question_capturing)
+    if (question.phase != ScreenQuestionPhase.Failed) return null
+    return stringResource(screenQuestionErrorResource(question.errorCode))
+}
+
+private fun screenQuestionErrorResource(errorCode: String?): Int = when (errorCode) {
+        "task_busy" -> R.string.screen_question_busy
+        "provider_unavailable" -> R.string.screen_question_provider
+        "conversation_unavailable" -> R.string.screen_question_conversation
+        "vision_unsupported" -> R.string.screen_question_vision
+        "accessibility_unavailable" -> R.string.screen_question_accessibility
+        "secure_window_blocked", "sensitive_screen_blocked" -> R.string.screen_question_secure
+        "screen_changed_during_capture", "stale_screen", "visual_target_obscured" -> R.string.screen_question_changed
+        "screen_capture_timeout" -> R.string.screen_question_timeout
+        else -> R.string.screen_question_failed
+    }
 
 @Composable
 private fun FloatingProgressStatus(state: FloatingAssistantState, modifier: Modifier = Modifier) {

@@ -104,6 +104,40 @@ class FlowChatAccessibilityService : AccessibilityService() {
                 .observe(waitForChangeFrom)
         }
 
+    /** Never consult rootInActiveWindow: it can belong to the user's physical screen. */
+    suspend fun observeScreenOnDisplay(displayId: Int): DeviceScreenSnapshot? = withContext(Dispatchers.Main.immediate) {
+        if (Build.VERSION.SDK_INT < 30) return@withContext null
+        require(displayId >= 0)
+        clearNodeCache()
+        cachedSnapshot = null
+        snapshotInvalidated = true
+        val visible = windowsOnAllDisplays[displayId].orEmpty()
+        val window = visible.filter { it.type == AccessibilityWindowInfo.TYPE_APPLICATION }
+            .sortedWith(compareByDescending<AccessibilityWindowInfo> { it.isFocused }.thenByDescending { it.layer })
+            .firstOrNull() ?: return@withContext null
+        if (window.displayId != displayId) return@withContext null
+        val geometry = windowGeometry(window) ?: return@withContext null
+        val bounds = geometry.windowBounds
+        if (bounds.left < 0 || bounds.top < 0 || bounds.right > geometry.displayWidth || bounds.bottom > geometry.displayHeight)
+            return@withContext null
+        val root = window.root ?: return@withContext null
+        try {
+            val result = AccessibilityScreenReader.read(root, window.title?.toString().orEmpty(),
+                android.graphics.Rect(0, 0, geometry.displayWidth, geometry.displayHeight))
+            indexedNodes.putAll(result.indexedNodes)
+            result.snapshot.copy(geometry = geometry).also { cachedSnapshot = it }
+        } finally { @Suppress("DEPRECATION") root.recycle() }
+    }
+
+    suspend fun inputTextOnDisplay(displayId: Int, index: Int, text: String, clearExisting: Boolean): Boolean =
+        withContext(Dispatchers.Main.immediate) {
+            if (displayId <= 0 || cachedSnapshot?.geometry?.displayId != displayId) return@withContext false
+            inputText(index, text, clearExisting)
+        }
+
+    suspend fun observeSettledScreenOnDisplay(displayId: Int): DeviceScreenSnapshot? =
+        ScreenReadinessWaiter({ observeScreenOnDisplay(displayId) }, screenChanges, SystemClock::elapsedRealtime).observe()
+
     @Suppress("DEPRECATION")
     private fun windowGeometry(window: AccessibilityWindowInfo): DeviceScreenGeometry? {
         val displayId = if (Build.VERSION.SDK_INT >= 30) window.displayId else Display.DEFAULT_DISPLAY
@@ -118,17 +152,18 @@ class FlowChatAccessibilityService : AccessibilityService() {
     suspend fun captureScreenImage(
         screen: DeviceScreenSnapshot,
         region: com.flowchat.app.domain.device.ScreenImageRegion? = null,
+        minimumIntervalMillis: Long = 500L,
         withDisplayCapture: suspend (suspend () -> Bitmap) -> Bitmap = { it() }
     ): DeviceScreenImage = screenshotMutex.withLock {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) throw ScreenCaptureFailure("screen_capture_requires_android_11")
         suspend fun sample(windowCapture: Boolean): Bitmap {
             suspend fun capture(): Bitmap {
-                val remaining = 500L - (SystemClock.elapsedRealtime() - lastScreenshotAt)
+                val remaining = minimumIntervalMillis.coerceIn(260L, 1000L) - (SystemClock.elapsedRealtime() - lastScreenshotAt)
                 if (remaining > 0) AutomationTimings.measure("screen.capture_throttle") { delay(remaining) }
                 return withContext(Dispatchers.Main.immediate) {
                     if (!windowCapture && Build.VERSION.SDK_INT >= 34) {
                         val targetBounds = screen.geometry?.windowBounds ?: throw ScreenCaptureFailure("screen_window_unavailable")
-                        val visible = windows
+                        val visible = windowsOnAllDisplays[screen.geometry.displayId].orEmpty()
                         val target = visible.firstOrNull { it.id == screen.windowId } ?: throw ScreenCaptureFailure("screen_window_unavailable")
                         // A display crop must not accidentally send pixels from an overlay belonging to another window.
                         if (visible.any { other -> other.id != target.id && other.layer > target.layer &&

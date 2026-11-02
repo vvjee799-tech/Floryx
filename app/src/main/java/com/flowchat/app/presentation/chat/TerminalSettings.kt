@@ -1,6 +1,8 @@
 package com.flowchat.app.presentation.chat
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.clickable
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -51,15 +53,11 @@ internal fun TerminalSettingsScreen(
                     }
                 }
                 item {
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        CommandEnvironment.entries.forEach { option ->
-                            FilterChip(selected = environment == option, onClick = { environment = option },
-                                label = { Text(stringResource(if (option == CommandEnvironment.Linux) R.string.terminal_linux else R.string.terminal_android)) },
-                                modifier = Modifier.heightIn(min = 48.dp),
-                                leadingIcon = if (environment == option) {{ Icon(Icons.Outlined.CheckCircle, null, Modifier.size(18.dp)) }} else null)
-                        }
-                    }
+                    FlowSegmentedChoice(CommandEnvironment.entries.map {
+                        stringResource(if (it == CommandEnvironment.Linux) R.string.terminal_linux else R.string.terminal_android)
+                    }, CommandEnvironment.entries.indexOf(environment), { environment = CommandEnvironment.entries[it] })
                 }
+
                 item {
                     FlowGroup {
                         Column(Modifier.padding(vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -68,7 +66,7 @@ internal fun TerminalSettingsScreen(
                                 Text(when {
                                     !state.linux.supported -> stringResource(R.string.terminal_unsupported)
                                     state.linux.preparing -> stringResource(R.string.terminal_preparing)
-                                    state.linux.ready -> "Alpine Linux ${state.linux.version} · ${state.linux.architecture}"
+                                    state.linux.ready -> stringResource(if (state.linux.developerToolsReady) R.string.terminal_tools_ready else R.string.terminal_linux)
                                     else -> state.linux.error ?: stringResource(R.string.terminal_not_ready)
                                 }, style = MaterialTheme.typography.titleSmall,
                                     color = if (state.linux.error != null) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface)
@@ -79,8 +77,6 @@ internal fun TerminalSettingsScreen(
                                 } else if (!state.linux.ready && !state.linux.preparing && state.linux.supported) {
                                     TextButton(onClick = onPrepare) { Text(stringResource(R.string.terminal_retry)) }
                                 }
-                                if (state.linux.developerToolsReady) Text(stringResource(R.string.terminal_tools_ready),
-                                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.tertiary)
                             } else Text(stringResource(if (androidAvailable) R.string.terminal_android_connected else R.string.terminal_android_unavailable),
                                 style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
@@ -88,7 +84,7 @@ internal fun TerminalSettingsScreen(
                 }
                 item { FlowSectionLabel(stringResource(R.string.command_history)) }
                 if (visibleCommands.isEmpty()) item {
-                    FlowEmptyState(Icons.Outlined.Terminal, stringResource(R.string.command_history_empty), stringResource(R.string.terminal_empty))
+                    FlowEmptyState(Icons.Outlined.Terminal, stringResource(R.string.command_history_empty), "")
                 }
                 items(visibleCommands, key = { it.id }) { entry ->
                     CommandRecord(entry, nowMillis, onStop)
@@ -103,42 +99,40 @@ private fun CommandRecord(entry: CommandSnapshot, nowMillis: Long, onStop: (Stri
     var expanded by remember(entry.id) { mutableStateOf(false) }
     val failed = entry.status in listOf(CommandStatus.Failed, CommandStatus.TimedOut) ||
         (entry.status == CommandStatus.Exited && entry.exitCode != 0)
-    FlowGroup {
-        Column(Modifier.padding(vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Icon(if (failed) Icons.Outlined.ErrorOutline else if (entry.isRunning) Icons.Outlined.Terminal else Icons.Outlined.CheckCircle,
-                    null, Modifier.size(20.dp), tint = if (failed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
-                Column(Modifier.weight(1f)) {
-                    Text(stringResource(when (entry.status) {
-                        CommandStatus.Running -> R.string.terminal_running
-                        CommandStatus.Exited -> if (entry.exitCode == 0) R.string.terminal_exited else R.string.terminal_failed
-                        CommandStatus.Cancelled -> R.string.terminal_cancelled
-                        CommandStatus.TimedOut -> R.string.terminal_timed_out
-                        CommandStatus.Failed -> R.string.terminal_failed
-                    }), style = MaterialTheme.typography.titleSmall)
-                    Text(stringResource(R.string.terminal_elapsed_seconds, entry.elapsedMillis(nowMillis) / 1000L),
-                        style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-                if (entry.isRunning) TextButton(onClick = { onStop(entry.id) },
-                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)) { Text(stringResource(R.string.stop)) }
+    Column(Modifier.fillMaxWidth()) {
+        Row(Modifier.fillMaxWidth().heightIn(min = 56.dp).clickable { expanded = !expanded }.padding(vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("$ ${entry.command}", fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodyMedium,
+                maxLines = if (expanded) Int.MAX_VALUE else 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+            Column(horizontalAlignment = Alignment.End) {
+                Text(stringResource(when (entry.status) {
+                    CommandStatus.Running -> R.string.terminal_running
+                    CommandStatus.Exited -> if (entry.exitCode == 0) R.string.terminal_exited else R.string.terminal_failed
+                    CommandStatus.Cancelled -> R.string.terminal_cancelled
+                    CommandStatus.TimedOut -> R.string.terminal_timed_out
+                    CommandStatus.Failed -> R.string.terminal_failed
+                }), style = MaterialTheme.typography.bodySmall,
+                    color = if (failed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(stringResource(R.string.terminal_elapsed_seconds, entry.elapsedMillis(nowMillis) / 1000L),
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            SelectionContainer { Text("$ ${entry.command}", fontFamily = FontFamily.Monospace,
-                style = MaterialTheme.typography.bodySmall, maxLines = if (expanded) Int.MAX_VALUE else 2, overflow = TextOverflow.Ellipsis) }
-            if (expanded) {
-                entry.exitCode?.let { Text("exit=$it", style = MaterialTheme.typography.labelSmall) }
-                if (entry.outputOffset > 0 || entry.output.length > 8000) Text(stringResource(R.string.terminal_output_truncated), style = MaterialTheme.typography.labelSmall)
-                if (entry.output.isNotEmpty() || entry.error != null) Surface(color = MaterialTheme.colorScheme.surfaceContainer,
-                    shape = MaterialTheme.shapes.small) {
-                    SelectionContainer {
-                        Text(entry.output.takeLast(8000) + entry.error?.let { "\n$it" }.orEmpty(), fontFamily = FontFamily.Monospace,
-                            style = MaterialTheme.typography.bodySmall,
-                            modifier = Modifier.fillMaxWidth().heightIn(max = 240.dp).verticalScroll(rememberScrollState()).padding(12.dp))
-                    }
+            if (entry.isRunning) TextButton(onClick = { onStop(entry.id) },
+                colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)) { Text(stringResource(R.string.stop)) }
+            else Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                stringResource(if (expanded) R.string.terminal_collapse_output else R.string.terminal_expand_output), Modifier.size(18.dp),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        if (expanded) {
+            entry.exitCode?.let { Text("exit=$it", style = MaterialTheme.typography.bodySmall) }
+            if (entry.outputOffset > 0 || entry.output.length > 8000) Text(stringResource(R.string.terminal_output_truncated), style = MaterialTheme.typography.bodySmall)
+            if (entry.output.isNotEmpty() || entry.error != null) Surface(color = MaterialTheme.colorScheme.surfaceContainerLowest, shape = MaterialTheme.shapes.small) {
+                SelectionContainer {
+                    Text(entry.output.takeLast(8000) + entry.error?.let { "\n$it" }.orEmpty(), fontFamily = FontFamily.Monospace,
+                        style = MaterialTheme.typography.bodySmall, modifier = Modifier.fillMaxWidth().heightIn(max = 240.dp)
+                            .verticalScroll(rememberScrollState()).padding(12.dp))
                 }
-            }
-            TextButton(onClick = { expanded = !expanded }) {
-                Text(stringResource(if (expanded) R.string.terminal_collapse_output else R.string.terminal_expand_output))
             }
         }
+        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
     }
 }

@@ -1,0 +1,10 @@
+<resources>
+    <string name="photo_answer_title">Answer mode</string>
+    <string name="photo_answer_disabled_hint">I’m here when you want to continue.</string>
+    <string name="photo_answer_enabled">Enable answer mode</string>
+    <string name="photo_answer_description">Long press the bubble to ask about the screen. Answers stream directly into a banner at the top while the bubble stays collapsed. Requires overlay and accessibility access.</string>
+    <string name="answer_banner_streaming">Answer mode · Writing</string>
+    <string name="answer_banner_failed">Answer mode · Incomplete</string>
+    <string name="answer_banner_close">Dismiss answer banner</string>
+    <string name="answer_banner_open">View full conversation</string>
+</resources>

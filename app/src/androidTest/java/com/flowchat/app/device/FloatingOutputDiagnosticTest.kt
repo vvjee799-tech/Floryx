@@ -19,6 +19,7 @@ import androidx.test.platform.app.InstrumentationRegistry
 import com.flowchat.app.MainActivity
 import com.flowchat.app.data.device.FlowChatAccessibilityService
 import com.flowchat.app.diagnostics.DeviceDiagnosticsEntryPoint
+import com.flowchat.app.diagnostics.TerminalDiagnosticsEntryPoint
 import com.flowchat.app.domain.device.DeviceSwipeDirection
 import com.flowchat.app.presentation.overlay.FloatingAssistantService
 import com.flowchat.app.presentation.overlay.FloatingAssistantState
@@ -81,6 +82,17 @@ class FloatingOutputDiagnosticTest {
         suspend fun waitFor(condition: () -> Boolean) = withTimeout(10_000) {
             while (!condition()) delay(100)
         }
+        suspend fun settledBounds(view: View): Rect = withTimeout(5_000) {
+            var previous = bounds(view)
+            var stableSince = SystemClock.uptimeMillis()
+            while (true) {
+                delay(50)
+                val current = bounds(view)
+                if (current != previous) { previous = current; stableSince = SystemClock.uptimeMillis() }
+                if (SystemClock.uptimeMillis() - stableSince >= 350) return@withTimeout current
+            }
+            error("unreachable")
+        }
         openFlowChat()
         delay(1_000)
         check(Settings.canDrawOverlays(context)) { "FlowChat Dev overlay permission is required" }
@@ -103,9 +115,12 @@ class FloatingOutputDiagnosticTest {
         val dependencies = EntryPointAccessors.fromApplication(context.applicationContext, DeviceDiagnosticsEntryPoint::class.java)
         val bridge = dependencies.bridge()
         val gateway = dependencies.gateway()
+        val settings = EntryPointAccessors.fromApplication(context, TerminalDiagnosticsEntryPoint::class.java).settings()
+        val previousPowerMode = settings.state.value.powerModeEnabled
         val previousState = bridge.state.value
         val previousAppearance = AppAppearance.load(context)
         try {
+            settings.setPowerModeEnabled(true)
             if (InstrumentationRegistry.getArguments().getString("overlayAppearance") == "dark") {
                 AppAppearance.save(context, AppAppearance.Dark)
             }
@@ -235,10 +250,12 @@ class FloatingOutputDiagnosticTest {
             report("After completion, only explicit Reply enters the editable composer.")
 
             // Repeated expand/collapse must shrink both the surface and its actual window back to the circle.
-            val composerBounds = bounds(output)
+            // Focus is applied before the IME finishes moving/resizing the overlay.
+            val composerBounds = settledBounds(output)
             tap(composerBounds.right - 24 * context.resources.displayMetrics.density,
                 composerBounds.top + 34 * context.resources.displayMetrics.density)
             waitFor { bounds(output).width() == bubbleBounds.width() }
+            report("Composer collapsed after the keyboard layout settled.")
             delay(300)
             checkCircleAndCapture("overlay-collapsed-after-reply")
             repeat(3) {
@@ -253,15 +270,20 @@ class FloatingOutputDiagnosticTest {
                 delay(300)
             }
             checkCircleAndCapture("overlay-collapsed-after-cycles")
+            report("Repeated expand/collapse retained circular window bounds.")
             openFlowChat()
             waitFor { window("FloryxOutput") == null }
+            report("Foreground return removed the overlay.")
+            // The application runtime owns real conversation state across Activity returns.
+            // Reapply this renderer-only fixture after the foreground transition.
+            bridge.publish(liveState.copy(isStreaming = false))
             shell("am start -W -n ${instrumentation.context.packageName}/${DeviceAutomationFixtureActivity::class.java.name} --ez overlay_probe true")
             waitFor { window("FloryxOutput")?.isShown == true }
             assertEquals(bubbleBounds.width(), bounds(requireNotNull(window("FloryxOutput"))).width())
             report("Transparent corners, 48dp bounds, repeated collapse and foreground/background restoration passed.")
         } finally {
             AppAppearance.save(context, previousAppearance)
-            context.startForegroundService(Intent(context, FloatingAssistantService::class.java))
+            settings.setPowerModeEnabled(previousPowerMode)
             bridge.publish(previousState)
             openFlowChat()
         }

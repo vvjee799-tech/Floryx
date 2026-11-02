@@ -24,6 +24,23 @@ import kotlinx.coroutines.withContext
 
 @Singleton
 class ImageAttachmentStore @Inject constructor(@ApplicationContext private val context: Context) {
+    /** Keep screenshot text lossless when it already fits the attachment budget. */
+    suspend fun saveScreenshot(image: ChatImage): ExtractedAttachment = withContext(Dispatchers.IO) {
+        val bytes = Base64.getDecoder().decode(image.base64)
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+        require(bounds.outWidth > 0 && bounds.outHeight > 0) { "Invalid screenshot." }
+        if (bytes.size <= MaxImageBytes && maxOf(bounds.outWidth, bounds.outHeight) <= 3840 &&
+            image.mimeType in setOf("image/png", "image/jpeg")) {
+            val extension = if (image.mimeType == "image/png") "png" else "jpg"
+            val path = "$Directory/${UUID.randomUUID()}.$extension"
+            val file = resolve(context, path)
+            file.parentFile?.mkdirs()
+            try { file.writeBytes(bytes) } catch (error: Exception) { file.delete(); throw error }
+            ExtractedAttachment("Screenshot.$extension", imagePath = path, mimeType = image.mimeType)
+        } else save(context, "Screenshot.jpg", bytes)
+    }
+
     suspend fun loadRecent(messages: List<Message>): Map<String, ChatImage> = withContext(Dispatchers.IO) {
         messages.filter { it.status !in setOf(MessageStatus.Failed, MessageStatus.Stopped) }
             .filter { it.role == MessageRole.User }.takeLast(5)

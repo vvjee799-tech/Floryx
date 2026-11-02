@@ -18,11 +18,12 @@ internal data class CommandProcessSpec(
 )
 
 /** Bounded output and job count. Each Android process gets a separate group for cancellation. */
-internal class ManagedCommandRegistry(private val prefix: String = "local-") {
+internal class ManagedCommandRegistry(private val prefix: String = "local-") : AutoCloseable {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val entries = linkedMapOf<String, Entry>()
     private val mutableState = MutableStateFlow<List<CommandSnapshot>>(emptyList())
     val state: StateFlow<List<CommandSnapshot>> = mutableState
+    private var closed = false
 
     private class Entry(var snapshot: CommandSnapshot, val spec: CommandProcessSpec) {
         var job: Job? = null
@@ -33,6 +34,7 @@ internal class ManagedCommandRegistry(private val prefix: String = "local-") {
     @Synchronized
     fun start(command: String, environment: CommandEnvironment, cwd: String, timeoutSeconds: Int, spec: CommandProcessSpec): CommandSnapshot {
         CommandValidation.validate(command, cwd, timeoutSeconds)
+        check(!closed) { "Command service has closed." }
         check(entries.values.count { it.snapshot.isRunning } < 4) { "Four commands are already running. Stop one or wait for it to finish." }
         val id = prefix + UUID.randomUUID()
         val entry = Entry(CommandSnapshot(id, command, environment, cwd), spec)
@@ -68,18 +70,25 @@ internal class ManagedCommandRegistry(private val prefix: String = "local-") {
         return entry.snapshot
     }
 
+    /** Complete process-group cleanup before a privileged host process exits. */
+    override fun close() {
+        synchronized(this) { closed = true }
+        runBlocking {
+            withTimeoutOrNull(3_000) { scope.coroutineContext[Job]?.cancelAndJoin() }
+        }
+    }
+
     private suspend fun runProcess(entry: Entry): Int = coroutineScope {
         ensureActive()
         if (entry.cancelRequested) throw CancellationException()
         val marker = "__FC_PID_${UUID.randomUUID().toString().replace("-", "")}:"
-        val groupArgv = if (entry.spec.processGroup) listOf("/system/bin/setsid", "/system/bin/sh", "-c",
-            "printf '%s%s\\n' '$marker' \"\$\$\"; exec \"\$@\"", "flowchat") + entry.spec.argv else entry.spec.argv
+        val groupArgv = if (entry.spec.processGroup) OwnedProcessGroup.argv(entry.spec.argv, marker) else entry.spec.argv
         val argv = if (entry.spec.root) listOf("su", "-c", groupArgv.joinToString(" ", transform = ::shellQuote)) else groupArgv
         val builder = ProcessBuilder(argv).redirectErrorStream(true)
         entry.spec.directory?.let(builder::directory)
         builder.environment().putAll(entry.spec.environment)
         val process = builder.start()
-        process.outputStream.close()
+        if (!entry.spec.processGroup) process.outputStream.close()
         val reader = launch(Dispatchers.IO) {
             process.inputStream.bufferedReader().use { input ->
                 if (entry.spec.processGroup) {
@@ -97,11 +106,14 @@ internal class ManagedCommandRegistry(private val prefix: String = "local-") {
         }
         try {
             val code = runInterruptible(Dispatchers.IO) { process.waitFor() }
+            // Also releases the lifetime watchdog before waiting for the output EOF.
+            process.outputStream.close()
             // A detached child must not hold the parent's output pipe open indefinitely.
             withTimeoutOrNull(2_000) { reader.join() }
             code
         } finally {
             withContext(NonCancellable + Dispatchers.IO) {
+                runCatching { process.outputStream.close() }
                 val group = entry.processGroup.get()
                 if (entry.spec.processGroup && group > 1) {
                     val kill = listOf("/system/bin/kill", "-KILL", "--", "-$group")

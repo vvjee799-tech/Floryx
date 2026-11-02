@@ -36,6 +36,7 @@ enum class ShizukuConnectionStatus {
     RootPermissionRequired,
     RootPermissionDenied,
     ConnectedDirectRoot,
+    RootReady,
     Unsupported,
     Error
 }
@@ -48,7 +49,7 @@ data class ShizukuConnectionState(
     val isConnected: Boolean
         get() = status == ShizukuConnectionStatus.ConnectedAdb ||
             status == ShizukuConnectionStatus.ConnectedRoot ||
-            status == ShizukuConnectionStatus.ConnectedDirectRoot
+            status == ShizukuConnectionStatus.ConnectedDirectRoot || status == ShizukuConnectionStatus.RootReady
 }
 
 data class DeviceToolResult(
@@ -101,6 +102,7 @@ data class DeviceToolResult(
 }
 
 interface DeviceAssistantGateway {
+    val backgroundExecutionRequested: Boolean get() = false
     val connectionState: StateFlow<ShizukuConnectionState>
     val accessibilityState: StateFlow<AccessibilityConnectionState>
         get() = MutableStateFlow(AccessibilityConnectionState(AccessibilityConnectionStatus.Unavailable))
@@ -119,6 +121,9 @@ interface DeviceAssistantGateway {
     suspend fun observeScreen(): DeviceToolResult = unsupportedAutomation()
     suspend fun waitForScreen(): DeviceToolResult = observeScreen()
     suspend fun captureScreen(region: ScreenImageRegion? = null): DeviceToolResult = observeScreen().copy(imageErrorCode = "screen_capture_unavailable")
+    /** Explicitly captures the user's physical foreground, independent of task execution display. */
+    suspend fun captureForegroundScreen(): DeviceToolResult =
+        DeviceToolResult(false, "Foreground screenshot unavailable.", imageErrorCode = "screen_capture_unavailable")
     suspend fun tapUiElement(index: Int, longPress: Boolean = false, screenId: String? = null): DeviceToolResult = unsupportedAutomation()
     suspend fun tapVisualTarget(target: VisualTapTarget): DeviceToolResult = unsupportedAutomation()
     suspend fun inputText(index: Int, text: String, clearExisting: Boolean, screenId: String? = null): DeviceToolResult = unsupportedAutomation()

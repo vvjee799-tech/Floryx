@@ -48,8 +48,14 @@ internal fun BloomSplashContent(
     elapsedMillis: Float,
     appAppearance: AppAppearance,
     modifier: Modifier = Modifier
+) = BloomSplashContent({ elapsedMillis }, appAppearance, modifier)
+
+@Composable
+internal fun BloomSplashContent(
+    elapsedMillis: () -> Float,
+    appAppearance: AppAppearance,
+    modifier: Modifier = Modifier
 ) {
-    val frame = bloomSplashFrame(elapsedMillis)
     val dark = when (appAppearance) {
         AppAppearance.System -> isSystemInDarkTheme()
         AppAppearance.Dark -> true
@@ -60,7 +66,7 @@ internal fun BloomSplashContent(
 
     BoxWithConstraints(
         modifier.fillMaxSize()
-            .graphicsLayer { alpha = frame.splashAlpha }
+            .graphicsLayer { alpha = BloomSplashMotion.alpha(elapsedMillis()) }
             .background(MaterialTheme.colorScheme.background)
             .testTag("bloom_splash")
             .semantics { paneTitle = title }
@@ -77,7 +83,7 @@ internal fun BloomSplashContent(
                 .padding(horizontal = 28.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            BloomFlower(frame, colors, Modifier.size(if (compact) 48.dp else 88.dp))
+            BloomFlower(elapsedMillis, colors, Modifier.size(if (compact) 48.dp else 88.dp))
             Spacer(Modifier.height(if (compact) 12.dp else 24.dp))
             Text(
                 text = title,
@@ -89,8 +95,9 @@ internal fun BloomSplashContent(
                 textAlign = TextAlign.Center,
                 maxLines = 1,
                 modifier = Modifier.fillMaxWidth().testTag("bloom_wordmark").graphicsLayer {
-                    alpha = frame.wordmarkProgress
-                    translationY = 6.dp.toPx() * (1f - frame.wordmarkProgress)
+                    val progress = BloomSplashMotion.wordmark(elapsedMillis())
+                    alpha = progress
+                    translationY = 6.dp.toPx() * (1f - progress)
                 }
             )
             Spacer(Modifier.height(if (compact) 8.dp else 12.dp))
@@ -104,7 +111,7 @@ internal fun BloomSplashContent(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center,
                 modifier = Modifier.fillMaxWidth().testTag("bloom_tagline").graphicsLayer {
-                    alpha = frame.taglineProgress
+                    alpha = BloomSplashMotion.tagline(elapsedMillis())
                 }
             )
         }
@@ -112,7 +119,7 @@ internal fun BloomSplashContent(
 }
 
 @Composable
-private fun BloomFlower(frame: BloomSplashFrame, colors: BloomColors, modifier: Modifier) {
+private fun BloomFlower(elapsedMillis: () -> Float, colors: BloomColors, modifier: Modifier) {
     // Same outline as docs/assets/floryx-title-v2.svg and the approved preview.
     val petal = remember {
         Path().apply {
@@ -124,9 +131,12 @@ private fun BloomFlower(frame: BloomSplashFrame, colors: BloomColors, modifier: 
         }
     }
     Canvas(modifier.testTag("bloom_flower").clearAndSetSemantics {}) {
+        val millis = elapsedMillis()
+        val seedProgress = BloomSplashMotion.seed(millis)
         translate(center.x, center.y) {
             scale(size.minDimension / 224f, pivot = Offset.Zero) {
-                frame.petalProgress.forEachIndexed { index, progress ->
+                repeat(BloomSplashPetalCount) { index ->
+                    val progress = BloomSplashMotion.petal(millis, index)
                     rotate(-8f + index * 60f, pivot = Offset.Zero) {
                         scale(.12f + .88f * progress, pivot = Offset.Zero) {
                             drawPath(petal, if (index % 2 == 0) colors.pink else colors.apricot,
@@ -134,11 +144,11 @@ private fun BloomFlower(frame: BloomSplashFrame, colors: BloomColors, modifier: 
                         }
                     }
                 }
-                scale(.7f + .3f * frame.seedProgress, pivot = Offset.Zero) {
+                scale(.7f + .3f * seedProgress, pivot = Offset.Zero) {
                     // Keep a small seed visible on the very first application frame.
                     drawCircle(colors.center, radius = 19f, center = Offset.Zero,
-                        alpha = .35f + .65f * frame.seedProgress)
-                    val pollenAlpha = .75f * frame.seedProgress
+                        alpha = .35f + .65f * seedProgress)
+                    val pollenAlpha = .75f * seedProgress
                     drawCircle(colors.pollen, 2f, Offset(-6f, -5f), alpha = pollenAlpha)
                     drawCircle(colors.pollen, 2f, Offset(6f, -7f), alpha = pollenAlpha)
                     drawCircle(colors.pollen, 2f, Offset(2f, 5f), alpha = pollenAlpha)

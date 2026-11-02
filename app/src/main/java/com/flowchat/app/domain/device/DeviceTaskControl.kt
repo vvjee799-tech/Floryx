@@ -10,6 +10,8 @@ import kotlinx.coroutines.flow.asStateFlow
 @Singleton
 class DeviceTaskControl @Inject constructor() {
     class Task internal constructor(internal var allowedThroughReturn: Long) {
+        val id: String = java.util.UUID.randomUUID().toString()
+        internal val finishActions = mutableListOf<() -> Unit>()
         @Volatile internal var armed = false
         @Volatile internal var closed = false
         internal var awaitingUserConfirmation = false
@@ -17,14 +19,15 @@ class DeviceTaskControl @Inject constructor() {
             internal set
     }
 
-    private var appInForeground = true
+    // A cold system-assistant entry can start a task before MainActivity has ever appeared.
+    private var appInForeground = false
     private val mutableReturns = MutableStateFlow(0L)
     val foregroundReturns = mutableReturns.asStateFlow()
     @Volatile var currentTask: Task? = null
         private set
 
     @Synchronized fun begin(): Task {
-        currentTask?.closed = true
+        finish(currentTask)
         return Task(mutableReturns.value).also { currentTask = it }
     }
 
@@ -35,7 +38,7 @@ class DeviceTaskControl @Inject constructor() {
     @Synchronized fun activate(task: Task) {
         if (task.allowedThroughReturn != mutableReturns.value) task.interrupted = true
         if (task.closed || task.interrupted) throw CancellationException("User took control of the phone task.")
-        currentTask?.takeIf { it !== task }?.closed = true
+        currentTask?.takeIf { it !== task }?.let(::finish)
         currentTask = task
     }
 
@@ -76,7 +79,16 @@ class DeviceTaskControl @Inject constructor() {
     }
 
     @Synchronized fun finish(task: Task?) {
-        task?.closed = true
+        if (task != null && !task.closed) {
+            task.closed = true
+            val actions = task.finishActions.toList()
+            task.finishActions.clear()
+            actions.forEach { it() }
+        }
         if (currentTask === task) currentTask = null
+    }
+
+    @Synchronized fun onFinish(task: Task, action: () -> Unit) {
+        if (task.closed) action() else task.finishActions.add(action)
     }
 }

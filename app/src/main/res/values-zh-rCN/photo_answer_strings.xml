@@ -1,0 +1,10 @@
+<resources>
+    <string name="photo_answer_title">答题模式</string>
+    <string name="photo_answer_disabled_hint">我在这里，随时可以继续。</string>
+    <string name="photo_answer_enabled">开启答题模式</string>
+    <string name="photo_answer_description">长按悬浮球截图提问，答案会直接在屏幕顶部横幅逐步显示，悬浮球保持收起。需开启悬浮窗和无障碍权限。</string>
+    <string name="answer_banner_streaming">答题模式 · 正在输出</string>
+    <string name="answer_banner_failed">答题模式 · 未完成</string>
+    <string name="answer_banner_close">收起答案横幅</string>
+    <string name="answer_banner_open">查看完整会话</string>
+</resources>

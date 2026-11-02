@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Text-first, Android 12+ only. Recognition is independently selected by the system on these versions.
+     Keep it explicitly empty so installing/selecting the assistant doesn't replace the user's recognizer. -->
+<voice-interaction-service xmlns:android="http://schemas.android.com/apk/res/android"
+    android:sessionService="com.flowchat.app.presentation.assistant.FloryxVoiceSessionService"
+    android:recognitionService=""
+    android:supportsAssist="true"
+    android:supportsLaunchVoiceAssistFromKeyguard="false"
+    android:supportsLocalInteraction="false" />

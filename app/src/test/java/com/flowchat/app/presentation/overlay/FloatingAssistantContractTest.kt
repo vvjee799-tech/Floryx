@@ -49,7 +49,7 @@ class FloatingAssistantContractTest {
         val service = File(
             "src/main/java/com/flowchat/app/presentation/overlay/FloatingAssistantService.kt"
         ).readText()
-        val panelStart = service.indexOf("private fun ExpandedAssistantPanel(")
+        val panelStart = service.indexOf("internal fun ExpandedAssistantPanel(")
         val panelEnd = service.indexOf("private fun WatchingAssistantControls(", panelStart)
         val panel = service.substring(panelStart, panelEnd)
 
@@ -66,14 +66,15 @@ class FloatingAssistantContractTest {
         val service = File(
             "src/main/java/com/flowchat/app/presentation/overlay/FloatingAssistantService.kt"
         ).readText()
-        val panelStart = service.indexOf("private fun ExpandedAssistantPanel(")
+        val panelStart = service.indexOf("internal fun ExpandedAssistantPanel(")
         val panelEnd = service.indexOf("private fun WatchingAssistantControls(", panelStart)
         val panel = service.substring(panelStart, panelEnd)
         val sendHandlerStart = service.indexOf("onSend = { text ->")
         val sendHandlerEnd = service.indexOf("},", sendHandlerStart)
         val sendHandler = service.substring(sendHandlerStart, sendHandlerEnd)
 
-        assertTrue(panel.contains(".width(272.dp)"))
+        assertTrue(panel.contains("screenWidthDp - 32"))
+        assertTrue(panel.contains("coerceIn(1, 360)"))
         assertTrue(panel.contains(".shadow(4.dp, RoundedCornerShape(20.dp))"))
         assertTrue(panel.contains("color = MaterialTheme.colorScheme.surface,"))
         assertTrue(panel.contains("state.assistantText.ifBlank"))
@@ -110,7 +111,7 @@ class FloatingAssistantContractTest {
             "src/main/java/com/flowchat/app/presentation/overlay/FloatingAssistantService.kt"
         ).readText().replace("\r\n", "\n")
         val bubbleStart = service.indexOf("private fun FloatingAssistantBubble(")
-        val bubbleEnd = service.indexOf("private fun ExpandedAssistantPanel(", bubbleStart)
+        val bubbleEnd = service.indexOf("internal fun ExpandedAssistantPanel(", bubbleStart)
         val bubble = service.substring(bubbleStart, bubbleEnd)
 
         assertTrue(bubble.contains("val pulse = if (isStreaming)"))

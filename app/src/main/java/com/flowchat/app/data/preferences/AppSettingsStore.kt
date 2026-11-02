@@ -15,10 +15,12 @@ data class AppSettings(
     val memoryEnabled: Boolean = true,
     val powerModeEnabled: Boolean = false,
     val powerConnectionMode: PowerConnectionMode = PowerConnectionMode.Shizuku,
+    val backgroundExecutionEnabled: Boolean = false,
     val webSearchDisclosureAccepted: Boolean = false,
     val installId: String = "",
     val usageTrackingEnabled: Boolean = false,
     val commandExecutionEnabled: Boolean = false,
+    val photoAnswerEnabled: Boolean = true,
     val defaultWorkspace: com.flowchat.app.domain.workspace.WorkspaceLocation? = null
 )
 
@@ -47,10 +49,16 @@ class AppSettingsStore private constructor(
 
     fun setCommandExecutionEnabled(enabled: Boolean) = update(CommandExecutionKey, enabled) { copy(commandExecutionEnabled = enabled) }
 
+    fun setPhotoAnswerEnabled(enabled: Boolean) = update("photo_answer_enabled", enabled) { copy(photoAnswerEnabled = enabled) }
+
+
     fun setMemoryEnabled(enabled: Boolean) = update(MemoryEnabledKey, enabled) { copy(memoryEnabled = enabled) }
 
     fun setPowerModeEnabled(enabled: Boolean) =
         update(PowerModeEnabledKey, enabled) { copy(powerModeEnabled = enabled) }
+
+    fun setBackgroundExecutionEnabled(enabled: Boolean) =
+        update("background_execution_enabled", enabled) { copy(backgroundExecutionEnabled = enabled) }
 
     fun setPowerConnectionMode(mode: PowerConnectionMode) {
         mutableState.value = mutableState.value.copy(powerConnectionMode = mode)
@@ -98,12 +106,14 @@ class AppSettingsStore private constructor(
                 memoryEnabled = getBoolean(MemoryEnabledKey, true),
                 usageTrackingEnabled = getBoolean("usage_tracking_enabled", false),
                 powerModeEnabled = powerModeEnabled,
+                backgroundExecutionEnabled = getBoolean("background_execution_enabled", false),
                 powerConnectionMode = PowerConnectionMode.entries.firstOrNull {
                     it.name == getString(PowerConnectionModeKey, null)
                 } ?: PowerConnectionMode.Shizuku,
                 webSearchDisclosureAccepted = getBoolean(WebSearchDisclosureKey, false),
                 installId = installId,
                 commandExecutionEnabled = getBoolean(CommandExecutionKey, false),
+                photoAnswerEnabled = getBoolean("photo_answer_enabled", true),
                 defaultWorkspace = com.flowchat.app.domain.workspace.WorkspaceCodec.decode(getString("default_workspace", null))
             )
         }

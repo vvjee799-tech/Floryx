@@ -28,7 +28,9 @@ internal fun FlowSettingsPage(
         modifier = modifier.fillMaxSize().testTag("settings_page"),
         containerColor = MaterialTheme.colorScheme.background,
         topBar = {
+            Column {
             TopAppBar(
+                expandedHeight = 56.dp,
                 title = { Text(title, style = MaterialTheme.typography.titleMedium) },
                 navigationIcon = {
                     IconButton(onClick = onBack, modifier = Modifier.testTag("settings_back")) {
@@ -38,6 +40,8 @@ internal fun FlowSettingsPage(
                 actions = actions,
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background)
             )
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+            }
         }
     ) { insets ->
         Box(Modifier.fillMaxSize().padding(insets).consumeWindowInsets(insets).imePadding(), contentAlignment = Alignment.TopCenter) {

@@ -12,6 +12,7 @@ import com.flowchat.app.data.db.MIGRATION_8_9
 import com.flowchat.app.data.db.MIGRATION_11_12
 import com.flowchat.app.data.db.MIGRATION_13_14
 import com.flowchat.app.data.db.MIGRATION_14_15
+import com.flowchat.app.data.db.MIGRATION_15_16
 import com.flowchat.app.data.db.MIGRATION_12_13
 import com.flowchat.app.domain.workspace.WorkspaceLocation
 import com.flowchat.app.data.db.MIGRATION_10_11
@@ -48,7 +49,7 @@ class ThinkingMigrationTest {
             }).build())
         helper.writableDatabase
         helper.close()
-        fun open() = Room.databaseBuilder(context, FlowChatDatabase::class.java, name).addMigrations(MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15).allowMainThreadQueries().build()
+        fun open() = Room.databaseBuilder(context, FlowChatDatabase::class.java, name).addMigrations(MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16).allowMainThreadQueries().build()
         try {
             val first = open()
             try {

@@ -17,7 +17,7 @@ class FloatingAssistantManager @Inject constructor(
     private val bridge: FloatingAssistantBridge
 ) {
     fun syncEnabled() {
-        val enabled = settingsStore.state.value.powerModeEnabled
+        val enabled = settingsStore.state.value.powerModeEnabled || settingsStore.state.value.photoAnswerEnabled
         if (enabled && FloatingAssistantPermission.isGranted(context)) {
             ContextCompat.startForegroundService(
                 context,

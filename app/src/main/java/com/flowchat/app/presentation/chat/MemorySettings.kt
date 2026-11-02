@@ -6,6 +6,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Edit
+import androidx.compose.material.icons.outlined.MoreHoriz
 import androidx.compose.material.icons.outlined.Memory
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -22,7 +23,7 @@ import com.flowchat.app.presentation.common.*
 @Composable
 internal fun MemoryToggle(enabled: Boolean, onEnabledChange: (Boolean) -> Unit, modifier: Modifier = Modifier, leadingIcon: Boolean = false) {
     FlowToggleRow(stringResource(R.string.memory_enabled),
-        stringResource(if (enabled) R.string.memory_enabled_description else R.string.memory_disabled_description),
+        null,
         enabled, onEnabledChange, modifier.testTag("memory-toggle"),
         icon = if (leadingIcon) Icons.Outlined.Memory else null)
 }
@@ -37,43 +38,35 @@ internal fun MemorySettingsScreen(
     var editing by remember { mutableStateOf<MemoryRecord?>(null) }
     FlowSettingsPage(title = stringResource(R.string.memory), onBack = onDismiss) {
         Column(Modifier.fillMaxSize()) {
-            LazyColumn(Modifier.weight(1f).testTag("memory-list"), contentPadding = PaddingValues(FlowLayout.Gutter),
-                verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            LazyColumn(Modifier.weight(1f).testTag("memory-list"), contentPadding = PaddingValues(horizontal = FlowLayout.Gutter, vertical = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(0.dp)) {
                 item { FlowGroup { MemoryToggle(enabled, onEnabledChange) } }
                 item { FlowSectionLabel(stringResource(R.string.saved_memories_count, memories.size)) }
                 if (memories.isEmpty()) item {
-                    FlowEmptyState(Icons.Outlined.Memory, stringResource(R.string.no_memories), stringResource(R.string.memory_empty_description))
+                    FlowEmptyState(Icons.Outlined.Memory, stringResource(R.string.no_memories), "")
                 }
                 items(memories, key = { it.id }) { memory ->
-                    FlowGroup {
-                        Column(Modifier.padding(top = 8.dp, bottom = 4.dp)) {
-                            Text(stringResource(when (memory.category) {
-                                "profile" -> R.string.memory_category_profile
-                                "project" -> R.string.memory_category_project
-                                else -> R.string.memory_category_preference
-                            }), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
-                            Text(memory.summary, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.padding(top = 8.dp))
-                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                                IconButton(onClick = { editing = memory }) {
-                                    Icon(Icons.Outlined.Edit, stringResource(R.string.edit_memory), Modifier.size(20.dp))
-                                }
-                                IconButton(onClick = { onDelete(memory.id) }) {
-                                    Icon(Icons.Outlined.Delete, stringResource(R.string.delete_memory), Modifier.size(20.dp),
-                                        tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                                }
+                    var menu by remember(memory.id) { mutableStateOf(false) }
+                    Row(Modifier.fillMaxWidth().heightIn(min = 56.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Text(memory.summary, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f).padding(vertical = 12.dp))
+                        Box {
+                            IconButton(onClick = { menu = true }) { Icon(Icons.Outlined.MoreHoriz, stringResource(R.string.edit_memory), Modifier.size(20.dp)) }
+                            DropdownMenu(menu, { menu = false }) {
+                                DropdownMenuItem(text = { Text(stringResource(R.string.edit_memory)) }, onClick = { menu = false; editing = memory })
+                                DropdownMenuItem(text = { Text(stringResource(R.string.delete_memory), color = MaterialTheme.colorScheme.error) },
+                                    onClick = { menu = false; onDelete(memory.id) })
                             }
-                            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                         }
                     }
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                 }
-            }
-            Row(Modifier.fillMaxWidth().padding(horizontal = FlowLayout.Gutter, vertical = 8.dp),
-                horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                if (memories.isNotEmpty()) TextButton(onClick = { confirmClear = true },
-                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)) {
-                    Text(stringResource(R.string.clear_all))
-                } else Spacer(Modifier.weight(1f))
-                TextButton(onClick = onDismiss) { Text(stringResource(R.string.done)) }
+                if (memories.isNotEmpty()) item {
+                    TextButton(onClick = { confirmClear = true },
+                        modifier = Modifier.padding(top = 16.dp),
+                        colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)) {
+                        Text(stringResource(R.string.clear_all))
+                    }
+                }
             }
         }
     }

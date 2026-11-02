@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -47,11 +48,15 @@ fun SplashTransition(
         mutableStateOf(!splashConsumed && systemScale > 0f && ValueAnimator.areAnimatorsEnabled())
     }
     val elapsed = remember { Animatable(0f) }
+    val elapsedMillis = remember(elapsed) { { elapsed.value } }
     val lifecycle = LocalLifecycleOwner.current.lifecycle
+    val lifecycleState by lifecycle.currentStateFlow.collectAsState()
     val ready = rememberUpdatedState(launchReady)
     var splashDrawn by remember { mutableStateOf(false) }
     var prepareHome by remember { mutableStateOf(!showSplash) }
     var homeDrawn by remember { mutableStateOf(false) }
+
+    SplashRefreshRate(enabled = showSplash && lifecycleState.isAtLeast(Lifecycle.State.RESUMED))
 
     LaunchedEffect(Unit) {
         splashConsumed = true
@@ -95,7 +100,7 @@ fun SplashTransition(
         }
         if (showSplash) {
             BloomSplashContent(
-                elapsedMillis = elapsed.value,
+                elapsedMillis = elapsedMillis,
                 appAppearance = appAppearance,
                 modifier = Modifier.drawWithContent {
                     drawContent()

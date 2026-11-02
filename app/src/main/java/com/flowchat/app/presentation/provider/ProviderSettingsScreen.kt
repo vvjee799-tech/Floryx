@@ -96,10 +96,13 @@ fun ProviderSettingsScreen(
     viewModel: ProviderSettingsViewModel = hiltViewModel()
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
+    var editing by rememberSaveable { mutableStateOf(false) }
+    androidx.activity.compose.BackHandler(editing) { editing = false }
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             TopAppBar(
+                expandedHeight = 56.dp,
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.background,
                     titleContentColor = MaterialTheme.colorScheme.onBackground,
@@ -107,12 +110,12 @@ fun ProviderSettingsScreen(
                 ),
                 title = {
                     Text(
-                        text = stringResource(R.string.provider_configuration),
+                        text = stringResource(if (editing) R.string.edit_connection else R.string.model_provider_configuration),
                         style = MaterialTheme.typography.titleMedium
                     )
                 },
                 navigationIcon = {
-                    IconButton(onClick = onBack) {
+                    IconButton(onClick = { if (editing) editing = false else onBack() }) {
                         Icon(
                             Icons.AutoMirrored.Filled.ArrowBack,
                             contentDescription = stringResource(R.string.navigate_back)
@@ -124,6 +127,7 @@ fun ProviderSettingsScreen(
     ) { padding ->
         ProviderEditor(
             state = state,
+            editing = editing, onEditingChange = { editing = it },
             onUpdate = viewModel::updateSelected,
             onSelectProvider = viewModel::select,
             onApiKey = viewModel::updateApiKey,
@@ -169,6 +173,8 @@ internal fun ProviderEditor(
     onDismissPresetApiKeyDialog: () -> Unit,
     onSave: () -> Unit,
     modifier: Modifier = Modifier,
+    editing: Boolean = false,
+    onEditingChange: (Boolean) -> Unit = {},
     onOpenConversationModels: (ProviderConfig) -> Unit = {},
     onDismissConversationModels: () -> Unit = {},
     onRefreshConversationModels: () -> Unit = {},
@@ -181,6 +187,8 @@ internal fun ProviderEditor(
     var customConfigurationExpanded by rememberSaveable {
         mutableStateOf(false)
     }
+    LaunchedEffect(editing) { customConfigurationExpanded = editing }
+    fun editMode(value: Boolean) { customConfigurationExpanded = value; onEditingChange(value) }
     val formHeader = remember { BringIntoViewRequester() }
     LaunchedEffect(customConfigurationExpanded, provider?.id) {
         if (customConfigurationExpanded) formHeader.bringIntoView()
@@ -188,42 +196,42 @@ internal fun ProviderEditor(
     Column(
         modifier = modifier
             .fillMaxSize()
-            .verticalScroll(rememberScrollState()).testTag("provider-editor").padding(bottom = 24.dp),
+            .verticalScroll(rememberScrollState()).testTag("provider-editor").padding(top = 16.dp, bottom = 24.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        Text(
-            text = stringResource(R.string.current_configuration),
-            style = MaterialTheme.typography.labelLarge,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-        CurrentProviderCard(provider = state.currentProvider)
-        if (state.currentProvider != null) TextButton(onClick = {
-            onSelectProvider(state.currentProvider)
-            customConfigurationExpanded = true
-        }) {
-            Icon(Icons.Outlined.Edit, null, Modifier.size(18.dp))
-            Spacer(Modifier.width(8.dp))
-            Text(stringResource(R.string.provider_edit_current))
+        if (!customConfigurationExpanded) {
+            Text(stringResource(R.string.current_configuration), style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.weight(1f)) { CurrentProviderCard(provider = state.currentProvider) }
+                if (state.currentProvider != null) TextButton(onClick = {
+                    onSelectProvider(state.currentProvider); editMode(true)
+                }) { Text(stringResource(R.string.edit)) }
+            }
+            androidx.compose.material3.HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+            ProviderPresetSection(state = state, onApplyPreset = onApplyPreset)
+            ProviderConversationModelsSection(state.providers, onOpenConversationModels)
+            TextButton(onClick = { editMode(true) }, modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp)) {
+                Text(stringResource(R.string.custom_api_configuration), modifier = Modifier.weight(1f))
+                Icon(Icons.Default.KeyboardArrowDown, null, Modifier.size(18.dp))
+            }
         }
-        ProviderConversationModelsSection(state.providers, onOpenConversationModels)
-        Text(stringResource(R.string.provider_quick_setup),
-            style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        ProviderPresetSection(state = state, onApplyPreset = onApplyPreset)
         if (provider == null) {
             Text(stringResource(R.string.no_provider_selected))
             return@Column
         }
+        if (customConfigurationExpanded) Column(verticalArrangement = Arrangement.spacedBy(20.dp)) {
         ProviderSection(
             title = stringResource(R.string.custom_api_configuration),
             expanded = customConfigurationExpanded,
-            onToggle = { customConfigurationExpanded = !customConfigurationExpanded },
+            onToggle = { editMode(!customConfigurationExpanded) },
             headerModifier = Modifier.bringIntoViewRequester(formHeader)
         ) {
             OutlinedTextField(
                 value = provider.displayName,
                 onValueChange = { value -> onUpdate { it.copy(displayName = value) } },
                 label = { Text(stringResource(R.string.provider_name)) },
-                shape = RoundedCornerShape(14.dp),
+                shape = RoundedCornerShape(12.dp),
                 colors = providerTextFieldColors(),
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth()
@@ -232,7 +240,7 @@ internal fun ProviderEditor(
                 value = provider.baseUrl,
                 onValueChange = { value -> onUpdate { it.copy(baseUrl = value) } },
                 label = { Text(stringResource(R.string.base_url)) },
-                shape = RoundedCornerShape(14.dp),
+                shape = RoundedCornerShape(12.dp),
                 colors = providerTextFieldColors(),
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth()
@@ -250,7 +258,7 @@ internal fun ProviderEditor(
                             )
                         }
                     },
-                    shape = RoundedCornerShape(14.dp),
+                    shape = RoundedCornerShape(12.dp),
                     colors = providerTextFieldColors(),
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
@@ -308,23 +316,17 @@ internal fun ProviderEditor(
                 },
                 visualTransformation = PasswordVisualTransformation(),
                 label = { Text(stringResource(R.string.api_key)) },
-                shape = RoundedCornerShape(14.dp),
+                shape = RoundedCornerShape(12.dp),
                 colors = providerTextFieldColors(),
-                supportingText = {
-                    if (state.hasApiKey) {
-                        Text(stringResource(R.string.api_key_saved_hint))
-                    }
-                },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth()
             )
             if (state.message != null) Text(localizedProviderMessage(state.message),
                 color = if (state.message == "Saved") MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.error,
                 style = MaterialTheme.typography.bodySmall)
-            Text(stringResource(R.string.provider_security_hint), style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant)
             ProviderSaveButton(onSave = onSave)
         }
+    }
     }
     state.modelSelection?.let { selection ->
         ConversationModelsDialog(selection, onDismissConversationModels, onRefreshConversationModels,
@@ -395,13 +397,11 @@ private fun PresetApiKeyDialog(
                 label = { Text(stringResource(R.string.preset_api_key_placeholder)) },
                 isError = errorMessage != null,
                 supportingText = { if (errorMessage != null) Text(localizedProviderMessage(errorMessage)) },
-                shape = RoundedCornerShape(14.dp),
+                shape = RoundedCornerShape(12.dp),
                 colors = providerTextFieldColors(),
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth()
             )
-            Text(stringResource(R.string.provider_security_hint), style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         },
         confirmButton = {
@@ -465,45 +465,8 @@ private fun ProviderSection(
     headerModifier: Modifier = Modifier,
     content: @Composable ColumnScope.() -> Unit
 ) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(18.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surface,
-            contentColor = MaterialTheme.colorScheme.onSurface
-        ),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
-    ) {
-        Column(
-            modifier = Modifier.padding(vertical = 10.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            Row(
-                modifier = headerModifier
-                    .fillMaxWidth()
-                    .heightIn(min = 48.dp)
-                    .clickable(role = Role.Button, onClick = onToggle)
-                    .padding(vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = title,
-                    style = MaterialTheme.typography.titleMedium,
-                    modifier = Modifier.weight(1f)
-                )
-                Icon(
-                    imageVector = Icons.Default.KeyboardArrowDown,
-                    contentDescription = stringResource(
-                        if (expanded) R.string.thinking_collapse else R.string.thinking_expand
-                    ),
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.rotate(if (expanded) 180f else 0f)
-                )
-            }
-            if (expanded) {
-                content()
-            }
-        }
+    Column(headerModifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(20.dp)) {
+        if (expanded) content()
     }
 }
 
@@ -526,28 +489,20 @@ private fun ProviderSaveButton(onSave: () -> Unit) {
 
 @Composable
 private fun ProviderPresetSection(state: ProviderSettingsUiState, onApplyPreset: (ProviderPreset) -> Unit) {
-    BoxWithConstraints(Modifier.fillMaxWidth()) {
-        val columns = if (maxWidth < 340.dp && LocalDensity.current.fontScale > 1.3f) 1 else 2
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            state.providerPresets.chunked(columns).forEach { presets ->
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth().heightIn(min = 64.dp)) {
-                    presets.forEach { preset ->
-                        val configured = state.providers.any { it.id == preset.id && it.apiKeyAlias != null }
-                        Surface(onClick = { onApplyPreset(preset) }, shape = MaterialTheme.shapes.medium,
-                            color = MaterialTheme.colorScheme.surface,
-                            border = null,
-                            modifier = Modifier.weight(1f).heightIn(min = 64.dp)) {
-                            Row(Modifier.padding(horizontal = 4.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                                ProviderLogo(providerName = preset.displayName, modifier = Modifier.size(28.dp))
-                                Text(preset.displayName, style = MaterialTheme.typography.labelLarge, modifier = Modifier.weight(1f),
-                                    maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                if (configured) Icon(Icons.Default.Check, stringResource(R.string.provider_saved_badge),
-                                    Modifier.size(16.dp), tint = MaterialTheme.colorScheme.tertiary)
-                            }
-                        }
-                    }
-                    if (presets.size < columns) Spacer(Modifier.weight(1f))
+    Column {
+        state.providerPresets.forEach { preset ->
+            val configured = state.providers.any { it.id == preset.id && it.apiKeyAlias != null }
+            val selected = state.currentProvider?.id == preset.id
+            Surface(onClick = { onApplyPreset(preset) }, shape = MaterialTheme.shapes.medium,
+                color = if (selected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = .5f) else MaterialTheme.colorScheme.surface,
+                modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp)) {
+                Row(Modifier.padding(horizontal = 8.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                    ProviderLogo(preset.displayName, Modifier.size(32.dp))
+                    Text(preset.displayName, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
+                    if (configured) Icon(Icons.Default.Check, stringResource(R.string.provider_saved_badge),
+                        Modifier.size(18.dp), tint = MaterialTheme.colorScheme.tertiary)
+                    androidx.compose.material3.RadioButton(selected, onClick = null)
                 }
             }
         }

@@ -1,0 +1,12 @@
+<resources>
+    <string name="appearance_and_language">外观与语言</string>
+    <string name="configured">已设置</string>
+    <string name="edit_connection">编辑连接</string>
+    <string name="photo_answer_gesture">长按悬浮球 · 截图提问</string>
+    <string name="overlay_permission_label">悬浮窗</string>
+    <string name="permission_allowed">已允许</string>
+    <string name="permission_needed">去设置</string>
+    <string name="answer_output_status">答案 · 输出中</string>
+    <string name="answer_complete_status">答案</string>
+    <string name="connection_ready">已连接</string>
+</resources>

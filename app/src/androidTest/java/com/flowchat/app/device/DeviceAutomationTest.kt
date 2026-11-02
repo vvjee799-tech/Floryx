@@ -24,7 +24,7 @@ class DeviceAutomationTest {
     private val gateway by lazy {
         ShizukuDeviceAssistantGateway(context,
             AppSettingsStore(AppSettings(powerModeEnabled = true, powerConnectionMode = PowerConnectionMode.Root)),
-            RootDeviceConnection())
+            RootDeviceConnection(context))
     }
 
     private suspend fun startFixture(sensitive: Boolean = false, deepTree: Boolean = false) {

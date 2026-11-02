@@ -1,0 +1,12 @@
+<resources>
+    <string name="appearance_and_language">Appearance and language</string>
+    <string name="configured">Configured</string>
+    <string name="edit_connection">Edit connection</string>
+    <string name="photo_answer_gesture">Hold the floating button to ask about a screenshot</string>
+    <string name="overlay_permission_label">Floating window</string>
+    <string name="permission_allowed">Allowed</string>
+    <string name="permission_needed">Set up</string>
+    <string name="answer_output_status">Answer · Writing</string>
+    <string name="answer_complete_status">Answer</string>
+    <string name="connection_ready">Connected</string>
+</resources>

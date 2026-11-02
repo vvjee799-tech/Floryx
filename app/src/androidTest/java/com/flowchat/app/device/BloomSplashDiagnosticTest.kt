@@ -15,9 +15,12 @@ import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.material3.Button
 import androidx.compose.material3.Text
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.composed
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
@@ -47,6 +50,7 @@ import com.flowchat.app.presentation.SplashTransition
 import com.flowchat.app.ui.theme.AppAppearance
 import com.flowchat.app.ui.theme.FlowChatTheme
 import java.io.File
+import java.util.concurrent.atomic.AtomicInteger
 import kotlin.math.abs
 import kotlin.math.min
 import org.junit.Assert.assertEquals
@@ -62,6 +66,124 @@ class BloomSplashDiagnosticTest {
 
     private val arguments get() = InstrumentationRegistry.getArguments()
     private fun enabled() = assumeTrue(arguments.getString("runBloomSplashDiagnostics") == "true")
+
+    @Test fun timelineUpdatesDrawWithoutRecomposingTheSplash() {
+        enabled()
+        compose.mainClock.autoAdvance = false
+        val elapsed = mutableFloatStateOf(0f)
+        val hostCompositions = AtomicInteger()
+        val contentCompositions = AtomicInteger()
+        val timeReads = AtomicInteger()
+        val observeContent = Modifier.composed {
+            SideEffect { contentCompositions.incrementAndGet() }
+            Modifier
+        }
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { activity ->
+                activity.setContent {
+                    SideEffect { hostCompositions.incrementAndGet() }
+                    FlowChatTheme(AppAppearance.Light) {
+                        BloomSplashContent(
+                            elapsedMillis = { timeReads.incrementAndGet(); elapsed.floatValue },
+                            appAppearance = AppAppearance.Light,
+                            modifier = observeContent
+                        )
+                    }
+                }
+            }
+            compose.mainClock.advanceTimeByFrame()
+            compose.waitForIdle()
+            val beforeHost = hostCompositions.get()
+            val beforeContent = contentCompositions.get()
+            val beforeReads = timeReads.get()
+            val seed = compose.onNodeWithTag("bloom_flower", useUnmergedTree = true).captureToImage().asAndroidBitmap()
+            repeat(24) { tick ->
+                // Sample the unchanged motion curve at 120 Hz intervals. The test
+                // clock is deterministic; this is not a measured device FPS claim.
+                compose.runOnIdle { elapsed.floatValue = (tick + 1) * (1_000f / 120f) }
+                compose.mainClock.advanceTimeByFrame()
+                compose.waitForIdle()
+            }
+            compose.runOnIdle { elapsed.floatValue = BloomSplashBrandReadyMillis.toFloat() }
+            compose.mainClock.advanceTimeByFrame()
+            compose.waitForIdle()
+            val flower = compose.onNodeWithTag("bloom_flower", useUnmergedTree = true).captureToImage().asAndroidBitmap()
+            try {
+                fun paintedPixels(bitmap: Bitmap): Int {
+                    var count = 0
+                    for (x in 0 until bitmap.width) for (y in 0 until bitmap.height) {
+                        val pixel = bitmap.getPixel(x, y)
+                        if ((pixel shr 16 and 255) - (pixel shr 8 and 255) > 20) count++
+                    }
+                    return count
+                }
+                assertTrue("Timeline updates must actually paint the opening flower", paintedPixels(flower) > paintedPixels(seed))
+                assertTrue("Draw/layer callbacks must read every updated timeline value", timeReads.get() >= beforeReads + 24)
+                assertEquals("Animation ticks must not recompose the splash host", beforeHost, hostCompositions.get())
+                assertEquals("Animation ticks must not recompose the splash content", beforeContent, contentCompositions.get())
+                println("Bloom timeline: 25 updates; host recompositions=0; content recompositions=0")
+            } finally { seed.recycle(); flower.recycle() }
+            compose.onNodeWithTag("bloom_wordmark").assertIsDisplayed()
+            compose.onNodeWithTag("bloom_tagline").assertIsDisplayed()
+        }
+    }
+
+    @Test fun refreshRateHintIsRestoredAfterBackgroundingAndDismissal() {
+        enabled()
+        assumeTrue(ValueAnimator.areAnimatorsEnabled())
+        compose.mainClock.autoAdvance = false
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { activity ->
+                activity.setContent { Box(Modifier.fillMaxSize()) }
+            }
+            compose.mainClock.advanceTimeByFrame()
+            compose.waitForIdle()
+            var originalRate = 0f
+            var expectedRate = 0f
+            scenario.onActivity { activity ->
+                originalRate = activity.window.attributes.preferredRefreshRate
+                activity.window.attributes = activity.window.attributes.apply { preferredRefreshRate = 30f }
+                val display = activity.window.decorView.display
+                val mode = display.mode
+                expectedRate = display.supportedModes.filter {
+                    it.physicalWidth == mode.physicalWidth && it.physicalHeight == mode.physicalHeight
+                }.maxOf { it.refreshRate }
+                activity.setContent {
+                    FlowChatTheme(AppAppearance.Light) {
+                        SplashTransition(AppAppearance.Light) { Box(Modifier.fillMaxSize()) }
+                    }
+                }
+            }
+            try {
+                compose.mainClock.advanceTimeByFrame()
+                compose.waitForIdle()
+                scenario.onActivity { assertEquals(expectedRate, it.window.attributes.preferredRefreshRate, .01f) }
+                scenario.moveToState(Lifecycle.State.STARTED)
+                compose.mainClock.advanceTimeByFrame()
+                compose.waitForIdle()
+                scenario.onActivity { assertEquals("Pause must release the refresh-rate hint", 30f, it.window.attributes.preferredRefreshRate, .01f) }
+                scenario.moveToState(Lifecycle.State.RESUMED)
+                compose.mainClock.advanceTimeByFrame()
+                compose.waitForIdle()
+                scenario.onActivity { assertEquals(expectedRate, it.window.attributes.preferredRefreshRate, .01f) }
+                compose.mainClock.advanceTimeBy(BloomSplashBrandReadyMillis + 160L)
+                compose.waitForIdle()
+                compose.mainClock.advanceTimeBy(BloomSplashDurationMillis - BloomSplashBrandReadyMillis + 160L)
+                compose.waitForIdle()
+                compose.onNodeWithTag("bloom_splash").assertDoesNotExist()
+                scenario.onActivity { assertEquals("Dismissal must restore the original window preference", 30f, it.window.attributes.preferredRefreshRate, .01f) }
+            } finally {
+                scenario.onActivity { activity ->
+                    activity.setContent { Box(Modifier.fillMaxSize()) }
+                }
+                compose.mainClock.advanceTimeByFrame()
+                compose.waitForIdle()
+                scenario.onActivity { activity ->
+                    activity.window.attributes = activity.window.attributes.apply { preferredRefreshRate = originalRate }
+                }
+            }
+        }
+    }
 
     @Test fun lightDarkSystemAndAdaptiveLayouts() {
         enabled()
@@ -123,7 +245,7 @@ class BloomSplashDiagnosticTest {
                     }, layouts.any { it.hasVisualOverflow })
                 }
             }
-            compose.runOnIdle { current.value = Poster("opening", AppAppearance.Light, millis = 260f) }
+            compose.runOnIdle { current.value = Poster("opening", AppAppearance.Light, millis = 400f) }
             compose.waitForIdle()
             save(compose.onNodeWithTag("bloom_splash").captureToImage().asAndroidBitmap(), "opening")
         }
@@ -190,10 +312,11 @@ class BloomSplashDiagnosticTest {
             compose.onNodeWithTag("bloom_splash").assertExists()
             compose.runOnIdle { assertFalse("Home must not delay the first splash frame", homeCreated) }
             compose.runOnIdle { launchReady.value = true }
-            compose.mainClock.advanceTimeBy(400L)
+            val openingHalf = BloomSplashBrandReadyMillis / 2L
+            compose.mainClock.advanceTimeBy(openingHalf)
             compose.waitForIdle()
             compose.runOnIdle { assertFalse("The opening must finish before heavy home work starts", homeCreated) }
-            compose.mainClock.advanceTimeBy(500L)
+            compose.mainClock.advanceTimeBy(BloomSplashBrandReadyMillis - openingHalf + 160L)
             compose.waitForIdle()
             compose.runOnIdle { assertTrue("Home is prepared behind the completed brand", homeCreated) }
             compose.onNodeWithTag("bloom_splash").assertExists()
@@ -206,7 +329,7 @@ class BloomSplashDiagnosticTest {
                     }
                 })
             } finally { flower.recycle() }
-            compose.mainClock.advanceTimeBy(500L)
+            compose.mainClock.advanceTimeBy(BloomSplashDurationMillis - BloomSplashBrandReadyMillis + 160L)
             compose.waitForIdle()
             compose.onNodeWithTag("bloom_splash").assertDoesNotExist()
             compose.onNodeWithTag("slow_splash_home").assertIsDisplayed()
@@ -253,10 +376,10 @@ class BloomSplashDiagnosticTest {
             compose.mainClock.advanceTimeBy(250L)
             compose.waitForIdle()
             compose.runOnIdle { assertFalse("Resume must continue the remaining opening", homeCreated) }
-            compose.mainClock.advanceTimeBy(650L)
+            compose.mainClock.advanceTimeBy(BloomSplashBrandReadyMillis.toLong())
             compose.waitForIdle()
             compose.runOnIdle { assertTrue(homeCreated) }
-            compose.mainClock.advanceTimeBy(500L)
+            compose.mainClock.advanceTimeBy(BloomSplashDurationMillis - BloomSplashBrandReadyMillis + 160L)
             compose.waitForIdle()
             compose.onNodeWithTag("bloom_splash").assertDoesNotExist()
             compose.onNodeWithTag("resumed_splash_home").assertIsDisplayed()
@@ -318,6 +441,6 @@ class BloomSplashDiagnosticTest {
         val name: String, val appearance: AppAppearance,
         val systemDark: Boolean = false,
         val width: Float = 360f, val height: Float = 640f,
-        val fontScale: Float = 1f, val millis: Float = 740f
+        val fontScale: Float = 1f, val millis: Float = BloomSplashBrandReadyMillis.toFloat()
     )
 }

@@ -9,7 +9,7 @@ class BuiltInWebSearchContractTest {
     @Test
     fun searchesThroughBuiltInProxyThenFallsBackToUsersTavilyKey() {
         val client = File("src/main/java/com/flowchat/app/data/network/TavilySearchClient.kt").readText()
-        val viewModel = File("src/main/java/com/flowchat/app/presentation/chat/ChatViewModel.kt").readText()
+        val viewModel = File("src/main/java/com/flowchat/app/presentation/chat/ChatTaskRuntime.kt").readText()
         val build = File("build.gradle.kts").readText()
 
         assertTrue(build.contains("SEARCH_PROXY_URL"))

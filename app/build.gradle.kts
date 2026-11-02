@@ -32,8 +32,8 @@ android {
         applicationId = "com.flowchat.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 34
-        versionName = "1.5.20"
+        versionCode = 36
+        versionName = "1.5.22"
 
         buildConfigField("String", "SEARCH_PROXY_URL", "\"${searchProxyUrl.replace("\"", "\\\"")}\"")
 
@@ -149,6 +149,7 @@ dependencies {
     implementation(libs.pdfbox.android)
     implementation("dev.rikka.shizuku:api:13.1.5")
     implementation("dev.rikka.shizuku:provider:13.1.5")
+    implementation("com.github.topjohnwu.libsu:service:6.0.0")
 
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)

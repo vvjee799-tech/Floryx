@@ -60,7 +60,7 @@ class FlowChatRootContractTest {
         assertTrue(themeSource.contains("background = Color(0xFF24231F)"))
         assertTrue(themeSource.contains("surface = Color(0xFF24231F)"))
         assertTrue(themeSource.contains("surfaceVariant = Color(0xFF353228)"))
-        assertTrue(themeSource.contains("outlineVariant = Color(0xFF484439)"))
+        assertTrue(themeSource.contains("outlineVariant = Color(0xFF3B3931)"))
         assertTrue(themeSource.contains("onBackground = Color(0xFF38352F)"))
         assertTrue(themeSource.contains("onBackground = Color(0xFFE8E4D9)"))
     }

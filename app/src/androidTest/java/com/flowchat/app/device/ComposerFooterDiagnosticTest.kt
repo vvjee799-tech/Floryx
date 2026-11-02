@@ -65,6 +65,8 @@ class ComposerFooterDiagnosticTest {
                     val footer = compose.onNodeWithTag("composer_usage_footer").fetchSemanticsNode().boundsInRoot
                     val panel = compose.onNodeWithTag("message_composer_panel").fetchSemanticsNode().boundsInRoot
                     assertTrue(footer.bottom <= panel.bottom && footer.top > panel.top)
+                    val model = compose.onNodeWithTag("model-switch").fetchSemanticsNode().boundsInRoot
+                    assertEquals("Model selector must align to the footer's right edge", footer.right, model.right, 1f)
                     compose.onNodeWithTag("message_composer_panel").captureToImage().asAndroidBitmap().let { bitmap ->
                         File(context.getExternalFilesDir(null), "composer-footer-${theme.name}.png").outputStream().use {
                             bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it)
@@ -77,6 +79,8 @@ class ComposerFooterDiagnosticTest {
                 compose.onNodeWithContentDescription(context.getString(R.string.switch_model)).performClick()
                 compose.onAllNodesWithText(provider.defaultModel).onLast().performClick()
                 assertEquals(1, selections)
+                compose.onNodeWithTag("model-switch").assertTextEquals(provider.defaultModel)
+                compose.onNodeWithText(provider.displayName).assertDoesNotExist()
                 compose.runOnIdle { narrow.value = true; amount.value = "12345.6789012345" }
                 compose.onNodeWithTag("usage_summary").performClick()
                 compose.onNodeWithText(context.getString(R.string.balance_amount, "CNY 12345.6789012345")).assertIsDisplayed()
@@ -84,6 +88,11 @@ class ComposerFooterDiagnosticTest {
                 compose.runOnIdle { show.value = false }
                 compose.onNodeWithTag("composer_usage_footer").assertDoesNotExist()
                 compose.onNodeWithContentDescription(context.getString(R.string.switch_model)).assertIsDisplayed()
+                compose.onNodeWithTag("model-switch").assertTextEquals(provider.defaultModel)
+                compose.onNodeWithText(provider.displayName).assertDoesNotExist()
+                val panel = compose.onNodeWithTag("message_composer_panel").fetchSemanticsNode().boundsInRoot
+                val model = compose.onNodeWithTag("model-switch").fetchSemanticsNode().boundsInRoot
+                assertEquals("Model selector must align right without the usage footer", panel.right, model.right, 1f)
             }
         } finally { settings.setUsageTrackingEnabled(original) }
     }
