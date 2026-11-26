@@ -23,7 +23,8 @@
   <a href="#getting-started">三步上手</a>&nbsp; · &nbsp;
   <a href="#safety">安全与隐私</a>&nbsp; · &nbsp;
   <a href="#architecture">技术架构</a>&nbsp; · &nbsp;
-  <a href="#documentation">文档导航</a>
+  <a href="#documentation">文档导航</a>&nbsp; · &nbsp;
+  <a href="#feedback">反馈与联系</a>
 </p>
 
 ---
@@ -179,6 +180,19 @@ python tools/check_lint_delta.py
 - 🎙️ [原生语音接管：替代 vivo 蓝心小 V（实验）](docs/native-voice-bridge.md)
 - 📦 [正式版构建与发布流程](docs/releasing.md)
 - 📋 [更新日志 (CHANGELOG)](CHANGELOG.md)
+
+---
+
+<a id="feedback"></a>
+
+## 💬 反馈与联系
+
+每一株新芽都离不开真实的反馈。无论你在使用过程中遇到机型适配问题、发现 Bug，还是有让体验更顺手的好点子，都欢迎随时联系：
+
+- **邮箱联系**：[`annyw333@gmail.com`](mailto:annyw333@gmail.com)（日常使用建议、机型兼容反馈、合作交流或安全隐患私密沟通）
+- **问题追踪**：前往 [GitHub Issues](https://github.com/vvjee799-tech/Floryx/issues) 提交缺陷报告或功能建议
+
+> 提交问题时若能附上 **手机型号、Android 系统版本、复现步骤或关键现象描述**，将帮助我们更快定位并解决问题。
 
 ---
 
