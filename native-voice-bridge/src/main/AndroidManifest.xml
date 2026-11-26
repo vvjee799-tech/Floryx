@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="com.floryx.app.debug.permission.NATIVE_VOICE_BRIDGE" />
+    <queries>
+        <package android:name="com.floryx.app.debug" />
+        <package android:name="com.vivo.ai.copilot" />
+    </queries>
+    <application android:allowBackup="false" android:label="Floryx 语音桥接"
+        android:description="@string/native_voice_module_description" />
+</manifest>

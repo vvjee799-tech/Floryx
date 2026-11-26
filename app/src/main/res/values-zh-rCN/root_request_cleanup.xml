@@ -1,0 +1,16 @@
+<resources>
+    <string name="root_request_cleanup_title">Root 请求清理</string>
+    <string name="root_request_cleanup_in_use">本任务有正在执行的 Root 手机请求。</string>
+    <string name="root_request_cleanup_pending">请求清理尚未核实，已阻止新的手机操作；切换模式不会解除保护。</string>
+    <string name="root_request_cleanup_released">已核实：已记录的同步请求及其子进程组均已退出。</string>
+    <string name="root_request_rpc_pending">此前的同步调用尚未实际返回。</string>
+    <string name="root_request_finish_pending">请求关闭调用尚未返回。</string>
+    <string name="root_request_check_failed">无法从原连接读取清理证据。</string>
+    <string name="root_request_connection_unavailable">原 Root 连接已失联，本进程无法核实这些请求的清理；不会重连或重放原动作。</string>
+    <string name="root_request_still_active">原服务仍有未退出的请求。</string>
+    <string name="root_request_commands_present">所属命令或进程组仍未退出。</string>
+    <string name="root_request_identity_unknown">无法核实命令归属或进程组退出。</string>
+    <string name="root_request_other_pending">其他任务的请求清理尚未核实，已阻止新的手机操作。</string>
+    <string name="root_request_cleanup_scope">核实 Root 同步手机请求（含任务所属副屏命令）及其进程组；显示移除、终端长命令、服务及电源锁需分别核查。证据仅保留在当前应用进程中。</string>
+    <string name="root_request_recheck">重新核查请求清理</string>
+</resources>

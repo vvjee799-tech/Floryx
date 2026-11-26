@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="share_text_title">Share to Floryx</string>
+    <string name="process_text_title">Open in Floryx</string>
+    <string name="process_text_notice">Preview the selected text only. Links are not opened and the original text is not changed. Choose a conversation to add this reference; then write your request and tap Send there. Receipt and confirmation do not send anything to a model. Cancel returns to the source app.</string>
+    <string name="process_text_invalid">Unsupported or expired selection. Select plain text again (up to 16,000 UTF-16 units). The original text has not been changed.</string>
+    <string name="share_text_source_unknown">Source app: not provided by the system; origin unverified.</string>
+    <string name="share_text_source">Source app (system calling identity): %1$s</string>
+    <string name="share_text_notice">To use this text in a chat, choose a conversation and add it to the draft.</string>
+    <string name="share_summary_action">Share and summarize</string>
+    <string name="share_summary_title">Share summary</string>
+    <string name="share_summary_instruction">Summarize the shared text.</string>
+    <string name="share_summary_attachment">Shared text</string>
+    <string name="share_summary_choose_configuration">Choose a model in the Floryx assistant before summarizing a share.</string>
+    <string name="share_text_destination">Destination conversation · provider · model</string>
+    <string name="share_text_choose">Choose a conversation…</string>
+    <string name="share_text_add">Add to selected draft</string>
+    <string name="share_text_invalid">Unsupported or expired share. Share plain text or a URL again (up to 16,000 UTF-16 units). Images, files and multiple items are not supported in this batch.</string>
+    <string name="share_text_expired">This preview expired. Share the text again.</string>
+    <string name="share_text_changed">The conversation or provider changed. Review and select the destination again.</string>
+    <string name="share_text_busy">This conversation is busy. Wait for it to stop, then try again.</string>
+    <string name="share_text_attachment_exists">This draft already has an attachment. Keep or remove it in the conversation before sharing again.</string>
+    <string name="share_text_already_added">This share was already added. Check the selected conversation.</string>
+    <string name="share_text_no_chats">No available conversation. Cancel, configure a provider and create a conversation, then share again.</string>
+    <string name="share_text_send_changed">The shared text destination changed. Remove this attachment, then share again to confirm the provider and model.</string>
+    <item name="share_text_source" type="id" />
+    <item name="share_text_preview" type="id" />
+    <item name="share_text_destination" type="id" />
+    <item name="share_text_error" type="id" />
+    <item name="share_text_add" type="id" />
+    <item name="share_text_cancel" type="id" />
+    <item name="share_summary_action" type="id" />
+    <item name="share_summary_stop" type="id" />
+    <item name="share_summary_open_chat" type="id" />
+</resources>

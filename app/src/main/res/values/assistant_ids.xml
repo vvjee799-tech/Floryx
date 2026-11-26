@@ -1,0 +1,20 @@
+<resources>
+    <item type="id" name="assistant_configuration" />
+    <item type="id" name="assistant_new_task" />
+    <item type="id" name="assistant_panel_root" />
+    <item type="id" name="assistant_input" />
+    <item type="id" name="assistant_send" />
+    <item type="id" name="assistant_voice" />
+    <item type="id" name="assistant_voice_download" />
+    <item type="id" name="assistant_error" />
+    <item type="id" name="assistant_stop" />
+    <item type="id" name="assistant_page_toggle" />
+    <item type="id" name="assistant_full_chat" />
+    <item type="id" name="assistant_status" />
+    <item type="id" name="assistant_output" />
+    <item type="id" name="assistant_close" />
+    <item type="id" name="assistant_wake_toggle" />
+    <item type="id" name="assistant_wake_status" />
+    <item type="id" name="assistant_wake_setup" />
+    <item type="id" name="assistant_wake_row" />
+</resources>

@@ -1,0 +1,19 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "floryx-search",
+  "main": "src/index.js",
+  "compatibility_date": "2026-07-12",
+  "workers_dev": true,
+  "ratelimits": [
+    {
+      "name": "INSTALL_RATE_LIMITER",
+      "namespace_id": "12012001",
+      "simple": { "limit": 12, "period": 60 }
+    },
+    {
+      "name": "IP_RATE_LIMITER",
+      "namespace_id": "12012002",
+      "simple": { "limit": 120, "period": 60 }
+    }
+  ]
+}

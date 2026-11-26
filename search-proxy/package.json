@@ -1,0 +1,9 @@
+{
+  "name": "floryx-search-proxy",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test",
+    "deploy": "npx wrangler@4.36.0 deploy"
+  }
+}

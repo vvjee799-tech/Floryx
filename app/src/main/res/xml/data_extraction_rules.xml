@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<data-extraction-rules>
+    <cloud-backup disableIfNoEncryptionCapabilities="true">
+        <exclude domain="sharedpref" path="api_keys.xml" />
+        <exclude domain="file" path="memory_store.json" />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="sharedpref" path="api_keys.xml" />
+        <exclude domain="file" path="memory_store.json" />
+    </device-transfer>
+</data-extraction-rules>

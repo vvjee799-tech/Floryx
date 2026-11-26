@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="share_text_title">分享给 Floryx</string>
+    <string name="process_text_title">交给 Floryx</string>
+    <string name="process_text_notice">仅预览选中的文字，不打开链接，也不改动原文。选择会话后加入参考附件，再到该会话填写要求并点击发送；收到文字和确认加入都不会发送给模型。取消可返回原应用。</string>
+    <string name="process_text_invalid">选中文字格式不支持或预览已失效。请重新选择纯文字（最多 16000 个 UTF-16 单位），原文未被改动。</string>
+    <string name="share_text_source_unknown">来源应用：系统未提供可核验的来源，来源尚未核实。</string>
+    <string name="share_text_source">来源应用（系统调用信息）：%1$s</string>
+    <string name="share_text_notice">要在聊天中使用这段文字，请选择会话并加入草稿。</string>
+    <string name="share_summary_action">分享并总结</string>
+    <string name="share_summary_title">分享摘要</string>
+    <string name="share_summary_instruction">总结这段分享的文字。</string>
+    <string name="share_summary_attachment">分享的文字</string>
+    <string name="share_summary_choose_configuration">请先在 Floryx 助手中选择模型，再总结分享的文字。</string>
+    <string name="share_text_destination">目标会话 · 服务商 · 模型</string>
+    <string name="share_text_choose">请选择会话…</string>
+    <string name="share_text_add">加入所选会话草稿</string>
+    <string name="share_text_invalid">分享格式不支持或预览已失效。请重新分享纯文字或链接（最多 16000 个 UTF-16 单位）。本批不支持图片、文件及多项分享。</string>
+    <string name="share_text_expired">预览已过期，请重新分享。</string>
+    <string name="share_text_changed">目标会话或服务商发生变化，请核对并重新选择。</string>
+    <string name="share_text_busy">所选会话正在处理任务，请结束后重试。</string>
+    <string name="share_text_attachment_exists">所选草稿已有附件。请先到该会话保留或移除原附件，再重新分享。</string>
+    <string name="share_text_already_added">这次分享已经加入，请到所选会话查看。</string>
+    <string name="share_text_no_chats">没有可用会话。请先取消，配置服务商并创建会话后重新分享。</string>
+    <string name="share_text_send_changed">分享的目标配置发生变化。请移除该附件后重新分享，确认服务商和模型。</string>
+</resources>

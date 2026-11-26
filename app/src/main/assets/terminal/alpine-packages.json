@@ -1,0 +1,294 @@
+{
+  "arm64-v8a": [
+    {
+      "name": "alpine-baselayout",
+      "version": "3.7.2-r1",
+      "architecture": "aarch64",
+      "homepage": "https://gitlab.alpinelinux.org/alpine/aports/-/tree/master/main/alpine-baselayout",
+      "license": "GPL-2.0-only",
+      "origin": "alpine-baselayout",
+      "aportsCommit": "60a7585bbab2fa0f762504eb617dbca90216e31f"
+    },
+    {
+      "name": "alpine-baselayout-data",
+      "version": "3.7.2-r1",
+      "architecture": "aarch64",
+      "homepage": "https://gitlab.alpinelinux.org/alpine/aports/-/tree/master/main/alpine-baselayout",
+      "license": "GPL-2.0-only",
+      "origin": "alpine-baselayout",
+      "aportsCommit": "60a7585bbab2fa0f762504eb617dbca90216e31f"
+    },
+    {
+      "name": "alpine-keys",
+      "version": "2.6-r0",
+      "architecture": "aarch64",
+      "homepage": "https://alpinelinux.org",
+      "license": "MIT",
+      "origin": "alpine-keys",
+      "aportsCommit": "b9f23becced4d7b3ccc0fa0f28530243ccd314a0"
+    },
+    {
+      "name": "alpine-release",
+      "version": "3.24.2-r0",
+      "architecture": "aarch64",
+      "homepage": "https://alpinelinux.org",
+      "license": "MIT",
+      "origin": "alpine-base",
+      "aportsCommit": "d9d560d5de74ff9a7a73f3c903d6f126a0bf3142"
+    },
+    {
+      "name": "apk-tools",
+      "version": "3.0.8-r0",
+      "architecture": "aarch64",
+      "homepage": "https://gitlab.alpinelinux.org/alpine/apk-tools",
+      "license": "GPL-2.0-only",
+      "origin": "apk-tools",
+      "aportsCommit": "4588b452722bd4800efdc6cce4f6e980e02a997f"
+    },
+    {
+      "name": "busybox",
+      "version": "1.37.0-r31",
+      "architecture": "aarch64",
+      "homepage": "https://busybox.net/",
+      "license": "GPL-2.0-only",
+      "origin": "busybox",
+      "aportsCommit": "c3ef5d10e6ef6528852c51f0564963e2f8c1be19"
+    },
+    {
+      "name": "busybox-binsh",
+      "version": "1.37.0-r31",
+      "architecture": "aarch64",
+      "homepage": "https://busybox.net/",
+      "license": "GPL-2.0-only",
+      "origin": "busybox",
+      "aportsCommit": "c3ef5d10e6ef6528852c51f0564963e2f8c1be19"
+    },
+    {
+      "name": "ca-certificates-bundle",
+      "version": "20260909-r0",
+      "architecture": "aarch64",
+      "homepage": "https://www.mozilla.org/en-US/about/governance/policies/security-group/certs/",
+      "license": "MPL-2.0 AND MIT",
+      "origin": "ca-certificates",
+      "aportsCommit": "eb7078df3a16d666e8f7723f94bb92e00d4b9236"
+    },
+    {
+      "name": "libapk",
+      "version": "3.0.8-r0",
+      "architecture": "aarch64",
+      "homepage": "https://gitlab.alpinelinux.org/alpine/apk-tools",
+      "license": "GPL-2.0-only",
+      "origin": "apk-tools",
+      "aportsCommit": "4588b452722bd4800efdc6cce4f6e980e02a997f"
+    },
+    {
+      "name": "libcrypto3",
+      "version": "3.5.8-r0",
+      "architecture": "aarch64",
+      "homepage": "https://www.openssl.org/",
+      "license": "Apache-2.0",
+      "origin": "openssl",
+      "aportsCommit": "013edf8b29199933e8ea34dde460b5584b979042"
+    },
+    {
+      "name": "libssl3",
+      "version": "3.5.8-r0",
+      "architecture": "aarch64",
+      "homepage": "https://www.openssl.org/",
+      "license": "Apache-2.0",
+      "origin": "openssl",
+      "aportsCommit": "013edf8b29199933e8ea34dde460b5584b979042"
+    },
+    {
+      "name": "musl",
+      "version": "1.2.6-r2",
+      "architecture": "aarch64",
+      "homepage": "https://musl.libc.org/",
+      "license": "MIT",
+      "origin": "musl",
+      "aportsCommit": "f5640d3a10f664c9119720c60515265d3d6f6d01"
+    },
+    {
+      "name": "musl-utils",
+      "version": "1.2.6-r2",
+      "architecture": "aarch64",
+      "homepage": "https://musl.libc.org/",
+      "license": "MIT AND BSD-2-Clause AND GPL-2.0-or-later",
+      "origin": "musl",
+      "aportsCommit": "f5640d3a10f664c9119720c60515265d3d6f6d01"
+    },
+    {
+      "name": "scanelf",
+      "version": "1.3.9-r1",
+      "architecture": "aarch64",
+      "homepage": "https://wiki.gentoo.org/wiki/Hardened/PaX_Utilities",
+      "license": "GPL-2.0-only",
+      "origin": "pax-utils",
+      "aportsCommit": "c61801eeacb3ffcd9c2025b09e402153bb93fb39"
+    },
+    {
+      "name": "ssl_client",
+      "version": "1.37.0-r31",
+      "architecture": "aarch64",
+      "homepage": "https://busybox.net/",
+      "license": "GPL-2.0-only",
+      "origin": "busybox",
+      "aportsCommit": "c3ef5d10e6ef6528852c51f0564963e2f8c1be19"
+    },
+    {
+      "name": "zlib",
+      "version": "1.3.2-r0",
+      "architecture": "aarch64",
+      "homepage": "https://zlib.net/",
+      "license": "Zlib",
+      "origin": "zlib",
+      "aportsCommit": "f248b33b5943c7dc69bf691031d7612ab2e8ed93"
+    }
+  ],
+  "x86_64": [
+    {
+      "name": "alpine-baselayout",
+      "version": "3.7.2-r1",
+      "architecture": "x86_64",
+      "homepage": "https://gitlab.alpinelinux.org/alpine/aports/-/tree/master/main/alpine-baselayout",
+      "license": "GPL-2.0-only",
+      "origin": "alpine-baselayout",
+      "aportsCommit": "60a7585bbab2fa0f762504eb617dbca90216e31f"
+    },
+    {
+      "name": "alpine-baselayout-data",
+      "version": "3.7.2-r1",
+      "architecture": "x86_64",
+      "homepage": "https://gitlab.alpinelinux.org/alpine/aports/-/tree/master/main/alpine-baselayout",
+      "license": "GPL-2.0-only",
+      "origin": "alpine-baselayout",
+      "aportsCommit": "60a7585bbab2fa0f762504eb617dbca90216e31f"
+    },
+    {
+      "name": "alpine-keys",
+      "version": "2.6-r0",
+      "architecture": "x86_64",
+      "homepage": "https://alpinelinux.org",
+      "license": "MIT",
+      "origin": "alpine-keys",
+      "aportsCommit": "b9f23becced4d7b3ccc0fa0f28530243ccd314a0"
+    },
+    {
+      "name": "alpine-release",
+      "version": "3.24.2-r0",
+      "architecture": "x86_64",
+      "homepage": "https://alpinelinux.org",
+      "license": "MIT",
+      "origin": "alpine-base",
+      "aportsCommit": "d9d560d5de74ff9a7a73f3c903d6f126a0bf3142"
+    },
+    {
+      "name": "apk-tools",
+      "version": "3.0.8-r0",
+      "architecture": "x86_64",
+      "homepage": "https://gitlab.alpinelinux.org/alpine/apk-tools",
+      "license": "GPL-2.0-only",
+      "origin": "apk-tools",
+      "aportsCommit": "4588b452722bd4800efdc6cce4f6e980e02a997f"
+    },
+    {
+      "name": "busybox",
+      "version": "1.37.0-r31",
+      "architecture": "x86_64",
+      "homepage": "https://busybox.net/",
+      "license": "GPL-2.0-only",
+      "origin": "busybox",
+      "aportsCommit": "c3ef5d10e6ef6528852c51f0564963e2f8c1be19"
+    },
+    {
+      "name": "busybox-binsh",
+      "version": "1.37.0-r31",
+      "architecture": "x86_64",
+      "homepage": "https://busybox.net/",
+      "license": "GPL-2.0-only",
+      "origin": "busybox",
+      "aportsCommit": "c3ef5d10e6ef6528852c51f0564963e2f8c1be19"
+    },
+    {
+      "name": "ca-certificates-bundle",
+      "version": "20260909-r0",
+      "architecture": "x86_64",
+      "homepage": "https://www.mozilla.org/en-US/about/governance/policies/security-group/certs/",
+      "license": "MPL-2.0 AND MIT",
+      "origin": "ca-certificates",
+      "aportsCommit": "eb7078df3a16d666e8f7723f94bb92e00d4b9236"
+    },
+    {
+      "name": "libapk",
+      "version": "3.0.8-r0",
+      "architecture": "x86_64",
+      "homepage": "https://gitlab.alpinelinux.org/alpine/apk-tools",
+      "license": "GPL-2.0-only",
+      "origin": "apk-tools",
+      "aportsCommit": "4588b452722bd4800efdc6cce4f6e980e02a997f"
+    },
+    {
+      "name": "libcrypto3",
+      "version": "3.5.8-r0",
+      "architecture": "x86_64",
+      "homepage": "https://www.openssl.org/",
+      "license": "Apache-2.0",
+      "origin": "openssl",
+      "aportsCommit": "013edf8b29199933e8ea34dde460b5584b979042"
+    },
+    {
+      "name": "libssl3",
+      "version": "3.5.8-r0",
+      "architecture": "x86_64",
+      "homepage": "https://www.openssl.org/",
+      "license": "Apache-2.0",
+      "origin": "openssl",
+      "aportsCommit": "013edf8b29199933e8ea34dde460b5584b979042"
+    },
+    {
+      "name": "musl",
+      "version": "1.2.6-r2",
+      "architecture": "x86_64",
+      "homepage": "https://musl.libc.org/",
+      "license": "MIT",
+      "origin": "musl",
+      "aportsCommit": "f5640d3a10f664c9119720c60515265d3d6f6d01"
+    },
+    {
+      "name": "musl-utils",
+      "version": "1.2.6-r2",
+      "architecture": "x86_64",
+      "homepage": "https://musl.libc.org/",
+      "license": "MIT AND BSD-2-Clause AND GPL-2.0-or-later",
+      "origin": "musl",
+      "aportsCommit": "f5640d3a10f664c9119720c60515265d3d6f6d01"
+    },
+    {
+      "name": "scanelf",
+      "version": "1.3.9-r1",
+      "architecture": "x86_64",
+      "homepage": "https://wiki.gentoo.org/wiki/Hardened/PaX_Utilities",
+      "license": "GPL-2.0-only",
+      "origin": "pax-utils",
+      "aportsCommit": "c61801eeacb3ffcd9c2025b09e402153bb93fb39"
+    },
+    {
+      "name": "ssl_client",
+      "version": "1.37.0-r31",
+      "architecture": "x86_64",
+      "homepage": "https://busybox.net/",
+      "license": "GPL-2.0-only",
+      "origin": "busybox",
+      "aportsCommit": "c3ef5d10e6ef6528852c51f0564963e2f8c1be19"
+    },
+    {
+      "name": "zlib",
+      "version": "1.3.2-r0",
+      "architecture": "x86_64",
+      "homepage": "https://zlib.net/",
+      "license": "Zlib",
+      "origin": "zlib",
+      "aportsCommit": "f248b33b5943c7dc69bf691031d7612ab2e8ed93"
+    }
+  ]
+}

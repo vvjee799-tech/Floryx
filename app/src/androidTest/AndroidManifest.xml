@@ -1,0 +1,77 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.PROCESS_TEXT" />
+            <data android:mimeType="text/plain" />
+        </intent>
+    </queries>
+    <application>
+        <service android:name="com.flowchat.app.device.TaskChatLayoutIme"
+            android:label="Floryx layout test keyboard" android:exported="true"
+            android:permission="android.permission.BIND_INPUT_METHOD" android:process=":layout_ime">
+            <intent-filter>
+                <action android:name="android.view.InputMethod" />
+            </intent-filter>
+            <meta-data android:name="android.view.im" android:resource="@xml/task_chat_layout_ime" />
+        </service>
+        <activity android:name="com.flowchat.app.device.SemanticScrollFixtureActivity" android:exported="true" />
+        <activity android:name="com.flowchat.app.device.WideNavigationFixtureActivity"
+            android:exported="true" android:resizeableActivity="true"
+            android:theme="@android:style/Theme.Material.Light.NoActionBar" />
+        <activity android:name="com.flowchat.app.device.NavigationFixtureActivity"
+            android:exported="true" android:resizeableActivity="true"
+            android:theme="@android:style/Theme.Material.Light.NoActionBar" />
+        <activity android:name="com.flowchat.app.device.AdaptiveScrollFixtureActivity"
+            android:exported="true" android:label="验收样本清单"
+            android:theme="@android:style/Theme.Material.Light.NoActionBar">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+        <activity android:name="com.flowchat.app.device.ProcessTextSourceFixtureActivity"
+            android:exported="true" android:launchMode="singleTask"
+            android:theme="@android:style/Theme.Material.Light.NoActionBar" />
+        <activity android:name="com.flowchat.app.device.SharedTextSourceFixtureActivity"
+            android:exported="true" android:theme="@android:style/Theme.Material.Light.NoActionBar" />
+        <activity android:name="com.flowchat.app.device.ControlledInteractionFixtureActivity" android:exported="true" android:theme="@android:style/Theme.Material.Light.NoActionBar" />
+        <activity android:name="com.flowchat.app.device.DynamicSubmitFixtureActivity" android:exported="true" android:theme="@android:style/Theme.Material.Light.NoActionBar" />
+        <activity android:name="com.flowchat.app.device.ScopedObservationFixtureActivity"
+            android:exported="true" android:resizeableActivity="true"
+            android:theme="@android:style/Theme.Material.Light.NoActionBar" />
+        <activity android:name="com.flowchat.app.device.WindowContextFixtureActivity"
+            android:exported="true" android:resizeableActivity="true" android:configChanges="orientation|screenSize"
+            android:theme="@android:style/Theme.Material.Light.NoActionBar" />
+        <activity android:name="com.flowchat.app.device.ActionOutcomeFixtureActivity"
+            android:exported="true" android:resizeableActivity="true"
+            android:theme="@android:style/Theme.Material.Light.NoActionBar" />
+        <activity android:name="com.flowchat.app.device.ScreenQuestionFixtureActivity"
+            android:exported="true" android:theme="@android:style/Theme.Material.Light.NoActionBar" />
+        <activity android:name="com.flowchat.app.device.ExecutionDisplaySecureFixtureActivity"
+            android:exported="true" android:resizeableActivity="true"
+            android:theme="@android:style/Theme.Material.Light.NoActionBar" />
+        <activity android:name="com.flowchat.app.device.ExecutionDisplayPrimaryFixtureActivity"
+            android:exported="true" android:resizeableActivity="true"
+            android:theme="@android:style/Theme.Material.Light.NoActionBar" />
+        <activity android:name="com.flowchat.app.device.ExecutionDisplayFixtureActivity"
+            android:exported="true" android:resizeableActivity="true"
+            android:theme="@android:style/Theme.Material.Light.NoActionBar" />
+        <activity android:name="com.flowchat.app.device.AssistantContextFixtureActivity"
+            android:exported="true" android:theme="@android:style/Theme.Material.Light.NoActionBar" />
+        <activity android:name="com.flowchat.app.device.VisualTapFixtureActivity"
+            android:exported="true" android:configChanges="orientation|screenSize"
+            android:theme="@android:style/Theme.Material.Light.NoActionBar" />
+        <activity android:name="com.flowchat.app.device.ScreenVisionFixtureActivity"
+            android:exported="true" android:theme="@android:style/Theme.Material.Light.NoActionBar" />
+        <activity android:name="com.flowchat.app.device.DeviceAutomationFixtureActivity"
+            android:exported="true" android:theme="@android:style/Theme.Material.Light.NoActionBar" />
+        <service android:name="com.flowchat.app.device.HumanPromptService" android:exported="true" android:foregroundServiceType="specialUse">
+            <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE" android:value="on-screen test prompt overlay for device acceptance" />
+        </service>
+    </application>
+</manifest>
+
+

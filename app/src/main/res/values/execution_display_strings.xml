@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="background_execution_title">Background execution display (experimental)</string>
+    <string name="background_execution_description">Run phone tasks on a separate display while you use the phone. Requires Root, Power mode, accessibility and Android 15+. Some apps cannot run on a second display. Switching stops the current phone task. Brightness, volume and Android shell commands are unavailable in this mode.</string>
+</resources>

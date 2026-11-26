@@ -1,0 +1,16 @@
+<resources>
+    <string name="command_starting">Starting command</string>
+    <string name="command_cleanup_start_pending">The start response has not settled. Check the original connection; do not start the command again.</string>
+    <string name="command_cleanup_in_use">Command resources in use</string>
+    <string name="command_cleanup_releasing">Releasing command resources</string>
+    <string name="command_cleanup_unverified">Command cleanup needs verification</string>
+    <string name="command_cleanup_released">Command process and owned group verified released</string>
+    <string name="command_cleanup_not_started">Verified that the command never created a process</string>
+    <string name="command_cleanup_process_active">The command process has not been confirmed exited.</string>
+    <string name="command_cleanup_identity_unknown">The owned process group identity could not be confirmed. Cleanup remains unverified.</string>
+    <string name="command_cleanup_group_present">The owned process group still exists. Cleanup remains unverified.</string>
+    <string name="command_cleanup_connection_unavailable">The original Root connection is unavailable. Cleanup remains unverified and mode changes do not unblock phone operations.</string>
+    <string name="command_cleanup_evidence_unavailable">This Root service did not return command cleanup evidence.</string>
+    <string name="command_cleanup_check_failed">The process group check did not establish that the resources were released.</string>
+    <string name="command_cleanup_recheck">Check again</string>
+</resources>

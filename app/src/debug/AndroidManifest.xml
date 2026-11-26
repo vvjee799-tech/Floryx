@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+    <queries>
+        <package android:name="com.floryx.nativevoicebridge" />
+        <package android:name="com.vivo.ai.copilot" />
+    </queries>
+    <permission android:name="${applicationId}.permission.NATIVE_VOICE_BRIDGE"
+        android:protectionLevel="signature" />
+    <application
+        android:label="@string/app_name_debug"
+        tools:replace="android:label">
+        <provider android:name="com.flowchat.app.diagnostics.nativevoice.NativeVoiceProvider"
+            android:authorities="${applicationId}.native_voice"
+            android:enabled="${nativeVoiceBridgeEnabled}"
+            android:exported="true"
+            android:process="${nativeVoiceProviderProcess}" />
+        <provider android:name="com.flowchat.app.diagnostics.nativevoice.NativeVoiceWorkspaceProvider"
+            android:authorities="${applicationId}.native_voice_workspace"
+            android:enabled="${nativeVoiceBridgeEnabled}"
+            android:exported="true"
+            android:grantUriPermissions="true"
+            android:permission="android.permission.MANAGE_DOCUMENTS" />
+        <!-- Synthetic diagnostics only. No user files or document-picker roots are exposed. -->
+        <provider android:name="com.flowchat.app.diagnostics.WorkspacePipeFixtureProvider"
+            android:authorities="${applicationId}.p0c.documents" android:exported="true"
+            android:grantUriPermissions="true" android:permission="android.permission.MANAGE_DOCUMENTS" />
+        <service android:name="com.flowchat.app.diagnostics.CommandHostDiagnosticsService"
+            android:exported="false" android:process=":command_lifecycle_probe" />
+        <!-- Lint 31.7 checks this source-set manifest separately once it contains a service.
+             Restate the actual existing types; all other declarations merge from main. -->
+        <service android:name="com.flowchat.app.data.terminal.CommandExecutionService"
+            android:foregroundServiceType="specialUse" />
+        <service android:name="com.flowchat.app.data.task.TaskExecutionService"
+            android:foregroundServiceType="specialUse" />
+        <service android:name="com.flowchat.app.presentation.overlay.FloatingAssistantService"
+            android:foregroundServiceType="specialUse" />
+    </application>
+</manifest>

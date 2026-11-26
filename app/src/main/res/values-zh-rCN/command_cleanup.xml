@@ -1,0 +1,16 @@
+<resources>
+    <string name="command_starting">正在启动命令</string>
+    <string name="command_cleanup_start_pending">启动响应尚未核实；请核查原连接，不要重新启动这条命令。</string>
+    <string name="command_cleanup_in_use">命令资源使用中</string>
+    <string name="command_cleanup_releasing">正在释放命令资源</string>
+    <string name="command_cleanup_unverified">命令清理待核实</string>
+    <string name="command_cleanup_released">已核实命令进程及所属进程组退出</string>
+    <string name="command_cleanup_not_started">已核实命令未创建进程</string>
+    <string name="command_cleanup_process_active">尚未确认命令进程实际退出。</string>
+    <string name="command_cleanup_identity_unknown">无法确认所属进程组身份，清理仍待核实。</string>
+    <string name="command_cleanup_group_present">所属进程组仍存在，清理尚未完成。</string>
+    <string name="command_cleanup_connection_unavailable">原 Root 连接不可用，清理仍待核实；切换模式不会解除手机操作保护。</string>
+    <string name="command_cleanup_evidence_unavailable">当前 Root 服务没有返回这条命令的清理证据。</string>
+    <string name="command_cleanup_check_failed">进程组核查未能确认资源已释放。</string>
+    <string name="command_cleanup_recheck">重新核查</string>
+</resources>

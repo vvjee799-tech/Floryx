@@ -1,0 +1,19 @@
+<resources>
+    <string name="task_power_title">任务服务与电源</string>
+    <string name="task_power_service_running">任务服务正在运行</string>
+    <string name="task_power_service_stopping">任务服务正在退出</string>
+    <string name="task_power_service_destroyed">任务服务生命周期已结束</string>
+    <string name="task_power_held">最近核查：CPU 唤醒锁仍持有</string>
+    <string name="task_power_released">最近核查：CPU 唤醒锁已释放</string>
+    <string name="task_power_unknown">CPU 唤醒锁状态待核实</string>
+    <string name="task_power_counts">%1$d 轮任务需要保持运行，%2$d 轮任务正在等待</string>
+    <string name="task_power_own_finalizing">本会话正在保存任务收尾状态</string>
+    <string name="task_power_own_cleanup_wait">等待操作退出，不续租 CPU 唤醒锁；清理仍待核实。</string>
+    <string name="task_power_own_working">本会话仍有必要工作</string>
+    <string name="task_power_own_waiting">本会话正在等待，不续租 CPU 唤醒锁</string>
+    <string name="task_power_other_work">其他会话仍有活动任务</string>
+    <string name="task_power_failed">锁操作或核查失败，不能据此认定已释放。</string>
+    <string name="task_power_old_pending">旧任务服务仍有唤醒锁待核实。</string>
+    <string name="task_power_recheck">核查唤醒锁</string>
+    <string name="task_power_scope">仅限当前进程；显示、请求和命令的清理另行核对。</string>
+</resources>

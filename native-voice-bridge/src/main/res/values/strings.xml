@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="native_voice_module_description">把小 V 的原生输入交给 Floryx Dev，并在原生面板返回答复</string>
+</resources>

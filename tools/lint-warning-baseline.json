@@ -1,0 +1,2196 @@
+{
+  "schema_version": 1,
+  "counts_by_severity": {
+    "Warning": 290,
+    "Information": 2
+  },
+  "issues": [
+    {
+      "id": "AndroidGradlePluginVersion",
+      "severity": "Warning",
+      "message": "A newer version of com.android.application than 8.7.3 is available: <LATEST_RECOMMENDATION>",
+      "paths": [
+        "<PROJECT>/gradle/libs.versions.toml"
+      ],
+      "count": 3
+    },
+    {
+      "id": "AutoboxingStateCreation",
+      "severity": "Information",
+      "message": "Prefer `mutableLongStateOf` instead of `mutableStateOf`",
+      "paths": [
+        "<PROJECT>/app/src/main/java/com/flowchat/app/presentation/chat/ContextWindowIndicator.kt"
+      ],
+      "count": 1
+    },
+    {
+      "id": "AutoboxingStateCreation",
+      "severity": "Information",
+      "message": "Prefer `mutableLongStateOf` instead of `mutableStateOf`",
+      "paths": [
+        "<PROJECT>/app/src/main/java/com/flowchat/app/presentation/overlay/FloatingAssistantService.kt"
+      ],
+      "count": 1
+    },
+    {
+      "id": "ExifInterface",
+      "severity": "Warning",
+      "message": "Avoid using `android.media.ExifInterface`; use `androidx.exifinterface.media.ExifInterface` instead",
+      "paths": [
+        "<PROJECT>/app/src/main/java/com/flowchat/app/data/attachment/ImageAttachmentStore.kt"
+      ],
+      "count": 1
+    },
+    {
+      "id": "ExportedContentProvider",
+      "severity": "Warning",
+      "message": "Exported content providers can provide access to potentially sensitive data",
+      "paths": [
+        "<PROJECT>/app/src/debug/AndroidManifest.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "GradleDependency",
+      "severity": "Warning",
+      "message": "A newer version of androidx.activity:activity-compose than 1.9.3 is available: 1.13.0",
+      "paths": [
+        "<PROJECT>/gradle/libs.versions.toml"
+      ],
+      "count": 3
+    },
+    {
+      "id": "GradleDependency",
+      "severity": "Warning",
+      "message": "A newer version of androidx.compose:compose-bom than 2024.10.00 is available: 2026.11.01",
+      "paths": [
+        "<PROJECT>/gradle/libs.versions.toml"
+      ],
+      "count": 3
+    },
+    {
+      "id": "GradleDependency",
+      "severity": "Warning",
+      "message": "A newer version of androidx.core:core-ktx than 1.15.0 is available: 1.19.1",
+      "paths": [
+        "<PROJECT>/gradle/libs.versions.toml"
+      ],
+      "count": 3
+    },
+    {
+      "id": "GradleDependency",
+      "severity": "Warning",
+      "message": "A newer version of androidx.datastore:datastore-preferences than 1.1.1 is available: 1.3.0",
+      "paths": [
+        "<PROJECT>/gradle/libs.versions.toml"
+      ],
+      "count": 3
+    },
+    {
+      "id": "GradleDependency",
+      "severity": "Warning",
+      "message": "A newer version of androidx.hilt:hilt-navigation-compose than 1.2.0 is available: 1.4.0",
+      "paths": [
+        "<PROJECT>/gradle/libs.versions.toml"
+      ],
+      "count": 3
+    },
+    {
+      "id": "GradleDependency",
+      "severity": "Warning",
+      "message": "A newer version of androidx.lifecycle:lifecycle-runtime-compose than 2.8.7 is available: 2.11.1",
+      "paths": [
+        "<PROJECT>/gradle/libs.versions.toml"
+      ],
+      "count": 3
+    },
+    {
+      "id": "GradleDependency",
+      "severity": "Warning",
+      "message": "A newer version of androidx.lifecycle:lifecycle-runtime-ktx than 2.8.7 is available: 2.11.1",
+      "paths": [
+        "<PROJECT>/gradle/libs.versions.toml"
+      ],
+      "count": 3
+    },
+    {
+      "id": "GradleDependency",
+      "severity": "Warning",
+      "message": "A newer version of androidx.lifecycle:lifecycle-viewmodel-compose than 2.8.7 is available: 2.11.1",
+      "paths": [
+        "<PROJECT>/gradle/libs.versions.toml"
+      ],
+      "count": 3
+    },
+    {
+      "id": "GradleDependency",
+      "severity": "Warning",
+      "message": "A newer version of androidx.navigation:navigation-compose than 2.8.4 is available: 2.10.2",
+      "paths": [
+        "<PROJECT>/gradle/libs.versions.toml"
+      ],
+      "count": 3
+    },
+    {
+      "id": "GradleDependency",
+      "severity": "Warning",
+      "message": "A newer version of androidx.room:room-compiler than 2.6.1 is available: 2.8.5",
+      "paths": [
+        "<PROJECT>/gradle/libs.versions.toml"
+      ],
+      "count": 3
+    },
+    {
+      "id": "GradleDependency",
+      "severity": "Warning",
+      "message": "A newer version of androidx.room:room-ktx than 2.6.1 is available: 2.8.5",
+      "paths": [
+        "<PROJECT>/gradle/libs.versions.toml"
+      ],
+      "count": 3
+    },
+    {
+      "id": "GradleDependency",
+      "severity": "Warning",
+      "message": "A newer version of androidx.room:room-runtime than 2.6.1 is available: 2.8.5",
+      "paths": [
+        "<PROJECT>/gradle/libs.versions.toml"
+      ],
+      "count": 3
+    },
+    {
+      "id": "GradleDependency",
+      "severity": "Warning",
+      "message": "A newer version of androidx.room:room-testing than 2.6.1 is available: 2.8.5",
+      "paths": [
+        "<PROJECT>/gradle/libs.versions.toml"
+      ],
+      "count": 3
+    },
+    {
+      "id": "GradleDependency",
+      "severity": "Warning",
+      "message": "A newer version of androidx.test:core than 1.6.1 is available: 1.7.0",
+      "paths": [
+        "<PROJECT>/gradle/libs.versions.toml"
+      ],
+      "count": 3
+    },
+    {
+      "id": "GradleDependency",
+      "severity": "Warning",
+      "message": "A newer version of androidx.test:runner than 1.6.2 is available: 1.7.0",
+      "paths": [
+        "<PROJECT>/app/build.gradle.kts"
+      ],
+      "count": 1
+    },
+    {
+      "id": "IconLauncherShape",
+      "severity": "Warning",
+      "message": "Launcher icons should not fill every pixel of their square region; see the design guide for details",
+      "paths": [
+        "<PROJECT>/app/src/main/res/mipmap-hdpi/ic_launcher.png"
+      ],
+      "count": 1
+    },
+    {
+      "id": "IconLauncherShape",
+      "severity": "Warning",
+      "message": "Launcher icons should not fill every pixel of their square region; see the design guide for details",
+      "paths": [
+        "<PROJECT>/app/src/main/res/mipmap-mdpi/ic_launcher.png"
+      ],
+      "count": 1
+    },
+    {
+      "id": "IconLauncherShape",
+      "severity": "Warning",
+      "message": "Launcher icons should not fill every pixel of their square region; see the design guide for details",
+      "paths": [
+        "<PROJECT>/app/src/main/res/mipmap-xhdpi/ic_launcher.png"
+      ],
+      "count": 1
+    },
+    {
+      "id": "IconLauncherShape",
+      "severity": "Warning",
+      "message": "Launcher icons should not fill every pixel of their square region; see the design guide for details",
+      "paths": [
+        "<PROJECT>/app/src/main/res/mipmap-xxhdpi/ic_launcher.png"
+      ],
+      "count": 1
+    },
+    {
+      "id": "IconLauncherShape",
+      "severity": "Warning",
+      "message": "Launcher icons should not fill every pixel of their square region; see the design guide for details",
+      "paths": [
+        "<PROJECT>/app/src/main/res/mipmap-xxxhdpi/ic_launcher.png"
+      ],
+      "count": 1
+    },
+    {
+      "id": "IconLocation",
+      "severity": "Warning",
+      "message": "Found bitmap drawable `res/drawable/reference_gear.png` in densityless folder",
+      "paths": [
+        "<PROJECT>/app/src/main/res/drawable/reference_gear.png"
+      ],
+      "count": 1
+    },
+    {
+      "id": "ModifierParameter",
+      "severity": "Warning",
+      "message": "Modifier parameter should be named modifier",
+      "paths": [
+        "<PROJECT>/app/src/main/java/com/flowchat/app/presentation/provider/ProviderSettingsScreen.kt"
+      ],
+      "count": 1
+    },
+    {
+      "id": "ModifierParameter",
+      "severity": "Warning",
+      "message": "Modifier parameter should be the first optional parameter",
+      "paths": [
+        "<PROJECT>/app/src/main/java/com/flowchat/app/presentation/chat/ChatScreen.kt"
+      ],
+      "count": 1
+    },
+    {
+      "id": "ObsoleteSdkInt",
+      "severity": "Warning",
+      "message": "Unnecessary; SDK_INT is always >= 26",
+      "paths": [
+        "<PROJECT>/app/src/main/java/com/flowchat/app/presentation/overlay/FloatingAssistantService.kt"
+      ],
+      "count": 1
+    },
+    {
+      "id": "PluralsCandidate",
+      "severity": "Warning",
+      "message": "Formatting %d followed by words (\"models\"): This should probably be a plural rather than a string",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "PluralsCandidate",
+      "severity": "Warning",
+      "message": "Formatting %d followed by words (\"requests\"): This should probably be a plural rather than a string",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "PluralsCandidate",
+      "severity": "Warning",
+      "message": "Formatting %d followed by words (\"saved\"): This should probably be a plural rather than a string",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "PluralsCandidate",
+      "severity": "Warning",
+      "message": "Formatting %d followed by words (\"sec\"): This should probably be a plural rather than a string",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 3
+    },
+    {
+      "id": "PluralsCandidate",
+      "severity": "Warning",
+      "message": "Formatting %d followed by words (\"task\"): This should probably be a plural rather than a string",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "PrivateApi",
+      "severity": "Warning",
+      "message": "Accessing internal APIs via reflection is not supported and may not work on all devices or in the future",
+      "paths": [
+        "<PROJECT>/app/src/main/java/com/flowchat/app/data/device/RootExecutionDisplay.kt"
+      ],
+      "count": 6
+    },
+    {
+      "id": "SwitchIntDef",
+      "severity": "Warning",
+      "message": "Unexpected constant; expected one of: `AccessibilityService.ERROR_TAKE_SCREENSHOT_INTERNAL_ERROR`, `AccessibilityService.ERROR_TAKE_SCREENSHOT_INTERVAL_TIME_SHORT`, `AccessibilityService.ERROR_TAKE_SCREENSHOT_INVALID_DISPLAY`, `AccessibilityService.ERROR_TAKE_SCREENSHOT_INVALID_WINDOW`, `AccessibilityService.ERROR_TAKE_SCREENSHOT_NO_ACCESSIBILITY_ACCESS`",
+      "paths": [
+        "<PROJECT>/app/src/main/java/com/flowchat/app/data/device/FlowChatAccessibilityService.kt"
+      ],
+      "count": 1
+    },
+    {
+      "id": "TrustAllX509TrustManager",
+      "severity": "Warning",
+      "message": "`checkClientTrusted` is empty, which could cause insecure network traffic due to trusting arbitrary TLS/SSL certificates presented by peers",
+      "paths": [
+        "<GRADLE_USER_HOME>/caches/modules-2/files-2.1/org.bouncycastle/bcpkix-jdk15to18/1.72/32faf4d74dbc333fb3a7a6c80c30417cf888fc7a/bcpkix-jdk15to18-1.72.jar"
+      ],
+      "count": 2
+    },
+    {
+      "id": "TrustAllX509TrustManager",
+      "severity": "Warning",
+      "message": "`checkServerTrusted` is empty, which could cause insecure network traffic due to trusting arbitrary TLS/SSL certificates presented by peers",
+      "paths": [
+        "<GRADLE_USER_HOME>/caches/modules-2/files-2.1/org.bouncycastle/bcpkix-jdk15to18/1.72/32faf4d74dbc333fb3a7a6c80c30417cf888fc7a/bcpkix-jdk15to18-1.72.jar"
+      ],
+      "count": 1
+    },
+    {
+      "id": "TypographyEllipsis",
+      "severity": "Warning",
+      "message": "Replace \"...\" with ellipsis character (…, &#8230;) ?",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values-zh-rCN/strings.xml"
+      ],
+      "count": 2
+    },
+    {
+      "id": "TypographyEllipsis",
+      "severity": "Warning",
+      "message": "Replace \"...\" with ellipsis character (…, &#8230;) ?",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 3
+    },
+    {
+      "id": "UnusedAttribute",
+      "severity": "Warning",
+      "message": "Attribute `canTakeScreenshot` is only used in API level 30 and higher (current min is 26)",
+      "paths": [
+        "<PROJECT>/app/src/main/res/xml/accessibility_service_config.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.color.splash_mark` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/splash_colors.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.drawable.ic_launcher_background` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/drawable/ic_launcher_background.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.drawable.ic_new_conversation` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/drawable/ic_new_conversation.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.drawable.reference_gear` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/drawable/reference_gear.png"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.accessibility_connected_description` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.accessibility_error_description` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.accessibility_unavailable_description` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.active` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.ai` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.answer_banner_failed` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/photo_answer_strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.answer_banner_streaming` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/photo_answer_strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.answer_complete_status` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/stitch_strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.answer_output_status` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/stitch_strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.api_configuration` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.api_key_saved_hint` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.app_usage_access` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.app_usage_tool_description` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.assistant_configure_provider` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/assistant_strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.assistant_default_selection_detail` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.assistant_entry_active_hint` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.assistant_entry_activity_hint` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.assistant_entry_inactive_hint` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.assistant_entry_setup_hint` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.assistant_entry_unverified_hint` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.assistant_profile` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.assistant_selected` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/assistant_strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.assistant_setup_hint` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/assistant_strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.assistant_status_model` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/assistant_strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.assistant_system_context_hint` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/assistant_strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.assistant_voice_service_active` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.assistant_voice_service_inactive` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.assistant_voice_service_not_required` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.assistant_voice_service_unverified` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.attachment_loading` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.available_capabilities` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.background_dark` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.background_execution_description` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/execution_display_strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.background_light` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.background_settings` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.capability_center_description` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.capability_checks_disclaimer` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.capability_navigation` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.capability_screen_observation` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.capability_screen_swipe` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.capability_text_input` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.capability_ui_actions` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.context_window_budget_hint` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.context_window_reserve_hint` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.conversation_history` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.conversation_list` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.conversation_models_hint` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.conversation_models_new_default` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.conversation_rules` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.conversations` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.current_conversation_only` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.custom_configuration` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.delete_this_configuration` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.device_accessibility_settings` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.device_assistant_enabled_description` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.device_assistant_enabled` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.device_assistant_summary` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.device_connection_method` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.device_off_description` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.device_queue_owner` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.device_queue_waiting` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.device_ready_description` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.device_screen_only_description` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.device_setup_description` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.device_target_background` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.device_target_foreground` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.device_usage_hint` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.empty_chat_body` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.empty_chat_title` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.enable_accessibility_service` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.enable` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.execution_details` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.floating_assistant_browsing_app` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.floating_assistant_description` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.floating_assistant_permission_required` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.floating_assistant_permission` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.floating_assistant_ready_short` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.floating_assistant_using_tool` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.floating_assistant_waiting` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.floating_assistant_watching` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.floating_assistant_working` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.floating_confirmation_hint` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.floating_status_command_hint` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.floating_status_confirmation_hint` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.force_stop_tool_description` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.force_stop_tool` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.image_model_hint` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.install_shizuku` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.life_tools_privacy_note` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.manage_memories` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.memory_category_preference` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.memory_category_profile` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.memory_category_project` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.memory_count` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.memory_disabled_description` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.memory_edit_hint` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.memory_empty_description` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.memory_enabled_description` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.memory_how_it_works` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.memory_show_details` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.memory_summary_hint` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.memory_summary` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.no_available_capabilities` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.open_app_tool_description` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.open_flowchat` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.optional_settings` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.other_task_confirmation` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.output_limit_hint` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.permission_enabled` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.permission_open` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.personalization_switch_hint` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.photo_answer_description` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/photo_answer_strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.photo_answer_enabled` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/photo_answer_strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.power_mode_description` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.power_mode` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.processing_file_hint` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.profile_title` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.provider_manual_hint` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.provider_page_description` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.provider_preset_description` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.provider_presets` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.provider_quick_setup_hint` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.provider_quick_setup` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.provider_security_hint` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.provider_settings_summary` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.provider_setup_badge` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.providers` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.recent_app_activity_tool_description` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.refresh` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.reply_settings` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.request_failed` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.root_mode_description` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.root_status` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.save_and_return` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.screen_vision_description` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.settings_capabilities` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.settings_personalization` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.share_summary_instruction` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/share_text.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.shizuku_mode_description` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.shizuku_permission` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.shizuku_status` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.task_budget_estimate_description` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.task_budget_paused_description` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.task_budget_paused_title` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.task_effect_records_retained` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.task_goal_partially_verified` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.task_goal_unverified` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.task_postcondition_evidence` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.task_recovery_review_retained` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.task_recovery_reviewed` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.task_status_budget_detail` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/task_status.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.task_status_command_object` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/task_status.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.task_status_details` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/task_status.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.task_status_goal_failed` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/task_status.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.task_status_goal_verified` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/task_status.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.task_status_operation_object` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/task_status.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.task_status_pending_detail` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/task_status.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.tavily_api_key` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.temperature` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.terminal_ai_disclosure` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.terminal_android_connected` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.terminal_empty` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.terminal_output_truncated` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.terminal_settings_summary` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.terminal_workspace_hint` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.thinking_budget_hint` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.thinking_effort_hint` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.thinking_effort` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.thinking_enable_first_hint` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.thinking_mode_hint` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.thinking_required_fixed_hint` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.thinking_toggle_only_hint` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.top_p` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.unsaved_settings_message` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.version` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.web_search_configuration` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.web_search_disclosure_message` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.web_search_disclosure_title` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.web_search_off` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.web_search_on` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.welcome_description` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.welcome_device_prompt` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.welcome_device` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.welcome_file` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.welcome_idea_prompt` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.welcome_title` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.workspace_default_description` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.workspace_description` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.workspace_pending_description` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.workspace_running_notice` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UnusedResources",
+      "severity": "Warning",
+      "message": "The resource `R.string.you` appears to be unused",
+      "paths": [
+        "<PROJECT>/app/src/main/res/values/strings.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UsableSpace",
+      "severity": "Warning",
+      "message": "Consider also using `StorageManager#getAllocatableBytes` and `allocateBytes` which will consider clearable cached data",
+      "paths": [
+        "<PROJECT>/app/src/main/java/com/flowchat/app/presentation/assistant/XasrVoicePack.kt"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UseOfNonLambdaOffsetOverload",
+      "severity": "Warning",
+      "message": "State backed values should use the lambda overload of Modifier.offset",
+      "paths": [
+        "<PROJECT>/app/src/main/java/com/flowchat/app/presentation/common/FlowCompactControls.kt"
+      ],
+      "count": 1
+    },
+    {
+      "id": "UseTomlInstead",
+      "severity": "Warning",
+      "message": "Use version catalog instead",
+      "paths": [
+        "<PROJECT>/app/build.gradle.kts"
+      ],
+      "count": 9
+    },
+    {
+      "id": "VectorPath",
+      "severity": "Warning",
+      "message": "Very long vector path (13109 characters), which is bad for performance. Considering reducing precision, removing minor details or rasterizing vector.",
+      "paths": [
+        "<PROJECT>/app/src/main/res/drawable/ic_launcher_foreground.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "VectorRaster",
+      "severity": "Warning",
+      "message": "Limit vector icons sizes to 200×200 to keep icon drawing fast; see https://developer.android.com/studio/write/vector-asset-studio#when for more",
+      "paths": [
+        "<PROJECT>/app/src/main/res/drawable/splash_empty_icon.xml"
+      ],
+      "count": 1
+    },
+    {
+      "id": "ViewConstructor",
+      "severity": "Warning",
+      "message": "Custom view `AssistantPanelView` is missing constructor used by tools: `(Context)` or `(Context,AttributeSet)` or `(Context,AttributeSet,int)`",
+      "paths": [
+        "<PROJECT>/app/src/main/java/com/flowchat/app/presentation/assistant/AssistantPanelView.kt"
+      ],
+      "count": 1
+    },
+    {
+      "id": "ViewConstructor",
+      "severity": "Warning",
+      "message": "Custom view `DraggableOverlayContainer` is missing constructor used by tools: `(Context)` or `(Context,AttributeSet)` or `(Context,AttributeSet,int)`",
+      "paths": [
+        "<PROJECT>/app/src/main/java/com/flowchat/app/presentation/overlay/FloatingAssistantService.kt"
+      ],
+      "count": 1
+    }
+  ]
+}

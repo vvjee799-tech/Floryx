@@ -1,0 +1,16 @@
+<resources>
+    <string name="root_request_cleanup_title">Root request cleanup</string>
+    <string name="root_request_cleanup_in_use">This task has a Root phone request in progress.</string>
+    <string name="root_request_cleanup_pending">Request cleanup is not verified. New phone operations are blocked across mode changes.</string>
+    <string name="root_request_cleanup_released">Verified: the recorded synchronous requests and their process groups have exited.</string>
+    <string name="root_request_rpc_pending">An earlier synchronous call has not returned.</string>
+    <string name="root_request_finish_pending">The request close call has not returned.</string>
+    <string name="root_request_check_failed">Cleanup evidence could not be read from the original connection.</string>
+    <string name="root_request_connection_unavailable">The original Root connection was lost. This process cannot verify these requests; checks do not reconnect or replay actions.</string>
+    <string name="root_request_still_active">The original service still has an active request.</string>
+    <string name="root_request_commands_present">Owned commands or process groups are still present.</string>
+    <string name="root_request_identity_unknown">Command ownership or process group absence could not be verified.</string>
+    <string name="root_request_other_pending">Another task has unverified request cleanup. New phone operations are blocked.</string>
+    <string name="root_request_cleanup_scope">Covers synchronous Root phone requests, including commands on the task-owned execution display, and their process groups. Display removal, terminal jobs, services and power locks need separate checks. Evidence lasts for this app process.</string>
+    <string name="root_request_recheck">Recheck request cleanup</string>
+</resources>

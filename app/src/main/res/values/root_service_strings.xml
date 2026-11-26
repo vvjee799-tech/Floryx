@@ -1,0 +1,4 @@
+<resources>
+    <string name="root_ready">Root ready</string>
+    <string name="root_ready_description">Disconnects when idle and reconnects for the next action.</string>
+</resources>

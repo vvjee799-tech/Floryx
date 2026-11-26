@@ -1,0 +1,31 @@
+<resources>
+    <string name="task_status_details">任务详情</string>
+    <string name="task_status_finishing">正在完成任务收尾…</string>
+    <string name="task_status_thinking">正在处理你的请求…</string>
+    <string name="task_status_responding">正在整理回答…</string>
+    <string name="task_status_command">正在执行工作区命令…</string>
+    <string name="task_status_reading">正在读取文件…</string>
+    <string name="task_status_files">正在查看工作区…</string>
+    <string name="task_status_operating">正在完成下一步操作…</string>
+    <string name="task_status_waiting_user">等待你的选择</string>
+    <string name="task_status_waiting_device">正在等待其他手机任务结束…</string>
+    <string name="task_status_paused">任务已暂停，已有结果已保留。</string>
+    <string name="task_status_budget_exhausted">本轮任务已达到执行上限，已有结果已保留。可追加额度继续，或结束任务后再发新消息。</string>
+    <string name="task_status_extend_budget">追加额度继续</string>
+    <string name="task_status_uncertain">部分操作的结果仍未确认，已有结果已保留。</string>
+    <string name="task_status_interrupted">处理已中断，任务尚未完成。</string>
+    <string name="task_status_user_stopped">已按你的要求停止，已有结果已保留。</string>
+    <string name="task_status_model_timeout">模型请求超时，任务尚未完成。</string>
+    <string name="task_status_command_timeout">命令执行超时，结果仍未确认。</string>
+    <string name="task_status_failed">本次处理失败，原因见回答或任务详情。</string>
+    <string name="task_status_reply_finished">本轮回复已结束。</string>
+    <string name="task_status_resource_issue">部分任务资源尚未确认释放</string>
+    <string name="task_status_pending_detail">有 %1$d 项操作结果仍未确认。此前操作不会重复执行；重新检查不代表已确认成功。</string>
+    <string name="task_status_check_again">重新检查结果</string>
+    <string name="task_status_skip_uncertain">跳过未确认操作，继续其他步骤</string>
+    <string name="task_status_command_object">工作区命令</string>
+    <string name="task_status_operation_object">此前的操作</string>
+    <string name="task_status_goal_verified">任务目标已有独立核验。</string>
+    <string name="task_status_goal_failed">记录中的任务目标未达成。</string>
+    <string name="task_status_budget_detail">任务统计：阶段 %1$d，工具调用 %2$d 次，模型请求 %3$d 次。</string>
+</resources>

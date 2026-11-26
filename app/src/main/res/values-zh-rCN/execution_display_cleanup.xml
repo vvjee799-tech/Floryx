@@ -1,0 +1,18 @@
+<resources>
+    <string name="execution_display_cleanup_title">后台显示清理</string>
+    <string name="execution_display_creating">正在创建本任务的后台执行屏。</string>
+    <string name="execution_display_in_use">本任务正在使用后台执行屏。</string>
+    <string name="execution_display_stopped_pending">任务已停止，后台显示仍待清理。</string>
+    <string name="execution_display_releasing">正在释放后台显示，尚未核实移除。</string>
+    <string name="execution_display_released">已核实：本任务的后台显示已移除。</string>
+    <string name="execution_display_not_created">已核实：本任务未创建后台显示。</string>
+    <string name="execution_display_unverified">清理尚未核实，已阻止新的手机操作；切换模式不会解除保护。</string>
+    <string name="execution_display_still_present">系统仍能找到这个后台显示。</string>
+    <string name="execution_display_identity_unknown">无法核实对应后台显示的身份。</string>
+    <string name="execution_display_creation_pending">此前的显示创建请求尚未返回。</string>
+    <string name="execution_display_check_failed">系统显示状态核查失败。</string>
+    <string name="execution_display_close_pending">显示关闭请求尚未返回。</string>
+    <string name="execution_display_other_pending">其他任务的后台显示清理尚未核实，已阻止新的手机操作。</string>
+    <string name="execution_display_cleanup_scope">此状态只核实后台显示；命令、服务与电源锁需分别检查。</string>
+    <string name="execution_display_recheck">重新核查显示移除</string>
+</resources>

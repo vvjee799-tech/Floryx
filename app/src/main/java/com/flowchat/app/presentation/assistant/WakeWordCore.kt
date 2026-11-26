@@ -1,0 +1,211 @@
+package com.flowchat.app.presentation.assistant
+
+import android.content.Context
+import androidx.annotation.StringRes
+import java.io.InputStream
+import java.util.ArrayDeque
+import java.util.Locale
+import kotlinx.coroutines.flow.StateFlow
+
+internal const val WAKE_SAMPLE_RATE = 16_000
+internal const val WAKE_FRAME_SAMPLES = 320
+internal const val WAKE_PRE_ROLL_SAMPLES = 2_400 // 150 ms
+
+internal data class WakeWordState(
+    val running: Boolean = false,
+    val keyword: String = "",
+    @StringRes val status: Int? = null,
+    @StringRes val error: Int? = null,
+    val detections: Int = 0,
+)
+
+/**
+ * Debug-only local wake-word prototype. A controller is created only when the X-ASR runtime
+ * registers a factory; release builds and builds without the runtime keep [WakeWordPlugins]
+ * empty and the panel never shows the experimental row.
+ */
+internal interface WakeWordController {
+    val state: StateFlow<WakeWordState>
+    var onWakeWord: (() -> Unit)?
+
+    fun start(keyword: String): Boolean
+    fun stop()
+    fun updateKeyword(keyword: String): Boolean
+    fun setPlaybackActive(active: Boolean)
+    fun takeCommandInput(): AssistantSpeechInput?
+    fun onCommandFinished()
+}
+
+internal object WakeWordPlugins {
+    @Volatile
+    var factory: ((Context) -> WakeWordController?)? = null
+}
+
+/** User-selected wake word; the prototype ships with no default word. */
+internal class WakeWordSettings(context: Context) {
+    private val preferences = context.getSharedPreferences("assistant_wake_word", Context.MODE_PRIVATE)
+
+    var enabled: Boolean
+        get() = preferences.getBoolean("enabled", false)
+        set(value) = preferences.edit().putBoolean("enabled", value).apply()
+
+    var keyword: String
+        get() = preferences.getString("keyword", "").orEmpty()
+        set(value) = preferences.edit().putString("keyword", value.trim().take(24)).apply()
+}
+
+/** Copy-on-write ring buffer; only the newest [capacity] samples are retained. */
+internal class FloatRingBuffer(private val capacity: Int) {
+    private val data = FloatArray(capacity.coerceAtLeast(1))
+    private var writeIndex = 0
+    private var count = 0
+
+    val size: Int get() = count
+
+    fun clear() {
+        writeIndex = 0
+        count = 0
+    }
+
+    fun write(samples: FloatArray) {
+        for (sample in samples) {
+            data[writeIndex] = sample
+            writeIndex = (writeIndex + 1) % data.size
+            if (count < data.size) count++
+        }
+    }
+
+    fun snapshotLast(requested: Int): FloatArray {
+        val length = requested.coerceIn(0, count)
+        val result = FloatArray(length)
+        var index = (writeIndex - length + data.size) % data.size
+        for (position in 0 until length) {
+            result[position] = data[index]
+            index = (index + 1) % data.size
+        }
+        return result
+    }
+}
+
+/**
+ * Keeps the short pre-roll, tracks keyword generations and suppresses playback echo.
+ * Frames are dropped entirely while the assistant is speaking, so its own voice cannot
+ * leave a tail in the buffer that triggers right after playback stops.
+ */
+internal class WakeWordGate(
+    private val preRollSamples: Int = WAKE_PRE_ROLL_SAMPLES,
+    ringCapacity: Int = preRollSamples * 4
+) {
+    private val ring = FloatRingBuffer(ringCapacity)
+    private var generation = 0L
+
+    var speaking = false
+        private set
+    var capturing = false
+        private set
+
+    fun currentGeneration(): Long = generation
+
+    fun invalidateKeyword() {
+        generation++
+        ring.clear()
+        capturing = false
+    }
+
+    fun setPlaybackActive(active: Boolean) {
+        speaking = active
+        ring.clear()
+    }
+
+    fun onFrame(frame: FloatArray) {
+        if (speaking || frame.isEmpty()) return
+        ring.write(frame)
+    }
+
+    fun detectionAllowed(detectionGeneration: Long): Boolean =
+        !speaking && !capturing && detectionGeneration == generation
+
+    /** Returns the pre-roll immediately before the detection and switches to command capture. */
+    fun beginCommand(): FloatArray {
+        capturing = true
+        return ring.snapshotLast(preRollSamples)
+    }
+
+    fun endCommand() {
+        capturing = false
+        ring.clear()
+    }
+}
+
+/** Fixed-size FIFO of command frames; drops the oldest samples when the cap is reached. */
+internal class CommandAudioBuffer(private val maxSamples: Int) {
+    private val chunks = ArrayDeque<FloatArray>()
+    private var samples = 0
+
+    val size: Int get() = samples
+
+    fun append(frame: FloatArray) {
+        if (frame.isEmpty()) return
+        chunks.addLast(frame)
+        samples += frame.size
+        while (samples > maxSamples && chunks.isNotEmpty()) {
+            samples -= chunks.removeFirst().size
+        }
+    }
+
+    fun snapshot(): List<FloatArray> = chunks.toList()
+
+    fun clear() {
+        chunks.clear()
+        samples = 0
+    }
+}
+
+/**
+ * Encodes a user keyword with the model's phone+ppinyin tokens. Han characters come from the
+ * bundled table generated by the official `text2token` tool; a whole-keyword alias (for
+ * `floryx`) is matched first. Unsupported characters make the encoder return null.
+ */
+internal class WakeWordPhonemes(private val entries: Map<String, String>) {
+    fun encode(keyword: String): String? {
+        val cleaned = keyword.trim().replace(' ', '_')
+        if (cleaned.isEmpty()) return null
+        entries[cleaned.lowercase(Locale.ROOT)]?.let { return it }
+        val tokens = StringBuilder()
+        for (character in cleaned) {
+            val encoded = entries[character.toString()] ?: return null
+            if (tokens.isNotEmpty()) tokens.append(' ')
+            tokens.append(encoded)
+        }
+        return tokens.toString()
+    }
+
+    companion object {
+        fun load(input: InputStream): WakeWordPhonemes {
+            val entries = HashMap<String, String>(24_000)
+            input.bufferedReader(Charsets.UTF_8).useLines { lines ->
+                for (line in lines) {
+                    val tab = line.indexOf('\t')
+                    if (tab <= 0) continue
+                    entries[line.substring(0, tab)] = line.substring(tab + 1)
+                }
+            }
+            return WakeWordPhonemes(entries)
+        }
+    }
+}
+
+/** Removes a leading wake-word transcript while keeping the command start intact. */
+internal fun stripWakeWord(transcript: String, keyword: String): String {
+    val command = transcript.trim()
+    val word = keyword.trim()
+    if (word.isEmpty() || command.isEmpty()) return command
+    if (!command.startsWith(word)) return command
+    return command.removePrefix(word).trimStart(' ', '\t', '\n', '\r', '，', ',', '。', '.', '！', '!', '？', '?')
+}
+
+/** Formats one keywords.txt line for the pinned model. */
+internal fun keywordLine(tokens: String, keyword: String, score: Float = 1.5f, threshold: Float = 0.25f): String {
+    val label = keyword.trim().replace(' ', '_')
+    return "$tokens :$score #$threshold @$label\n"
+}

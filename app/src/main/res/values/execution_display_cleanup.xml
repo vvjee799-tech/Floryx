@@ -1,0 +1,18 @@
+<resources>
+    <string name="execution_display_cleanup_title">Background display cleanup</string>
+    <string name="execution_display_creating">Creating the task’s background display.</string>
+    <string name="execution_display_in_use">The task is using its background display.</string>
+    <string name="execution_display_stopped_pending">The task has stopped. Background display cleanup is pending.</string>
+    <string name="execution_display_releasing">Releasing the background display. Removal is not yet verified.</string>
+    <string name="execution_display_released">Verified: the task’s background display has been removed.</string>
+    <string name="execution_display_not_created">Verified: this task never created a background display.</string>
+    <string name="execution_display_unverified">Cleanup is unverified. New phone operations are blocked across mode changes.</string>
+    <string name="execution_display_still_present">The system still reports this display.</string>
+    <string name="execution_display_identity_unknown">The exact display identity could not be verified.</string>
+    <string name="execution_display_creation_pending">The previous display creation has not returned.</string>
+    <string name="execution_display_check_failed">The system display check failed.</string>
+    <string name="execution_display_close_pending">The display close request has not returned.</string>
+    <string name="execution_display_other_pending">Another task’s background display cleanup is unverified. New phone operations are blocked.</string>
+    <string name="execution_display_cleanup_scope">This status covers the background display only. Commands, services and power locks are checked separately.</string>
+    <string name="execution_display_recheck">Check removal again</string>
+</resources>

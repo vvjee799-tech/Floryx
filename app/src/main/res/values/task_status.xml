@@ -1,0 +1,31 @@
+<resources>
+    <string name="task_status_details">Task details</string>
+    <string name="task_status_finishing">Finishing task cleanup…</string>
+    <string name="task_status_thinking">Working on your request…</string>
+    <string name="task_status_responding">Preparing the answer…</string>
+    <string name="task_status_command">Running the workspace command…</string>
+    <string name="task_status_reading">Reading the file…</string>
+    <string name="task_status_files">Checking the workspace…</string>
+    <string name="task_status_operating">Carrying out the next step…</string>
+    <string name="task_status_waiting_user">Waiting for your choice</string>
+    <string name="task_status_waiting_device">Waiting for the other phone task…</string>
+    <string name="task_status_paused">Task paused; existing results were kept.</string>
+    <string name="task_status_budget_exhausted">This task reached its execution limit; existing results were kept. Extend the limit to continue, or end the task.</string>
+    <string name="task_status_extend_budget">Extend limit &amp; continue</string>
+    <string name="task_status_uncertain">Some operation results are still unconfirmed. Existing results were kept.</string>
+    <string name="task_status_interrupted">Processing was interrupted; the task is unfinished.</string>
+    <string name="task_status_user_stopped">Stopped at your request. Existing results were kept.</string>
+    <string name="task_status_model_timeout">The model request timed out; the task is unfinished.</string>
+    <string name="task_status_command_timeout">The command timed out. Its result is still unconfirmed.</string>
+    <string name="task_status_failed">Processing failed. See the answer or task details for the cause.</string>
+    <string name="task_status_reply_finished">The reply has ended.</string>
+    <string name="task_status_resource_issue">Some task resources could not be confirmed as released.</string>
+    <string name="task_status_pending_detail">Unconfirmed operation results: %1$d. Prior actions will not be repeated. Checking again does not prove that they succeeded.</string>
+    <string name="task_status_check_again">Check the result again</string>
+    <string name="task_status_skip_uncertain">Skip uncertain actions; continue other steps</string>
+    <string name="task_status_command_object">Workspace command</string>
+    <string name="task_status_operation_object">Previous operation</string>
+    <string name="task_status_goal_verified">The task goal has independent verification.</string>
+    <string name="task_status_goal_failed">The recorded task goal was not achieved.</string>
+    <string name="task_status_budget_detail">Task totals: stage %1$d, tool calls %2$d, model requests %3$d.</string>
+</resources>

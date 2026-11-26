@@ -1,0 +1,1227 @@
+package com.flowchat.app.presentation.overlay
+
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
+import android.app.Service
+import android.content.Context
+import android.content.Intent
+import android.content.pm.ServiceInfo
+import android.content.res.Configuration
+import android.graphics.PixelFormat
+import android.graphics.Rect
+import android.hardware.input.InputManager
+import android.os.Build
+import android.os.IBinder
+import android.view.Gravity
+import android.view.MotionEvent
+import android.view.View
+import android.view.ViewConfiguration
+import android.view.WindowInsets
+import android.view.WindowManager
+import android.view.inputmethod.InputMethodManager
+import android.widget.FrameLayout
+import android.widget.Toast
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.Send
+import androidx.compose.material.icons.rounded.KeyboardArrowUp
+import androidx.compose.material.icons.automirrored.rounded.Reply
+import androidx.compose.material.icons.rounded.Stop
+import androidx.compose.material3.Icon
+import androidx.compose.material3.Button
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.ComposeView
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.core.app.NotificationCompat
+import androidx.core.app.ServiceCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleOwner
+import androidx.lifecycle.LifecycleRegistry
+import androidx.lifecycle.ViewModelStore
+import androidx.lifecycle.ViewModelStoreOwner
+import androidx.lifecycle.setViewTreeLifecycleOwner
+import androidx.lifecycle.setViewTreeViewModelStoreOwner
+import androidx.savedstate.SavedStateRegistry
+import androidx.savedstate.SavedStateRegistryController
+import androidx.savedstate.SavedStateRegistryOwner
+import androidx.savedstate.setViewTreeSavedStateRegistryOwner
+import com.flowchat.app.MainActivity
+import com.flowchat.app.R
+import com.flowchat.app.domain.terminal.TerminalToolDefinitions
+import com.flowchat.app.ui.theme.AppAppearance
+import com.flowchat.app.ui.theme.FlowChatTheme
+import dagger.hilt.android.AndroidEntryPoint
+import javax.inject.Inject
+import kotlin.math.hypot
+import kotlin.math.roundToInt
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.launch
+
+@AndroidEntryPoint
+class FloatingAssistantService : Service(), LifecycleOwner, ViewModelStoreOwner, SavedStateRegistryOwner {
+    @Inject lateinit var bridge: FloatingAssistantBridge
+    @Inject lateinit var runtime: com.flowchat.app.presentation.chat.ChatTaskRuntime
+    @Inject lateinit var settings: com.flowchat.app.data.preferences.AppSettingsStore
+
+    private val lifecycleRegistry = LifecycleRegistry(this)
+    private val serviceViewModelStore = ViewModelStore()
+    private val savedStateController = SavedStateRegistryController.create(this)
+    private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    private lateinit var windowManager: WindowManager
+    private lateinit var overlayView: ComposeView
+    private lateinit var overlayContainer: DraggableOverlayContainer
+    private lateinit var layoutParams: WindowManager.LayoutParams
+    private lateinit var controlsView: ComposeView
+    private lateinit var controlsContainer: DraggableOverlayContainer
+    private lateinit var controlsLayoutParams: WindowManager.LayoutParams
+    private lateinit var answerBannerWindow: AnswerBannerWindow
+    private var overlayAttached = false
+    private var controlsAttached = false
+    private var visibilityJob: Job? = null
+    private var expanded by mutableStateOf(false)
+    private var watching by mutableStateOf(false)
+    private var automationBusy = false
+    private var anchorX = 0
+    private var anchorY = 0
+    private var watchingPanelX: Int? = null
+    private var appearance by mutableStateOf(AppAppearance.System)
+
+    override val lifecycle: Lifecycle get() = lifecycleRegistry
+    override val viewModelStore: ViewModelStore get() = serviceViewModelStore
+    override val savedStateRegistry: SavedStateRegistry get() = savedStateController.savedStateRegistry
+
+    override fun onCreate() {
+        super.onCreate()
+        savedStateController.performAttach()
+        savedStateController.performRestore(null)
+        lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_CREATE)
+        lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_START)
+        lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_RESUME)
+        windowManager = getSystemService(WindowManager::class.java)
+        appearance = AppAppearance.load(this)
+        startForegroundServiceNotification()
+        createOverlayView()
+        answerBannerWindow = AnswerBannerWindow(this, onOpen = { owner ->
+            startActivity(AnswerModeNavigation.intent(this, owner))
+            bridge.dismissAnswerBanner()
+        }, onDismiss = bridge::dismissAnswerBanner)
+        // Remove completed-answer notifications left by the earlier notification-based implementation.
+        getSystemService(NotificationManager::class.java).activeNotifications
+            .filter { it.tag?.startsWith("photo-answer:") == true }.forEach {
+                getSystemService(NotificationManager::class.java).cancel(it.tag, it.id)
+            }
+        observeVisibility()
+        serviceScope.launch {
+            val occupied = combine(bridge.appInForeground, bridge.assistantPanels) { app, panels -> app || panels > 0 }
+            val captureHidden = combine(bridge.screenCaptureCount, bridge.displayCaptureCount) { screen, display -> screen > 0 || display > 0 }
+            combine(bridge.answerBanner, bridge.state, occupied, captureHidden, bridge.uiInteractionCount) {
+                banner, state, hiddenByApp, capturing, interactions ->
+                banner to (state.photoAnswerEnabled && !hiddenByApp && !capturing && interactions == 0)
+            }.collect { (banner, visible) ->
+                answerBannerWindow.render(banner, visible && FloatingAssistantPermission.isGranted(this@FloatingAssistantService) &&
+                    !getSystemService(android.app.KeyguardManager::class.java).isKeyguardLocked)
+            }
+        }
+        serviceScope.launch {
+            bridge.screenQuestion.collectLatest { question ->
+                if (question.phase == ScreenQuestionPhase.Failed) {
+                    Toast.makeText(this@FloatingAssistantService, screenQuestionErrorResource(question.errorCode), Toast.LENGTH_SHORT).show()
+                }
+                if (question.errorCode == "task_busy") {
+                    kotlinx.coroutines.delay(2_500)
+                    bridge.clearScreenQuestion()
+                }
+            }
+        }
+    }
+
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (!FloatingAssistantPermission.isGranted(this)) {
+            stopSelf()
+            return START_NOT_STICKY
+        }
+        appearance = AppAppearance.load(this)
+        return START_NOT_STICKY
+    }
+
+    override fun onBind(intent: Intent?): IBinder? = null
+
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        val safeBounds = usableOverlayBounds()
+        val (clampedX, clampedY) = clampCapsulePosition(
+            anchorX,
+            anchorY,
+            dp(FloatingCapsuleWidthDp),
+            dp(FloatingCapsuleHeightDp),
+            safeBounds
+        )
+        anchorX = clampedX
+        anchorY = clampedY
+        watchingPanelX = null
+        updateOverlayWindows()
+    }
+
+    override fun onDestroy() {
+        if (::answerBannerWindow.isInitialized) answerBannerWindow.hide()
+        removeOverlay()
+        visibilityJob?.cancel()
+        serviceScope.cancel()
+        lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_PAUSE)
+        lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_STOP)
+        lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_DESTROY)
+        serviceViewModelStore.clear()
+        super.onDestroy()
+    }
+
+    private fun createOverlayView() {
+        val safeBounds = usableOverlayBounds()
+        val capsuleWidth = dp(FloatingCapsuleWidthDp)
+        val capsuleHeight = dp(FloatingCapsuleHeightDp)
+        val prefs = getSharedPreferences(PositionPreferences, MODE_PRIVATE)
+        val rawX = if (prefs.contains(PositionXKey)) prefs.getInt(PositionXKey, 0) else safeBounds.right - capsuleWidth
+        val rawY = prefs.getInt(PositionYKey, dp(214))
+        val (clampedX, clampedY) = clampCapsulePosition(rawX, rawY, capsuleWidth, capsuleHeight, safeBounds)
+        anchorX = clampedX
+        anchorY = clampedY
+        layoutParams = WindowManager.LayoutParams(
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
+                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+                WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED,
+            PixelFormat.TRANSLUCENT
+        ).apply {
+            gravity = Gravity.TOP or Gravity.START
+            x = anchorX
+            y = anchorY
+            setTitle(OutputWindowTitle)
+            softInputMode = WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE
+        }
+        controlsLayoutParams = WindowManager.LayoutParams(
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
+                WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH or
+                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+                WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED,
+            PixelFormat.TRANSLUCENT
+        ).apply {
+            gravity = Gravity.TOP or Gravity.START
+            x = anchorX
+            y = anchorY
+            setTitle(ControlsWindowTitle)
+        }
+        overlayView = ComposeView(this).apply {
+            setViewTreeLifecycleOwner(this@FloatingAssistantService)
+            setViewTreeViewModelStoreOwner(this@FloatingAssistantService)
+            setViewTreeSavedStateRegistryOwner(this@FloatingAssistantService)
+            setBackgroundColor(android.graphics.Color.TRANSPARENT)
+            importantForAccessibility = android.view.View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS
+            setContent {
+                FlowChatTheme(appAppearance = appearance) {
+                    val state by bridge.state.collectAsState()
+                    val question by bridge.screenQuestion.collectAsState()
+                    FloatingAssistantOverlay(
+                        state = state,
+                        question = question,
+                        expanded = expanded,
+                        watching = watching,
+                        onExpand = { updateExpanded(true) },
+                        onRecognizeScreen = if (state.photoAnswerEnabled) ({ runtime.recognizeScreen(); Unit }) else null,
+                        onCollapse = { updateExpanded(false) },
+                        onSend = { text ->
+                            bridge.send(text)
+                        },
+                        onStop = bridge::stop,
+                        onConfirmationResponse = bridge::respondToConfirmation
+                    )
+                }
+            }
+            addOnLayoutChangeListener { view, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom ->
+                if (overlayAttached && expanded &&
+                    (right - left != oldRight - oldLeft || bottom - top != oldBottom - oldTop)) {
+                    view.post { updateOverlayWindows() }
+                }
+            }
+        }
+        overlayContainer = DraggableOverlayContainer(
+            context = this,
+            canDrag = { overlayAttached && !expanded && !automationBusy },
+            currentPosition = { layoutParams.x to layoutParams.y },
+            onMove = ::moveCollapsedTo,
+            onDragFinished = ::savePosition,
+            onOutsideTouch = ::observeOutsideTouch
+        ).apply {
+            setViewTreeLifecycleOwner(this@FloatingAssistantService)
+            setViewTreeViewModelStoreOwner(this@FloatingAssistantService)
+            setViewTreeSavedStateRegistryOwner(this@FloatingAssistantService)
+            setBackgroundColor(android.graphics.Color.TRANSPARENT)
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS
+            addView(
+                overlayView,
+                FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.WRAP_CONTENT,
+                    FrameLayout.LayoutParams.WRAP_CONTENT
+                )
+            )
+        }
+        controlsView = ComposeView(this).apply {
+            setViewTreeLifecycleOwner(this@FloatingAssistantService)
+            setViewTreeViewModelStoreOwner(this@FloatingAssistantService)
+            setViewTreeSavedStateRegistryOwner(this@FloatingAssistantService)
+            setBackgroundColor(android.graphics.Color.TRANSPARENT)
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS
+            addOnLayoutChangeListener { view, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom ->
+                if (overlayAttached && expanded && watching &&
+                    (right - left != oldRight - oldLeft || bottom - top != oldBottom - oldTop)) {
+                    view.post { updateOverlayWindows() }
+                }
+            }
+            setContent {
+                FlowChatTheme(appAppearance = appearance) {
+                    val state by bridge.state.collectAsState()
+                    WatchingAssistantControls(
+                        isStreaming = state.isStreaming,
+                        onCollapse = { updateExpanded(false) },
+                        onReply = {
+                            if (!bridge.state.value.isStreaming && !automationBusy) {
+                                watching = false
+                                watchingPanelX = null
+                                updateOverlayWindows()
+                            }
+                        },
+                        onStop = bridge::stop
+                    )
+                }
+            }
+        }
+        controlsContainer = DraggableOverlayContainer(
+            context = this,
+            canDrag = { overlayAttached && expanded && watching && !automationBusy },
+            currentPosition = { controlsLayoutParams.x to controlsLayoutParams.y },
+            onMove = ::moveWatchingFromControls,
+            onDragFinished = ::savePosition,
+            onOutsideTouch = ::observeOutsideTouch
+        ).apply {
+            setViewTreeLifecycleOwner(this@FloatingAssistantService)
+            setViewTreeViewModelStoreOwner(this@FloatingAssistantService)
+            setViewTreeSavedStateRegistryOwner(this@FloatingAssistantService)
+            setBackgroundColor(android.graphics.Color.TRANSPARENT)
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS
+            addView(
+                controlsView,
+                FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.WRAP_CONTENT,
+                    FrameLayout.LayoutParams.WRAP_CONTENT
+                )
+            )
+        }
+    }
+
+    private fun observeVisibility() {
+        visibilityJob = serviceScope.launch {
+            var displayedConfirmationId: String? = null
+            val occupied = combine(bridge.appInForeground, bridge.assistantPanels) { foreground, panels -> foreground || panels > 0 }
+            combine(bridge.state, occupied, bridge.uiInteractionCount, bridge.screenCaptureCount, bridge.displayCaptureCount) { state, appInForeground, interactions, captures, displayCaptures ->
+                OverlayVisibility(!appInForeground && (state.canChat || state.canRecognizeScreen), state.isStreaming, interactions > 0,
+                    (Build.VERSION.SDK_INT < 34 && captures > 0) || displayCaptures > 0,
+                    state.pendingDeviceActionConfirmation?.requestId)
+            }.distinctUntilChanged().collect { (shouldShow, streaming, busy, captureHidden, confirmationId) ->
+                automationBusy = busy
+                if (shouldShow && confirmationId != null && confirmationId != displayedConfirmationId) {
+                    expanded = true
+                    watching = true
+                }
+                displayedConfirmationId = confirmationId.takeIf { shouldShow }
+                // Viewing output never needs keyboard focus, including after the task finishes.
+                if (expanded && (streaming || busy)) watching = true
+                if (shouldShow && FloatingAssistantPermission.isGranted(this@FloatingAssistantService)) {
+                    showOverlay()
+                    updateOverlayWindows()
+                    overlayContainer.visibility = if (captureHidden) View.INVISIBLE else View.VISIBLE
+                    if (captureHidden && controlsAttached) controlsContainer.visibility = View.INVISIBLE
+                } else {
+                    removeOverlay()
+                }
+            }
+        }
+    }
+
+    private data class OverlayVisibility(val show: Boolean, val streaming: Boolean, val busy: Boolean,
+        val captureHidden: Boolean, val confirmationId: String?)
+
+    private fun showOverlay() {
+        if (overlayAttached) return
+        appearance = AppAppearance.load(this)
+        runCatching {
+            windowManager.addView(overlayContainer, layoutParams)
+            overlayAttached = true
+        }.onFailure { stopSelf() }
+    }
+
+    private fun removeOverlay() {
+        removeControls()
+        if (!overlayAttached) return
+        clearOverlayFocus()
+        runCatching { windowManager.removeViewImmediate(overlayContainer) }
+        overlayAttached = false
+        expanded = false
+        watching = false
+        watchingPanelX = null
+    }
+
+    private fun updateExpanded(value: Boolean) {
+        expanded = value
+        watching = value && (bridge.state.value.isStreaming || automationBusy)
+        if (!value || !watching) watchingPanelX = null
+        updateOverlayWindows()
+    }
+
+    private fun clearOverlayFocus() {
+        if (layoutParams.flags and WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE != 0) return
+        overlayContainer.clearFocus()
+        getSystemService(InputMethodManager::class.java)
+            .hideSoftInputFromWindow(overlayContainer.windowToken, 0)
+    }
+
+    private fun observeOutsideTouch(event: MotionEvent) {
+        if (event.actionMasked != MotionEvent.ACTION_OUTSIDE ||
+            !bridge.state.value.isStreaming || bridge.appInForeground.value ||
+            bridge.assistantPanels.value > 0 || settings.state.value.backgroundExecutionEnabled ||
+            bridge.screenCaptureCount.value > 0 || bridge.displayCaptureCount.value > 0) return
+        bridge.onOutsideTouch(event.eventTime)
+    }
+
+    private fun updateOverlayWindows() {
+        if (!overlayAttached) return
+        val safeBounds = usableOverlayBounds()
+        val capsuleWidth = dp(FloatingCapsuleWidthDp)
+        val capsuleHeight = dp(FloatingCapsuleHeightDp)
+        val passive = expanded && watching
+        val confirming = expanded && bridge.state.value.pendingDeviceActionConfirmation != null
+        val controlsWidth = controlsView.width.takeIf { it > 0 } ?: dp(160)
+        val controlsHeight = maxOf(dp(48), controlsView.height)
+        val panelWidth = overlayView.width.takeIf { it > 0 }
+            ?: dp((resources.configuration.screenWidthDp - 32).coerceIn(1, 360))
+        val panelHeight = overlayView.height.takeIf { it > 0 } ?: dp(240)
+        val passThrough = (passive || automationBusy) && !confirming
+        val focusable = expanded && !watching && !automationBusy && !confirming
+        if (!focusable) clearOverlayFocus()
+        layoutParams.flags = WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
+            WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH or
+            WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+            WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED or
+            (if (focusable) 0 else WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE) or
+            (if (passThrough) WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE else 0)
+        // Android 12+ can block pass-through touches when an untrusted overlay is too opaque.
+        // The controls occupy a separate, non-overlapping window above the text panel.
+        // A visible bubble must also stay below Android's obscuring-opacity limit while yielding.
+        // Hiding it for every observation/tap caused it to disappear throughout repeated actions.
+        layoutParams.alpha = if (passThrough) passThroughAlpha() else 1f
+        if (expanded) {
+            val pos = computeExpandedOverlayPositions(
+                anchorX = anchorX,
+                anchorY = anchorY,
+                capsuleWidth = capsuleWidth,
+                panelWidth = panelWidth,
+                panelHeight = panelHeight,
+                controlsWidth = controlsWidth,
+                controlsHeight = controlsHeight,
+                passive = passive,
+                marginPx = dp(8),
+                safeBounds = safeBounds,
+                overridePanelX = if (passive) watchingPanelX else null
+            )
+            layoutParams.x = pos.panelX
+            layoutParams.y = pos.panelY
+            layoutParams.width = WindowManager.LayoutParams.WRAP_CONTENT
+            layoutParams.height = WindowManager.LayoutParams.WRAP_CONTENT
+            controlsLayoutParams.x = pos.controlsX
+            controlsLayoutParams.y = pos.controlsY
+        } else {
+            val (clampedX, clampedY) = clampCapsulePosition(anchorX, anchorY, capsuleWidth, capsuleHeight, safeBounds)
+            anchorX = clampedX
+            anchorY = clampedY
+            layoutParams.x = anchorX
+            layoutParams.y = anchorY
+            layoutParams.width = capsuleWidth
+            layoutParams.height = capsuleHeight
+        }
+        // Only the explicit confirmation is interactive; it never opens the keyboard.
+        val a11yMode = if (confirming) View.IMPORTANT_FOR_ACCESSIBILITY_YES
+            else View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS
+        overlayContainer.importantForAccessibility = a11yMode
+        overlayView.importantForAccessibility = a11yMode
+        controlsContainer.importantForAccessibility = a11yMode
+        controlsView.importantForAccessibility = a11yMode
+        runCatching { windowManager.updateViewLayout(overlayContainer, layoutParams) }
+        if (passive) {
+            controlsContainer.visibility = if (automationBusy && !confirming) View.INVISIBLE else View.VISIBLE
+            runCatching {
+                if (controlsAttached) windowManager.updateViewLayout(controlsContainer, controlsLayoutParams)
+                else {
+                    windowManager.addView(controlsContainer, controlsLayoutParams)
+                    controlsAttached = true
+                }
+            }.onFailure { stopSelf() }
+        } else {
+            removeControls()
+        }
+    }
+
+    private fun passThroughAlpha(): Float = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+        minOf(0.78f, getSystemService(InputManager::class.java).maximumObscuringOpacityForTouch)
+    } else {
+        0.78f
+    }
+
+    private fun removeControls() {
+        if (!controlsAttached) return
+        runCatching { windowManager.removeViewImmediate(controlsContainer) }
+        controlsAttached = false
+    }
+
+    private fun moveCollapsedTo(targetX: Int, targetY: Int) {
+        if (!overlayAttached || expanded || automationBusy) return
+        val safeBounds = usableOverlayBounds()
+        val (clampedX, clampedY) = clampCapsulePosition(
+            targetX,
+            targetY,
+            dp(FloatingCapsuleWidthDp),
+            dp(FloatingCapsuleHeightDp),
+            safeBounds
+        )
+        anchorX = clampedX
+        anchorY = clampedY
+        updateOverlayWindows()
+    }
+
+    private fun moveWatchingFromControls(targetControlsX: Int, targetControlsY: Int) {
+        if (!overlayAttached || !expanded || !watching || automationBusy) return
+        val safeBounds = usableOverlayBounds()
+        val marginPx = dp(8)
+        val controlsWidth = controlsView.width.takeIf { it > 0 } ?: dp(160)
+        val controlsHeight = maxOf(dp(48), controlsView.height)
+        val panelWidth = overlayView.width.takeIf { it > 0 }
+            ?: dp((resources.configuration.screenWidthDp - 32).coerceIn(1, 360))
+        val panelHeight = overlayView.height.takeIf { it > 0 } ?: dp(240)
+        val minPanelX = safeBounds.left + marginPx
+        val maxPanelX = (safeBounds.right - marginPx - panelWidth).coerceAtLeast(minPanelX)
+        watchingPanelX = (targetControlsX + controlsWidth - panelWidth).coerceIn(minPanelX, maxPanelX)
+        val maxControlsY = (safeBounds.bottom - controlsHeight - panelHeight).coerceAtLeast(safeBounds.top)
+        anchorY = targetControlsY.coerceIn(safeBounds.top, maxControlsY)
+        updateOverlayWindows()
+    }
+
+    private fun usableOverlayBounds(): Rect {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            val metrics = windowManager.currentWindowMetrics
+            val insets = metrics.windowInsets.getInsetsIgnoringVisibility(
+                WindowInsets.Type.statusBars() or WindowInsets.Type.navigationBars() or WindowInsets.Type.displayCutout()
+            )
+            val bounds = metrics.bounds
+            return Rect(
+                bounds.left + insets.left,
+                bounds.top + insets.top,
+                (bounds.right - insets.right).coerceAtLeast(bounds.left + insets.left),
+                (bounds.bottom - insets.bottom).coerceAtLeast(bounds.top + insets.top)
+            )
+        }
+        val metrics = resources.displayMetrics
+        return Rect(0, dp(24), metrics.widthPixels, (metrics.heightPixels - dp(24)).coerceAtLeast(dp(24)))
+    }
+
+    private fun savePosition() {
+        getSharedPreferences(PositionPreferences, MODE_PRIVATE)
+            .edit()
+            .putInt(PositionXKey, anchorX)
+            .putInt(PositionYKey, anchorY)
+            .apply()
+    }
+
+    private fun startForegroundServiceNotification() {
+        val manager = getSystemService(NotificationManager::class.java)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            manager.createNotificationChannel(
+                NotificationChannel(
+                    NotificationChannelId,
+                    getString(R.string.floating_assistant),
+                    NotificationManager.IMPORTANCE_LOW
+                ).apply {
+                    description = getString(R.string.floating_assistant_notification_description)
+                    setShowBadge(false)
+                }
+            )
+        }
+        val openIntent = PendingIntent.getActivity(
+            this,
+            0,
+            Intent(this, MainActivity::class.java),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        val notification = NotificationCompat.Builder(this, NotificationChannelId)
+            .setSmallIcon(R.drawable.ic_launcher_foreground)
+            .setContentTitle(getString(R.string.floating_assistant_running))
+            .setContentText(getString(R.string.floating_assistant_notification_description))
+            .setContentIntent(openIntent)
+            .setOngoing(true)
+            .setSilent(true)
+            .setCategory(NotificationCompat.CATEGORY_SERVICE)
+            .build()
+        val foregroundType = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
+        } else {
+            0
+        }
+        ServiceCompat.startForeground(this, NotificationId, notification, foregroundType)
+    }
+
+    private fun dp(value: Int): Int = (value * resources.displayMetrics.density).roundToInt()
+
+    private companion object {
+        const val NotificationChannelId = "floating_assistant"
+        const val NotificationId = 1207
+        const val PositionPreferences = "floating_assistant_position"
+        const val PositionXKey = "position_x"
+        const val PositionYKey = "position_y"
+        const val OutputWindowTitle = "FloryxOutput"
+        const val ControlsWindowTitle = "FloryxControls"
+    }
+}
+
+private class DraggableOverlayContainer(
+    context: Context,
+    private val canDrag: () -> Boolean,
+    private val currentPosition: () -> Pair<Int, Int>,
+    private val onMove: (Int, Int) -> Unit,
+    private val onDragFinished: () -> Unit,
+    private val onOutsideTouch: (MotionEvent) -> Unit
+) : FrameLayout(context) {
+    private val touchSlop = ViewConfiguration.get(context).scaledTouchSlop.toFloat()
+    private var tracking = false
+    private var dragging = false
+    private var downRawX = 0f
+    private var downRawY = 0f
+    private var startX = 0
+    private var startY = 0
+
+    override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
+        onOutsideTouch(ev)
+        when (ev.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                dragging = false
+                tracking = canDrag()
+                if (tracking) {
+                    downRawX = ev.rawX
+                    downRawY = ev.rawY
+                    val (x, y) = currentPosition()
+                    startX = x
+                    startY = y
+                }
+            }
+            MotionEvent.ACTION_MOVE -> {
+                if (tracking) {
+                    val dx = ev.rawX - downRawX
+                    val dy = ev.rawY - downRawY
+                    if (!dragging && hypot(dx.toDouble(), dy.toDouble()) > touchSlop) {
+                        dragging = true
+                        val cancel = MotionEvent.obtain(ev).apply { action = MotionEvent.ACTION_CANCEL }
+                        super.dispatchTouchEvent(cancel)
+                        cancel.recycle()
+                    }
+                    if (dragging) {
+                        onMove(startX + dx.roundToInt(), startY + dy.roundToInt())
+                        return true
+                    }
+                }
+            }
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                val wasDragging = dragging
+                tracking = false
+                dragging = false
+                if (wasDragging) {
+                    onDragFinished()
+                    return true
+                }
+            }
+        }
+        return super.dispatchTouchEvent(ev)
+    }
+}
+
+internal data class ExpandedOverlayPositions(
+    val panelX: Int,
+    val panelY: Int,
+    val controlsX: Int,
+    val controlsY: Int
+)
+
+internal fun clampCapsulePosition(
+    x: Int,
+    y: Int,
+    width: Int,
+    height: Int,
+    safeBounds: Rect
+): Pair<Int, Int> {
+    val maxX = (safeBounds.right - width).coerceAtLeast(safeBounds.left)
+    val maxY = (safeBounds.bottom - height).coerceAtLeast(safeBounds.top)
+    return x.coerceIn(safeBounds.left, maxX) to y.coerceIn(safeBounds.top, maxY)
+}
+
+internal fun computeExpandedOverlayPositions(
+    anchorX: Int,
+    anchorY: Int,
+    capsuleWidth: Int,
+    panelWidth: Int,
+    panelHeight: Int,
+    controlsWidth: Int,
+    controlsHeight: Int,
+    passive: Boolean,
+    marginPx: Int,
+    safeBounds: Rect,
+    overridePanelX: Int? = null
+): ExpandedOverlayPositions {
+    val minPanelX = safeBounds.left + marginPx
+    val maxPanelX = (safeBounds.right - marginPx - panelWidth).coerceAtLeast(minPanelX)
+    val panelX = if (overridePanelX != null) {
+        overridePanelX.coerceIn(minPanelX, maxPanelX)
+    } else {
+        val availableCapsuleX = (safeBounds.right - capsuleWidth - safeBounds.left).coerceAtLeast(1)
+        val fractionX = ((anchorX - safeBounds.left).toFloat() / availableCapsuleX.toFloat()).coerceIn(0f, 1f)
+        val preferredPanelX = anchorX - ((panelWidth - capsuleWidth) * fractionX).roundToInt()
+        preferredPanelX.coerceIn(minPanelX, maxPanelX)
+    }
+
+    val minControlsX = safeBounds.left + marginPx
+    val maxControlsX = (safeBounds.right - marginPx - controlsWidth).coerceAtLeast(minControlsX)
+    val controlsX = (panelX + panelWidth - controlsWidth).coerceIn(minControlsX, maxControlsX)
+
+    return if (passive) {
+        val totalHeight = controlsHeight + panelHeight
+        val maxControlsY = (safeBounds.bottom - totalHeight).coerceAtLeast(safeBounds.top)
+        val controlsY = anchorY.coerceIn(safeBounds.top, maxControlsY)
+        ExpandedOverlayPositions(
+            panelX = panelX,
+            panelY = controlsY + controlsHeight,
+            controlsX = controlsX,
+            controlsY = controlsY
+        )
+    } else {
+        val maxPanelY = (safeBounds.bottom - panelHeight).coerceAtLeast(safeBounds.top)
+        val panelY = anchorY.coerceIn(safeBounds.top, maxPanelY)
+        ExpandedOverlayPositions(
+            panelX = panelX,
+            panelY = panelY,
+            controlsX = controlsX,
+            controlsY = panelY
+        )
+    }
+}
+
+@Composable
+private fun FloatingAssistantOverlay(
+    state: FloatingAssistantState,
+    question: ScreenQuestionState,
+    expanded: Boolean,
+    watching: Boolean,
+    onExpand: () -> Unit,
+    onRecognizeScreen: (() -> Unit)?,
+    onCollapse: () -> Unit,
+    onSend: (String) -> Unit,
+    onStop: () -> Unit,
+    onConfirmationResponse: (String, String, Boolean) -> Unit
+) {
+    Crossfade(
+        targetState = expanded to watching,
+        // Do not retain the outgoing panel's rectangular bounds around a collapsed capsule handle.
+        modifier = if (expanded) Modifier else Modifier.size(FloatingCapsuleWidthDp.dp, FloatingCapsuleHeightDp.dp).clip(FloatingCapsuleShape),
+        animationSpec = tween(140, easing = FastOutSlowInEasing),
+        label = "floating-assistant"
+    ) { (isExpanded, isWatching) ->
+        if (isExpanded) {
+            ExpandedAssistantPanel(
+                state = state,
+                question = question,
+                watching = isWatching,
+                onCollapse = onCollapse,
+                onSend = onSend,
+                onStop = onStop,
+                onConfirmationResponse = onConfirmationResponse
+            )
+        } else {
+            FloatingAssistantBubble(
+                isStreaming = state.isStreaming || question.phase == ScreenQuestionPhase.Capturing,
+                onClick = onExpand,
+                onLongClick = onRecognizeScreen
+            )
+        }
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun FloatingAssistantBubble(
+    isStreaming: Boolean,
+    onClick: () -> Unit,
+    onLongClick: (() -> Unit)?
+) {
+    val haptics = LocalHapticFeedback.current
+    val pulse = if (isStreaming) {
+        val transition = rememberInfiniteTransition(label = "assistant-activity")
+        val animatedPulse by transition.animateFloat(
+            initialValue = 0.42f,
+            targetValue = 0.95f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(900, easing = FastOutSlowInEasing),
+                repeatMode = RepeatMode.Reverse
+            ),
+            label = "assistant-ring"
+        )
+        animatedPulse
+    } else {
+        0.58f
+    }
+    Box(
+        modifier = Modifier
+            .size(FloatingCapsuleWidthDp.dp, FloatingCapsuleHeightDp.dp)
+            .clip(FloatingCapsuleShape)
+            .combinedClickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = onClick,
+                onLongClickLabel = stringResource(R.string.screen_question_action),
+                onLongClick = onLongClick?.let { action -> {
+                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                    action()
+                } }
+            ),
+        contentAlignment = Alignment.Center
+    ) {
+        Surface(
+            modifier = Modifier.fillMaxSize(),
+            shape = FloatingCapsuleShape,
+            color = MaterialTheme.colorScheme.surfaceContainerLowest,
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+            shadowElevation = 2.dp,
+            tonalElevation = 0.dp
+        ) {
+            Column(
+                modifier = Modifier.fillMaxSize(),
+                verticalArrangement = Arrangement.spacedBy(5.dp, Alignment.CenterVertically),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(width = 4.dp, height = 16.dp)
+                        .clip(CircleShape)
+                        .background(
+                            if (isStreaming) {
+                                MaterialTheme.colorScheme.primary.copy(alpha = pulse)
+                            } else {
+                                MaterialTheme.colorScheme.tertiary
+                            }
+                        )
+                )
+                Text(
+                    text = "f",
+                    style = com.flowchat.app.ui.theme.PaperWordmark.copy(
+                        fontSize = 14.sp,
+                        lineHeight = 16.sp,
+                        fontStyle = androidx.compose.ui.text.font.FontStyle.Italic
+                    ),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+    }
+}
+
+@Composable
+internal fun ExpandedAssistantPanel(
+    state: FloatingAssistantState,
+    question: ScreenQuestionState,
+    watching: Boolean,
+    onCollapse: () -> Unit,
+    onSend: (String) -> Unit,
+    onStop: () -> Unit,
+    onConfirmationResponse: (String, String, Boolean) -> Unit
+) {
+    val confirmation = state.pendingDeviceActionConfirmation
+    val maxConfirmationHeight = (LocalConfiguration.current.screenHeightDp - 144).coerceAtLeast(160).dp
+    val messageScrollState = rememberScrollState()
+    LaunchedEffect(state.assistantText, messageScrollState.maxValue) {
+        messageScrollState.scrollTo(messageScrollState.maxValue)
+    }
+    Surface(
+        modifier = Modifier
+            .width((androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp - 32).coerceIn(1, 360).dp)
+            .then(if (confirmation != null) Modifier.heightIn(max = maxConfirmationHeight) else Modifier)
+            .shadow(4.dp, RoundedCornerShape(20.dp)),
+        shape = RoundedCornerShape(20.dp),
+        color = MaterialTheme.colorScheme.surface,
+        contentColor = MaterialTheme.colorScheme.onSurface,
+        border = androidx.compose.foundation.BorderStroke(
+            1.dp,
+            MaterialTheme.colorScheme.outlineVariant
+        ),
+        tonalElevation = 0.dp
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text(stringResource(R.string.app_name), style = com.flowchat.app.ui.theme.PaperWordmark.copy(fontSize = 20.sp),
+                    color = MaterialTheme.colorScheme.tertiary, modifier = Modifier.weight(1f))
+                if (!watching) IconButton(onClick = onCollapse, modifier = Modifier.size(48.dp)) {
+                    Icon(Icons.Rounded.KeyboardArrowUp,
+                        contentDescription = stringResource(R.string.collapse_floating_assistant),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+            FloatingProgressStatus(if (question.phase == ScreenQuestionPhase.Failed) state.copy(
+                progress = FloatingTaskProgress(FloatingTaskPhase.Failed)) else state)
+            Spacer(Modifier.height(8.dp))
+            if (confirmation != null && state.conversationId != null) {
+                Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState())) {
+                    val systemCommand = confirmation.toolName == TerminalToolDefinitions.Run
+                    Text(
+                        text = if (systemCommand) stringResource(R.string.terminal_system_approval_title)
+                            else stringResource(R.string.force_stop_confirmation_title, confirmation.title),
+                        style = MaterialTheme.typography.titleSmall,
+                        modifier = Modifier.padding(horizontal = 8.dp)
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        text = if (systemCommand) stringResource(R.string.terminal_system_approval_message, confirmation.title, confirmation.message)
+                            else stringResource(R.string.force_stop_confirmation_message, confirmation.title),
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.padding(horizontal = 8.dp)
+                    )
+                }
+                Spacer(Modifier.height(12.dp))
+                Row(Modifier.fillMaxWidth()) {
+                    OutlinedButton(
+                        onClick = { onConfirmationResponse(state.conversationId, confirmation.requestId, false) },
+                        modifier = Modifier.weight(1f).heightIn(min = 48.dp)
+                    ) { Text(stringResource(R.string.floating_confirmation_reject)) }
+                    Spacer(Modifier.width(8.dp))
+                    Button(
+                        onClick = { onConfirmationResponse(state.conversationId, confirmation.requestId, true) },
+                        modifier = Modifier.weight(1f).heightIn(min = 48.dp)
+                    ) { Text(stringResource(R.string.floating_confirmation_allow)) }
+                }
+            } else {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 112.dp, max = 208.dp)
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(MaterialTheme.colorScheme.background.copy(alpha = 0.30f))
+                ) {
+                    Text(
+                        text = screenQuestionNotice(question) ?: state.errorMessage ?: state.assistantText.ifBlank {
+                            if (state.isStreaming) stringResource(R.string.floating_assistant_thinking)
+                            else if (!state.photoAnswerEnabled) stringResource(R.string.photo_answer_disabled_hint)
+                            else stringResource(R.string.floating_assistant_ready)
+                        },
+                        style = MaterialTheme.typography.bodyMedium,
+                        lineHeight = 20.sp,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.fillMaxWidth().padding(14.dp).verticalScroll(messageScrollState)
+                    )
+                }
+                if (!watching) {
+                    Spacer(Modifier.height(8.dp))
+                    OverlayComposer(isStreaming = state.isStreaming, onSend = onSend, onStop = onStop)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun screenQuestionNotice(question: ScreenQuestionState): String? {
+    if (question.phase == ScreenQuestionPhase.Capturing) return stringResource(R.string.screen_question_capturing)
+    if (question.phase != ScreenQuestionPhase.Failed) return null
+    return stringResource(screenQuestionErrorResource(question.errorCode))
+}
+
+private fun screenQuestionErrorResource(errorCode: String?): Int = when (errorCode) {
+        "task_busy" -> R.string.screen_question_busy
+        "provider_unavailable" -> R.string.screen_question_provider
+        "conversation_unavailable" -> R.string.screen_question_conversation
+        "vision_unsupported" -> R.string.screen_question_vision
+        "accessibility_unavailable" -> R.string.screen_question_accessibility
+        "secure_window_blocked", "sensitive_screen_blocked" -> R.string.screen_question_secure
+        "screen_changed_during_capture", "stale_screen", "visual_target_obscured" -> R.string.screen_question_changed
+        "screen_capture_timeout" -> R.string.screen_question_timeout
+        else -> R.string.screen_question_failed
+    }
+
+@Composable
+private fun FloatingProgressStatus(state: FloatingAssistantState, modifier: Modifier = Modifier) {
+    val progress = state.progress ?: FloatingTaskProgress(
+        if (state.isStreaming) FloatingTaskPhase.Thinking else FloatingTaskPhase.Ready)
+    val phase = progress.phase
+    // Tick locally even when a command prints nothing. Anchoring to monotonic time avoids
+    // clock changes while visible; reopening uses the actual persisted command start time.
+    var elapsedSeconds by remember(phase, progress.startedAt) {
+        mutableStateOf(((System.currentTimeMillis() - (progress.startedAt ?: System.currentTimeMillis())) / 1000).coerceAtLeast(0))
+    }
+    LaunchedEffect(phase, progress.startedAt) {
+        if (phase.isActive && progress.startedAt != null) {
+            val initial = (System.currentTimeMillis() - progress.startedAt).coerceAtLeast(0)
+            val anchor = android.os.SystemClock.elapsedRealtime()
+            while (true) {
+                elapsedSeconds = (initial + android.os.SystemClock.elapsedRealtime() - anchor) / 1000
+                kotlinx.coroutines.delay(1000)
+            }
+        }
+    }
+    val label = when (phase) {
+        FloatingTaskPhase.Ready -> R.string.floating_status_ready
+        FloatingTaskPhase.Thinking -> R.string.floating_status_thinking
+        FloatingTaskPhase.Responding -> R.string.floating_status_responding
+        FloatingTaskPhase.PreparingCommand -> R.string.floating_status_preparing
+        FloatingTaskPhase.RunningCommand -> R.string.floating_status_command
+        FloatingTaskPhase.UsingTool -> R.string.floating_status_tool
+        FloatingTaskPhase.WaitingForUser -> R.string.floating_status_confirmation
+        FloatingTaskPhase.WaitingForDevice -> R.string.floating_status_waiting_device
+        FloatingTaskPhase.Paused -> R.string.floating_status_paused
+        FloatingTaskPhase.Finished -> R.string.floating_status_finished
+        FloatingTaskPhase.Stopped -> R.string.floating_status_stopped
+        FloatingTaskPhase.Failed -> R.string.floating_status_failed
+    }
+    Column(modifier.padding(horizontal = 8.dp, vertical = 4.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            if (phase.isActive) {
+                CircularProgressIndicator(Modifier.size(16.dp), color = MaterialTheme.colorScheme.onSurface, strokeWidth = 2.dp)
+                Spacer(Modifier.width(8.dp))
+            }
+            Text(stringResource(label), style = MaterialTheme.typography.labelLarge,
+                color = if (phase == FloatingTaskPhase.Failed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface)
+        }
+        if (phase.isActive && progress.startedAt != null) {
+            Text(stringResource(R.string.floating_status_elapsed, elapsedSeconds),
+                style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+}
+
+@Composable
+private fun WatchingAssistantControls(
+    isStreaming: Boolean,
+    onCollapse: () -> Unit,
+    onReply: () -> Unit,
+    onStop: () -> Unit
+) {
+    Surface(
+        shape = RoundedCornerShape(16.dp),
+        color = MaterialTheme.colorScheme.surface,
+        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.heightIn(min = 48.dp)
+        ) {
+            if (isStreaming) {
+                TextButton(onClick = onStop, modifier = Modifier.heightIn(min = 48.dp)) {
+                    Icon(Icons.Rounded.Stop, contentDescription = null, tint = MaterialTheme.colorScheme.error)
+                    Spacer(Modifier.width(4.dp))
+                    Text(stringResource(R.string.stop), color = MaterialTheme.colorScheme.error)
+                }
+            } else {
+                TextButton(onClick = onReply) {
+                    Icon(Icons.AutoMirrored.Rounded.Reply, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text(stringResource(R.string.floating_assistant_reply))
+                }
+            }
+            IconButton(onClick = onCollapse, modifier = Modifier.size(48.dp)) {
+                Icon(Icons.Rounded.KeyboardArrowUp, contentDescription = stringResource(R.string.collapse_floating_assistant))
+            }
+        }
+    }
+}
+
+@Composable
+private fun OverlayComposer(
+    isStreaming: Boolean,
+    onSend: (String) -> Unit,
+    onStop: () -> Unit
+) {
+    var text by remember { mutableStateOf("") }
+    val focusRequester = remember { FocusRequester() }
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = 52.dp),
+        shape = RoundedCornerShape(14.dp),
+        color = MaterialTheme.colorScheme.background.copy(alpha = 0.42f),
+        border = androidx.compose.foundation.BorderStroke(
+            1.dp,
+            MaterialTheme.colorScheme.outlineVariant
+        )
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.padding(start = 14.dp, end = 4.dp)
+        ) {
+            BasicTextField(
+                value = text,
+                onValueChange = { text = it },
+                singleLine = true,
+                textStyle = TextStyle(
+                    color = MaterialTheme.colorScheme.onSurface,
+                    fontSize = 14.sp
+                ),
+                cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                modifier = Modifier
+                    .weight(1f)
+                    .focusRequester(focusRequester),
+                decorationBox = { innerTextField ->
+                    Box(contentAlignment = Alignment.CenterStart) {
+                        if (text.isEmpty()) {
+                            Text(
+                                text = stringResource(R.string.floating_assistant_input_hint),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                        }
+                        innerTextField()
+                    }
+                }
+            )
+            if (isStreaming) {
+                IconButton(
+                    onClick = onStop,
+                    modifier = Modifier.size(48.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(24.dp)
+                            .border(1.5.dp, MaterialTheme.colorScheme.error, CircleShape),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            Icons.Rounded.Stop,
+                            contentDescription = stringResource(R.string.stop),
+                            tint = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.size(12.dp)
+                        )
+                    }
+                }
+            } else {
+                IconButton(
+                    onClick = {
+                        text.trim().takeIf { it.isNotEmpty() }?.let { value ->
+                            onSend(value)
+                            text = ""
+                        }
+                    },
+                    enabled = text.isNotBlank(),
+                    modifier = Modifier.size(48.dp)
+                ) {
+                    Icon(
+                        Icons.AutoMirrored.Rounded.Send,
+                        contentDescription = stringResource(R.string.send),
+                        tint = if (text.isNotBlank()) MaterialTheme.colorScheme.onSurface
+                        else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f),
+                        modifier = Modifier
+                            .size(19.dp)
+                            .rotate(-18f)
+                    )
+                }
+            }
+        }
+    }
+    DisposableEffect(Unit) {
+        onDispose { text = "" }
+    }
+}
+
+@Composable
+private fun FlowChatMark(modifier: Modifier = Modifier) {
+    Image(
+        painter = painterResource(R.mipmap.ic_launcher),
+        contentDescription = null,
+        contentScale = ContentScale.Crop,
+        modifier = modifier.clip(CircleShape)
+    )
+}
+
+private const val FloatingCapsuleWidthDp = 32
+private const val FloatingCapsuleHeightDp = 54
+private val FloatingCapsuleShape = RoundedCornerShape(16.dp)

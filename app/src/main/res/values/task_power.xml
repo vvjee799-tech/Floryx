@@ -1,0 +1,19 @@
+<resources>
+    <string name="task_power_title">Task service and CPU</string>
+    <string name="task_power_service_running">Task service is running</string>
+    <string name="task_power_service_stopping">Task service is stopping</string>
+    <string name="task_power_service_destroyed">Task service lifecycle has ended</string>
+    <string name="task_power_held">Last lock check: held</string>
+    <string name="task_power_released">Last lock check: released</string>
+    <string name="task_power_unknown">Lock state is unverified</string>
+    <string name="task_power_counts">Runs needing CPU time: %1$d; waiting: %2$d</string>
+    <string name="task_power_own_finalizing">This conversation is saving its final task state</string>
+    <string name="task_power_own_cleanup_wait">Waiting for operations to exit without renewing CPU power. Cleanup is still pending.</string>
+    <string name="task_power_own_working">This conversation has work in progress</string>
+    <string name="task_power_own_waiting">This conversation is waiting without renewing CPU power</string>
+    <string name="task_power_other_work">Other conversations still have active tasks</string>
+    <string name="task_power_failed">A lock operation or check failed. Release is not assumed.</string>
+    <string name="task_power_old_pending">An earlier task service still has an unverified lock.</string>
+    <string name="task_power_recheck">Check lock state</string>
+    <string name="task_power_scope">Current process only. This does not verify displays, requests or command cleanup.</string>
+</resources>
