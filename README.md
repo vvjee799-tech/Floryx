@@ -10,7 +10,7 @@
 <p align="center"><b>让想法生长，让任务落地。</b></p>
 
 <p align="center">
-  <code>Version 1.0.0</code>&nbsp; • &nbsp;
+  <code>Version 1.0.1</code>&nbsp; • &nbsp;
   <code>Android 8.0+ (API 26+)</code>&nbsp; • &nbsp;
   <code>Kotlin · Jetpack Compose</code>&nbsp; • &nbsp;
   <a href="LICENSE"><code>MIT License</code></a>
@@ -63,7 +63,7 @@
 - **双模态页面理解**：优先通过系统无障碍读取完整控件树（支持局部根作用域与长文档正文提取）；在自绘界面、图表或缺少可靠控件 ID 的页面中调用多模态大模型理解屏幕画面（Android 11+ 支持无障碍截图，Android 14+ 支持独立窗口截取）。
 - **两阶段高精度视觉点击（Visual Tap）**：采用“全局选区粗筛 ➔ 局部高分辨率裁剪重验 ➔ 精准点击/长按”流程，降低整屏粗略坐标点击小目标的偏移误差。
 - **目标驱动自适应滚动**：根据页面反馈动态调整滑动距离与节奏，在目标接近边缘时微调，过冲后自动回调，减少固定幅度盲目翻页。
-- **精确交互与故障自愈**：支持语义定位点击、光标/选区编辑、容器滚动、拖拽与滑块设值；支持无障碍异常重连与任务恢复门控，同时兼容 **Shizuku（免 Root）** 与 **Root（libsu 按需绑定）** 通道。
+- **精确交互与故障自愈**：支持语义定位点击、光标/选区编辑、聚焦安全粘贴（兼容微信等不暴露控件树的中文长文本输入）、容器滚动、拖拽与滑块设值；支持无障碍异常重连与任务恢复门控，同时兼容 **Shizuku（免 Root）** 与 **Root（libsu 按需绑定）** 通道。
 
 ### 3. 💻 内置免 Root Linux 与 SAF 手机工作区
 
@@ -84,7 +84,7 @@
 
 > **重要声明（Compatibility & Disclaimer）**
 > - **严格实验范围**：该功能目前为实验模块，需设备具备 **Root + LSPosed（Xposed API 102）**，且仅适配官方签名的 `com.vivo.ai.copilot` **`6.11.1.1`**（`versionCode = 6110101`）；不适配其他机型或系统版本。
-> - **不随 Release 成品分发**：默认正式版 `Floryx-v1.0.0.apk` **不包含**此桥接接收端点，因此 `v1.0.0` Release 页面不附带桥接成品包；有需求的用户可参考 [原生语音接管说明与自编译指南](docs/native-voice-bridge.md) 从源码配对编译 Debug 版本。
+> - **正式版配对分发（自 v1.0.1 起）**：`Floryx-v1.0.1.apk` 已原生支持受 `PackageManager.SIGNATURE_MATCH` 签名校验保护的语音桥接端点，GitHub Release 页面同步附带同一张正式证书签名的可选模块 **`Floryx-VoiceBridge-v1.0.1.apk`**，符合上述条件的设备无需自编译源码即可直接配对安装；普通用户若不安装该模块，外部应用无法调用此端点。完整步骤与风险说明见 [原生语音接管使用指南](docs/native-voice-bridge.md)。
 > - **免责声明**：本模块与 vivo / iQOO 官方无任何隶属或合作关系，系统升级可能导致兼容失效，请自行评估风险后使用。
 
 > **其他实验功能与支持边界**
@@ -100,12 +100,13 @@
 
 从 [GitHub Releases](https://github.com/vvjee799-tech/Floryx/releases/latest) 获取正式版安装包与校验文件：
 
-- **正式版 APK**：[⬇️ 下载 Floryx v1.0.0 (`Floryx-v1.0.0.apk`)](https://github.com/vvjee799-tech/Floryx/releases/download/v1.0.0/Floryx-v1.0.0.apk)
-- **SHA-256 校验文件**：[SHA256SUMS.txt](https://github.com/vvjee799-tech/Floryx/releases/download/v1.0.0/SHA256SUMS.txt)
-- **包名与版本**：`com.floryx.app` · `v1.0.0 (1)`（Release + R8 构建，非调试包）
+- **正式版主应用 APK**：[⬇️ 下载 Floryx v1.0.1 (`Floryx-v1.0.1.apk`)](https://github.com/vvjee799-tech/Floryx/releases/download/v1.0.1/Floryx-v1.0.1.apk)（普通用户仅安装此包即可）
+- **可选实验语音桥接 APK**：[⬇️ 下载 Floryx VoiceBridge v1.0.1 (`Floryx-VoiceBridge-v1.0.1.apk`)](https://github.com/vvjee799-tech/Floryx/releases/download/v1.0.1/Floryx-VoiceBridge-v1.0.1.apk)（替代 vivo 蓝心小 V `6.11.1.1`，需 Root + LSPosed，且须与同版本正式包配对）
+- **SHA-256 校验文件**：[SHA256SUMS.txt](https://github.com/vvjee799-tech/Floryx/releases/download/v1.0.1/SHA256SUMS.txt)
+- **包名与版本**：`com.floryx.app` · `v1.0.1 (2)`（Release + R8 构建，非调试包）
 - **系统与架构**：Android 8.0 (API 26) 及以上（屏幕截图需 Android 11+，内置 Linux 支持 `arm64-v8a` / `x86_64`）
 
-> 💡 若你此前安装过早期 `com.flowchat.app` 或 `com.flowchat.app.debug` 测试包，`v1.0.0` 正式版使用全新独立包名 **`com.floryx.app`** 与正式签名，可在手机上**共存安装、互不覆盖**。
+> 💡 已安装 `v1.0.0`（`com.floryx.app`）的用户可直接覆盖升级，聊天记录、模型配置与权限授权不会丢失；若此前使用的是更早期的 `com.flowchat.app` 或 `.debug` 测试包，正式包使用独立包名 **`com.floryx.app`**，会共存安装、互不覆盖。
 
 ---
 
@@ -146,7 +147,7 @@
 - **网络与协议**：Ktor + OkHttp 双引擎、SSE 流式解析、Kotlinx Serialization
 - **端侧运行时**：PRoot 5.1.107.98 + talloc 2.5.0 + libandroid-shmem 0.7 + Alpine Linux 3.24.2（16 KB ELF 对齐）
 - **系统桥接**：AccessibilityService + Shizuku AIDL + libsu Root Service
-- **质量保障**：159 个单元测试套件 / 1,108 项本地单元测试 + Android Lint 增量基线守卫（[tools/check_lint_delta.py](tools/check_lint_delta.py)）
+- **质量保障**：160+ 个单元测试套件 / 1,110+ 项本地单元测试 + Android Lint 增量基线守卫（[tools/check_lint_delta.py](tools/check_lint_delta.py)）
 
 ### 本地编译与验证
 

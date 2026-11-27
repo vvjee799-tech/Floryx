@@ -8,7 +8,8 @@ class AndroidUiCommandPolicyTest {
     @Test fun observedRawTapsAndCombinedLaunchInputCommandsRequireTheVerifiedTools() {
         for (command in listOf("input tap 742 238", "input tap 490 442", "sleep 1; input tap 300 442",
             "/system/bin/input touchscreen tap 300 400", "input -d 0 touchscreen swipe 1 2 3 4",
-            "cmd input tap 10 20", "sh -c 'input tap 10 20'", "am start -n app/.Main; input tap 30 40")) {
+            "cmd input tap 10 20", "sh -c 'input tap 10 20'", "am start -n app/.Main; input tap 30 40",
+            "input text test", "input keyboard text hello", "input keyevent 279", "cmd input keycombination 113 29")) {
             assertTrue(command, AndroidUiCommandPolicy.requiresDeviceTools(command))
         }
     }

@@ -95,6 +95,7 @@ class AgentToolDefinitionsTest {
         openApp ?: return
         val payload = json.encodeToString(openApp.parameters)
         assertTrue(openApp.description.contains("explicitly asks", ignoreCase = true))
+        assertTrue(openApp.description.contains("never call open_app to open floryx itself", ignoreCase = true))
         assertTrue(payload.contains("\"app_name\""))
         assertTrue(payload.contains("\"required\":[\"app_name\"]"))
         assertTrue(payload.contains("\"additionalProperties\":false"))
@@ -225,6 +226,7 @@ class AgentToolDefinitionsTest {
                 AgentToolDefinitions.TapUiElementToolName,
                 AgentToolDefinitions.TapUiTargetToolName,
                 AgentToolDefinitions.InputTextToolName,
+                AgentToolDefinitions.PasteFocusedTextToolName,
                 AgentToolDefinitions.SetTextSelectionToolName,
                 AgentToolDefinitions.PerformEditorActionToolName,
                 AgentToolDefinitions.SwipeScreenToolName,

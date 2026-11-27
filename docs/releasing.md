@@ -32,15 +32,17 @@ keyPassword=<key-password>
 1. 全量单元测试 `:app:testDebugUnitTest` 与正式版静态检查 `:app:lintRelease`（单 worker 运行以控制内存峰值）；
 2. Release + R8 构建 `:app:assembleRelease`；
 3. 调用 `apksigner verify` 与 `aapt dump badging` 校验正式签名、包名 `com.floryx.app`、`versionName`、`versionCode`、应用名称 `Floryx` 及非调试标志；
-4. 输出产物至忽略目录 `build/releases/<version>/`：
+4. 同步运行 `:native-voice-bridge:testDebugUnitTest :native-voice-bridge:lintRelease :native-voice-bridge:assembleRelease -PnativeVoiceBridge=true` 并核验语音桥接模块使用完全相同的正式签名证书、包名 `com.floryx.nativevoicebridge`、一致版本号与非调试标志；
+5. 输出产物至忽略目录 `build/releases/<version>/`：
    - `Floryx-v<version>.apk`
-   - `SHA256SUMS.txt`
+   - `Floryx-VoiceBridge-v<version>.apk`
+   - `SHA256SUMS.txt`（包含以上两个 APK 的 SHA-256）
    - `artifact-verification.json` 与 `build.log`
 
 同时运行全量检查：
 
 ```powershell
-.\gradlew.bat :app:lintDebug
+.\gradlew.bat :app:lintDebug :native-voice-bridge:lintDebug -PnativeVoiceBridge=true
 python tools/check_lint_delta.py
 ```
 
@@ -60,4 +62,4 @@ git tag -a v<version> -m "Floryx v<version>"
 git push origin v<version>
 ```
 
-3. 使用 `gh release create v<version>`（或 GitHub Releases 页面）上传 `Floryx-v<version>.apk` 与 `SHA256SUMS.txt` 并填写发布说明，确认附件 SHA-256 与本地一致。
+3. 使用 `gh release create v<version>`（或 GitHub Releases 页面）上传 `Floryx-v<version>.apk`、`Floryx-VoiceBridge-v<version>.apk` 与 `SHA256SUMS.txt` 并填写发布说明，确认附件 SHA-256 与本地一致。

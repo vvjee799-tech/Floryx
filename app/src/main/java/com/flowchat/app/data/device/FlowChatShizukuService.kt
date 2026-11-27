@@ -47,6 +47,21 @@ open class FlowChatShizukuService : IFlowChatShizukuService.Stub {
     override fun getRequestExecutionDisplay(ownerId: String): com.flowchat.app.shizuku.IFlowChatExecutionDisplay =
         throw UnsupportedOperationException("Execution display commands require a Root-owned request.")
 
+    override fun pasteFocusedText(replaceExisting: Boolean): String {
+        if (replaceExisting) {
+            val selectAll = runCommand("input", "keycombination", "113", "29")
+            if (selectAll.success) {
+                runCommand("input", "keyevent", "67")
+            }
+        }
+        val pasted = runCommand("input", "keyevent", "279")
+        return response(
+            success = pasted.success,
+            summary = if (pasted.success) "Dispatched paste key event." else pasted.output.ifBlank { "Paste key event failed." },
+            errorCode = "paste_keyevent_failed".takeUnless { pasted.success }
+        )
+    }
+
     override fun probeCapabilities(): String = buildSet {
         add(DeviceCapability.ShellCommands.name)
         if (runCommand("dumpsys", "battery").success) add(DeviceCapability.DeviceStatus.name)

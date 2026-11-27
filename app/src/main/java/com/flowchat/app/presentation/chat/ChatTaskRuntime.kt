@@ -2756,6 +2756,7 @@ class ChatTaskRuntime @Inject constructor(
                 AgentToolDefinitions.TapUiTargetToolName -> executeTapUiTargetTool(call.arguments)
                 AgentToolDefinitions.TapVisualTargetToolName -> executeTapVisualTargetTool(call.arguments)
                 AgentToolDefinitions.InputTextToolName -> executeInputTextTool(call.arguments, modelName)
+                AgentToolDefinitions.PasteFocusedTextToolName -> executePasteFocusedTextTool(call.arguments, modelName)
                 AgentToolDefinitions.SetTextSelectionToolName -> executeSelectionTool(call.arguments, modelName)
                 AgentToolDefinitions.PerformEditorActionToolName -> executeEditorActionTool(call.arguments, modelName)
                 AgentToolDefinitions.ScrollContainerToolName -> executeScrollContainerTool(call.arguments, modelName)
@@ -3378,6 +3379,21 @@ class ChatTaskRuntime @Inject constructor(
         }
     }
 
+    private suspend fun executePasteFocusedTextTool(arguments: String, modelName: String?): ToolExecutionOutcome {
+        val text = parseStringArgument(arguments, "text")
+            ?.takeIf { it.isNotEmpty() && it.length <= com.flowchat.app.domain.device.DeviceTextEditing.MaxLength }
+            ?: return invalidDeviceToolArguments(
+                AgentToolDefinitions.PasteFocusedTextToolName,
+                "screen_id and text (1..${com.flowchat.app.domain.device.DeviceTextEditing.MaxLength} UTF-16 units)"
+            )
+        val screenId = parseStringArgument(arguments, "screen_id")
+            ?: return invalidDeviceToolArguments(AgentToolDefinitions.PasteFocusedTextToolName, "screen_id")
+        val replaceExisting = parseBooleanArgument(arguments, "replace_existing") ?: false
+        return prepareForExternalUiAction {
+            deviceAssistantGateway.pasteFocusedText(text, screenId, replaceExisting).toControlledToolOutcome(modelName)
+        }
+    }
+
     private suspend fun executeSelectionTool(arguments: String, modelName: String?): ToolExecutionOutcome {
         if (!validIndexedActionArguments(arguments, "start", "end"))
             return invalidDeviceToolArguments(AgentToolDefinitions.SetTextSelectionToolName, "screen_id, integer index/start/end")
@@ -3853,6 +3869,7 @@ class ChatTaskRuntime @Inject constructor(
             AgentToolDefinitions.TapUiTargetToolName,
             AgentToolDefinitions.TapVisualTargetToolName,
             AgentToolDefinitions.InputTextToolName,
+            AgentToolDefinitions.PasteFocusedTextToolName,
             AgentToolDefinitions.SetTextSelectionToolName,
             AgentToolDefinitions.PerformEditorActionToolName,
             AgentToolDefinitions.ScrollContainerToolName,
@@ -3870,6 +3887,7 @@ class ChatTaskRuntime @Inject constructor(
             AgentToolDefinitions.TapUiTargetToolName,
             AgentToolDefinitions.TapVisualTargetToolName,
             AgentToolDefinitions.InputTextToolName,
+            AgentToolDefinitions.PasteFocusedTextToolName,
             AgentToolDefinitions.SetTextSelectionToolName,
             AgentToolDefinitions.PerformEditorActionToolName,
             AgentToolDefinitions.ScrollContainerToolName,
@@ -4105,7 +4123,7 @@ internal class ToolCallLoopGuard(
     }
 
     private companion object {
-        val UiTools = setOf("open_app", "observe_screen", "wait_for_screen", "tap_ui_element", "tap_ui_target", "tap_visual_target", "input_text",
+        val UiTools = setOf("open_app", "observe_screen", "wait_for_screen", "tap_ui_element", "tap_ui_target", "tap_visual_target", "input_text", "paste_focused_text",
             "set_text_selection", "perform_editor_action", "scroll_container", "drag_ui_element", "double_tap_ui_element", "adjust_range",
             "swipe_screen", "press_back", "press_home") + PublicAppActions.Names
     }

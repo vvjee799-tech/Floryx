@@ -33,14 +33,15 @@ final class XiaovRelayClient {
     private Bundle call(String method, UUID session, UUID event, String text, String stopSource) {
         try {
             PackageManager packages = context.getPackageManager();
-            ProviderInfo provider = packages.resolveContentProvider(AUTHORITY, 0);
-            if (provider == null || !DEV_PACKAGE.equals(provider.packageName)) {
-                Log.w(TAG, "dev_endpoint_missing method=" + method + " provider=" + provider);
-                return state(UNKNOWN);
-            }
-            int signatureMatch = packages.checkSignatures(BRIDGE_PACKAGE, DEV_PACKAGE);
-            if (signatureMatch != PackageManager.SIGNATURE_MATCH) {
-                Log.w(TAG, "dev_signature_mismatch method=" + method + " status=" + signatureMatch);
+            String hostPackage = resolveHostPackage(packages);
+            if (hostPackage == null) {
+                ProviderInfo releaseProvider = packages.resolveContentProvider(authorityFor(RELEASE_PACKAGE), 0);
+                ProviderInfo devProvider = packages.resolveContentProvider(authorityFor(DEV_PACKAGE), 0);
+                int releaseSig = packages.checkSignatures(BRIDGE_PACKAGE, RELEASE_PACKAGE);
+                int devSig = packages.checkSignatures(BRIDGE_PACKAGE, DEV_PACKAGE);
+                Log.w(TAG, "host_endpoint_unavailable method=" + method +
+                        " releaseProvider=" + releaseProvider + " releaseSig=" + releaseSig +
+                        " devProvider=" + devProvider + " devSig=" + devSig);
                 return state(UNKNOWN);
             }
             Bundle input = new Bundle();
@@ -49,7 +50,7 @@ final class XiaovRelayClient {
             if (event != null) input.putString(REQUEST_ID, event.toString());
             if (text != null) input.putString(TRANSCRIPT, text);
             if (stopSource != null) input.putString(STOP_SOURCE, stopSource);
-            Bundle result = context.getContentResolver().call(ENDPOINT, method, null, input);
+            Bundle result = context.getContentResolver().call(endpointFor(hostPackage), method, null, input);
             if (result == null) {
                 Log.w(TAG, "dev_call_null_reply method=" + method);
                 return state(UNKNOWN);

@@ -45,7 +45,7 @@ data class TaskPresentation(
             // Old resources only interrupt a task that is actually trying to use the affected device path.
             val usingDevice = state.isStreaming && (state.deviceTaskProgress?.phase == DeviceTaskPhase.WaitingForCleanup ||
                 (state.deviceTaskProgress?.target?.backgroundExecution == true && activeTool in setOf(
-                    "open_app", "observe_screen", "tap_ui_element", "tap_ui_target", "swipe_screen", "input_text")))
+                    "open_app", "observe_screen", "tap_ui_element", "tap_ui_target", "swipe_screen", "input_text", "paste_focused_text")))
             val resourceIssue = ownResourceIssue || usingDevice &&
                 (state.otherExecutionDisplayCleanupPending || state.otherRootRequestCleanupPending)
             val phase = when {

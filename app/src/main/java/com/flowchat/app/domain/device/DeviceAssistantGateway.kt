@@ -183,6 +183,7 @@ interface DeviceAssistantGateway {
     suspend fun editText(request: DeviceTextEditRequest, screenId: String): DeviceToolResult =
         if (request.mode == DeviceTextEditMode.Replace || request.mode == DeviceTextEditMode.Append)
             inputText(request.index, request.text, request.mode == DeviceTextEditMode.Replace, screenId) else unsupportedAutomation()
+    suspend fun pasteFocusedText(text: String, screenId: String, replaceExisting: Boolean = false): DeviceToolResult = unsupportedAutomation()
     suspend fun setTextSelection(selection: DeviceTextSelection, screenId: String): DeviceToolResult = unsupportedAutomation()
     suspend fun performEditorAction(index: Int, expectedLabel: String, screenId: String): DeviceToolResult = unsupportedAutomation()
     suspend fun scrollContainer(index: Int, direction: DeviceScrollDirection, screenId: String): DeviceToolResult = unsupportedAutomation()

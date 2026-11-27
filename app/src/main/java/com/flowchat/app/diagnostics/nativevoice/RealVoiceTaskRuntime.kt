@@ -2,6 +2,7 @@ package com.flowchat.app.diagnostics.nativevoice
 
 import android.content.Context
 import android.os.SystemClock
+import android.util.Log
 import com.flowchat.app.data.db.FlowChatDatabase
 import com.flowchat.app.data.preferences.AppSettingsStore
 import com.flowchat.app.data.task.TaskRunJournal
@@ -12,8 +13,10 @@ import com.flowchat.app.domain.device.DeviceAssistantGateway
 import com.flowchat.app.domain.device.PowerConnectionMode
 import com.flowchat.app.domain.device.ShizukuConnectionStatus
 import com.flowchat.app.domain.model.Conversation
+import com.flowchat.app.domain.model.ProviderConfig
 import com.flowchat.app.domain.repository.ChatRepository
 import com.flowchat.app.domain.repository.ProviderRepository
+import com.flowchat.app.domain.validation.ProviderConfigValidator
 import com.flowchat.app.domain.workspace.WorkspaceLocation
 import com.flowchat.app.presentation.chat.ChatTaskRuntime
 import com.flowchat.app.presentation.overlay.FloatingAssistantBridge
@@ -27,6 +30,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 
@@ -40,6 +44,33 @@ interface NativeVoiceDiagnosticsEntryPoint {
     fun database(): FlowChatDatabase
     fun bridge(): FloatingAssistantBridge
     fun gateway(): DeviceAssistantGateway
+}
+
+internal suspend fun resolveVoiceTaskTarget(
+    selected: AssistantModelSelection?,
+    available: List<ProviderConfig>,
+    conversations: List<Conversation>,
+    hasApiKey: suspend (ProviderConfig) -> Boolean
+): Pair<AssistantModelSelection, ProviderConfig>? {
+    AssistantConfiguration.provider(selected, available)?.let { provider ->
+        return requireNotNull(selected) to provider
+    }
+    // If user explicitly chose a still-existing provider that is currently disabled or invalid, respect that choice.
+    val selectedStillExists = selected != null && available.any { it.id == selected.providerId }
+    if (selectedStillExists) return null
+
+    val recent = conversations.firstOrNull { !it.isArchived }
+    if (recent != null) {
+        val recentChoice = AssistantModelSelection.from(recent)
+        AssistantConfiguration.provider(recentChoice, available)?.let { provider ->
+            return recentChoice to provider
+        }
+    }
+    val validProviders = available.filter {
+        it.isEnabled && ProviderConfigValidator.validate(it).isEmpty()
+    }
+    val fallback = validProviders.firstOrNull { hasApiKey(it) } ?: validProviders.firstOrNull()
+    return fallback?.let { AssistantModelSelection(it.id, it.defaultModel) to it }
 }
 
 /** Main-process runtime backend wired to the user's configured model, tools and device gateway. */
@@ -76,17 +107,8 @@ internal class RealVoiceTaskRuntime(context: Context) : VoiceTaskBackend {
         }
     }
 
-    private suspend fun resolveWorkspace(defaultWorkspace: WorkspaceLocation?): WorkspaceLocation? {
-        val isolatedDir = NativeVoiceWorkspaceProvider.workspaceDir(appContext)
-        val hasIsolatedFiles = withContext(Dispatchers.IO) {
-            isolatedDir.isDirectory && isolatedDir.listFiles()?.any { it.isFile } == true
-        }
-        return if (hasIsolatedFiles) {
-            NativeVoiceWorkspaceProvider.workspaceLocation(appContext)
-        } else {
-            defaultWorkspace
-        }
-    }
+    private suspend fun resolveWorkspace(defaultWorkspace: WorkspaceLocation?): WorkspaceLocation? =
+        NativeVoiceBackendFactory.resolveWorkspace(appContext, defaultWorkspace)
 
     private suspend fun prepareDeviceConnection() {
         gateway.refreshAccessibilityConnection()
@@ -104,13 +126,29 @@ internal class RealVoiceTaskRuntime(context: Context) : VoiceTaskBackend {
         }
     }
 
+    private suspend fun resolveTarget(): Pair<AssistantModelSelection, ProviderConfig>? {
+        val available = providers.getProvidersOnce()
+        val selected = settings.state.value.assistantModelSelection
+        val conversations = chats.observeConversations().first()
+        val resolved = resolveVoiceTaskTarget(selected, available, conversations) {
+            providers.getApiKey(it) != null
+        }
+        if (resolved == null) {
+            Log.w(
+                "NativeVoiceLocal",
+                "assistant_model_unresolved hasSelected=${selected != null} " +
+                    "selectedExists=${selected != null && available.any { it.id == selected.providerId }} " +
+                    "available=${available.size} enabled=${available.count { it.isEnabled }} " +
+                    "valid=${available.count { it.isEnabled && ProviderConfigValidator.validate(it).isEmpty() }}"
+            )
+        }
+        return resolved
+    }
+
     override suspend fun createConversation(): Conversation {
         val currentSettings = settings.state.value
-        val selected = currentSettings.assistantModelSelection
-        val available = providers.getProvidersOnce()
-        val provider = AssistantConfiguration.provider(selected, available)
+        val (chosen, provider) = resolveTarget()
             ?: error("Assistant model configuration is missing or disabled.")
-        val chosen = requireNotNull(selected)
         val conversation = chats.createConversation(provider.id, chosen.modelName)
         chats.updateThinkingSettings(conversation.id, chosen.enableThinking, chosen.thinkingEffort)
         val workspace = resolveWorkspace(currentSettings.defaultWorkspace)
@@ -123,9 +161,7 @@ internal class RealVoiceTaskRuntime(context: Context) : VoiceTaskBackend {
     override suspend fun reusableConversation(owner: String): Conversation? {
         runtime.awaitStopSettled(owner)
         val currentSettings = settings.state.value
-        val selected = currentSettings.assistantModelSelection ?: return null
-        val available = providers.getProvidersOnce()
-        val provider = AssistantConfiguration.provider(selected, available) ?: return null
+        val (selected, provider) = resolveTarget() ?: return null
         val conversation = chats.getConversation(owner)?.takeUnless { it.isArchived } ?: return null
         if (owner in runtime.activeConversations.value || runtime.isWaitingForUnlock(owner) || runtime.isWaitingForUserConfirmation(owner)) return null
         if (conversation.providerId != provider.id || conversation.modelName != selected.modelName) return null

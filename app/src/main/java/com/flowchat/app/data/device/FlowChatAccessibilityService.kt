@@ -518,6 +518,36 @@ class FlowChatAccessibilityService : AccessibilityService() {
             true
         }
 
+    suspend fun pasteIntoFocusedInput(
+        expected: DeviceScreenSnapshot,
+        replaceExisting: Boolean,
+        checkCanAct: () -> Unit
+    ): Boolean = withContext(Dispatchers.Main.immediate) {
+        requireReleasedTouch()
+        checkSafety()
+        val current = revalidateInteraction(expected)
+        if (current.sensitive) throw DeviceDispatchRejected("sensitive_screen_blocked")
+        val focused = findFocus(AccessibilityNodeInfo.FOCUS_INPUT) ?: return@withContext false
+        try {
+            if (focused.isPassword) throw DeviceDispatchRejected("sensitive_screen_blocked")
+            if (focused.actionList.none { it.id == AccessibilityNodeInfo.ACTION_PASTE }) return@withContext false
+            if (replaceExisting && focused.actionList.any { it.id == AccessibilityNodeInfo.ACTION_SET_SELECTION }) {
+                val existingLength = focused.text?.length ?: 0
+                if (existingLength > 0) {
+                    focused.performAction(AccessibilityNodeInfo.ACTION_SET_SELECTION, selectionArguments(0, existingLength))
+                }
+            }
+            checkCanAct()
+            currentCoroutineContext().ensureActive()
+            focused.performAction(AccessibilityNodeInfo.ACTION_PASTE).also { pasted ->
+                if (pasted) snapshotInvalidated = true
+            }
+        } finally {
+            @Suppress("DEPRECATION")
+            focused.recycle()
+        }
+    }
+
     suspend fun setTextSelection(selection: DeviceTextSelection, expected: DeviceScreenSnapshot,
         checkCanAct: () -> Unit): Boolean = withContext(Dispatchers.Main.immediate) {
         requireReleasedTouch()

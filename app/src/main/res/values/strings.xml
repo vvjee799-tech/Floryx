@@ -114,6 +114,7 @@
     <string name="device_error_visual_target">The target position is invalid. Locate it again in the latest image.</string>
     <string name="device_error_visual_obscured">Another window covers the target. Check the screen before continuing.</string>
     <string name="tool_name_input_text">text input</string>
+    <string name="tool_name_paste_focused_text">paste text</string>
     <string name="device_error_text_limit">The resulting text exceeds the input limit. Shorten it and check the current field.</string>
     <string name="device_error_control_unsupported">This control does not provide the requested action. Check the current screen.</string>
     <string name="device_error_input_focus">Focus the intended input, then check its current draft and selection.</string>
@@ -139,6 +140,7 @@
     <string name="tool_action_observe_screen">checking the current screen</string>
     <string name="tool_action_tap_ui_element">tapping a visible control</string>
     <string name="tool_action_input_text">entering text</string>
+    <string name="tool_action_paste_focused_text">pasting text</string>
     <string name="tool_action_swipe_screen">swiping the screen</string>
     <string name="tool_action_press_back">going back</string>
     <string name="tool_action_press_home">returning Home</string>

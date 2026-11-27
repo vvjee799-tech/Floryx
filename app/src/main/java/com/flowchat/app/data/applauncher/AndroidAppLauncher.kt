@@ -44,6 +44,11 @@ class AndroidAppLauncher @Inject constructor(
             selectLaunchableApp(manager.launchableApps(), appName,
                 if (isGenericBrowserQuery(appName)) manager.defaultBrowserPackage() else null)
         }
+        if (app.packageName == context.packageName) {
+            throw IllegalArgumentException(
+                "Cannot open Floryx itself during phone automation. Returning to Floryx pauses the task and returns control to the user."
+            )
+        }
         currentCoroutineContext().ensureActive()
         taskControl.checkCanAct(task)
         deviceGateway.checkExecutionTarget()

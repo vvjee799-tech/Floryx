@@ -53,8 +53,8 @@ android {
         applicationId = "com.floryx.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0.0"
+        versionCode = 2
+        versionName = "1.0.1"
 
         buildConfigField("String", "SEARCH_PROXY_URL", "\"${searchProxyUrl.replace("\"", "\\\"")}\"")
         buildConfigField("boolean", "NATIVE_VOICE_REAL_RUNTIME", "false")
@@ -84,6 +84,9 @@ android {
         }
         release {
             isMinifyEnabled = true
+            buildConfigField("boolean", "NATIVE_VOICE_REAL_RUNTIME", "true")
+            manifestPlaceholders["nativeVoiceBridgeEnabled"] = "true"
+            manifestPlaceholders["nativeVoiceProviderProcess"] = "com.floryx.app"
             if (hasReleaseSigning) {
                 signingConfig = signingConfigs.getByName("release")
             }
@@ -113,8 +116,10 @@ android {
         unitTests.isIncludeAndroidResources = true
     }
 
-    sourceSets.named("debug") {
+    sourceSets.named("main") {
         java.srcDir(rootProject.file("native-voice-bridge/contract"))
+    }
+    sourceSets.named("debug") {
         if (xasrRuntimeAar == null) {
             java.srcDir("src/withoutXasr/java")
         } else {

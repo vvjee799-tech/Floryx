@@ -2,13 +2,15 @@ package com.flowchat.nativevoicebridge;
 
 import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
+import android.content.pm.ProviderInfo;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 
-/** Versioned IPC contract between the independent bridge and the opt-in Dev endpoint. */
+/** Versioned IPC contract between the independent bridge and Floryx host endpoints. */
 public final class VoiceBridgeWire {
     public static final String BRIDGE_PACKAGE = "com.floryx.nativevoicebridge";
+    public static final String RELEASE_PACKAGE = "com.floryx.app";
     public static final String DEV_PACKAGE = "com.floryx.app.debug";
     public static final String XIAOV_PACKAGE = "com.vivo.ai.copilot";
     public static final int XIAOV_VERSION_CODE = 6110101;
@@ -88,6 +90,30 @@ public final class VoiceBridgeWire {
             digest[i] = (byte) Integer.parseInt(XIAOV_CERTIFICATE.substring(i * 2, i * 2 + 2), 16);
         }
         return digest;
+    }
+
+    public static String permissionFor(String hostPackage) {
+        return hostPackage + ".permission.NATIVE_VOICE_BRIDGE";
+    }
+
+    public static String authorityFor(String hostPackage) {
+        return hostPackage + ".native_voice";
+    }
+
+    public static Uri endpointFor(String hostPackage) {
+        return Uri.parse("content://" + authorityFor(hostPackage));
+    }
+
+    /** Resolves an installed Floryx host whose provider and signing certificate match the bridge. */
+    public static String resolveHostPackage(PackageManager packages) {
+        for (String candidate : new String[] { RELEASE_PACKAGE, DEV_PACKAGE }) {
+            ProviderInfo provider = packages.resolveContentProvider(authorityFor(candidate), 0);
+            if (provider != null && candidate.equals(provider.packageName) &&
+                    packages.checkSignatures(BRIDGE_PACKAGE, candidate) == PackageManager.SIGNATURE_MATCH) {
+                return candidate;
+            }
+        }
+        return null;
     }
 
     private VoiceBridgeWire() {}

@@ -25,14 +25,13 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 
-/** Accepts verified bridge, verified Xiaov host, or same-UID Dev instrumentation calls. */
+/** Accepts verified bridge, verified Xiaov host, or same-UID instrumentation calls. */
 class NativeVoiceProvider : ContentProvider() {
     private val lock = Mutex()
     private val stopSourcePattern =
         Regex("voice_stop|keyboard_stop|unlock_timeout|(?:native_interrupt|panel_dismiss):[A-Za-z0-9_.:-]{1,64}")
     private val tasks: VoiceTaskBackend by lazy {
-        val host = requireNotNull(context)
-        if (BuildConfig.NATIVE_VOICE_REAL_RUNTIME) RealVoiceTaskRuntime(host) else LocalVoiceTaskRuntime(host)
+        NativeVoiceBackendFactory.create(requireNotNull(context))
     }
     private val receipts by lazy {
         requireNotNull(context).getSharedPreferences("native_voice_receipts", Context.MODE_PRIVATE)
@@ -102,19 +101,20 @@ class NativeVoiceProvider : ContentProvider() {
         val caller = callingPackage
         val callerUid = Binder.getCallingUid()
         val pm = hostContext.packageManager
+        val hostPackage = hostContext.packageName
         when {
-            callerUid == Process.myUid() && caller == DEV_PACKAGE -> Unit
+            callerUid == Process.myUid() && caller == hostPackage -> Unit
             caller == BRIDGE_PACKAGE -> {
-                hostContext.enforceCallingPermission(PERMISSION, "Native voice bridge required")
+                hostContext.enforceCallingPermission(permissionFor(hostPackage), "Native voice bridge required")
                 val uidPackages = pm.getPackagesForUid(callerUid)
-                if (pm.checkSignatures(BRIDGE_PACKAGE, DEV_PACKAGE) != PackageManager.SIGNATURE_MATCH ||
+                if (pm.checkSignatures(BRIDGE_PACKAGE, hostPackage) != PackageManager.SIGNATURE_MATCH ||
                     uidPackages?.contains(BRIDGE_PACKAGE) != true
                 ) {
                     throw SecurityException("Unexpected native voice bridge caller")
                 }
             }
             caller == XIAOV_PACKAGE -> {
-                if (pm.checkSignatures(BRIDGE_PACKAGE, DEV_PACKAGE) != PackageManager.SIGNATURE_MATCH ||
+                if (pm.checkSignatures(BRIDGE_PACKAGE, hostPackage) != PackageManager.SIGNATURE_MATCH ||
                     !matchesXiaov(pm, callerUid)
                 ) {
                     throw SecurityException("Verified Xiaov caller required")
@@ -147,7 +147,7 @@ class NativeVoiceProvider : ContentProvider() {
         val conversation = reused ?: try {
             tasks.createConversation()
         } catch (error: Exception) {
-            Log.w(LocalVoiceTaskRuntime.LOG_TAG, "create_conversation_failed", error)
+            Log.w(LOG_TAG, "create_conversation_failed", error)
             return state(FAILED)
         }
         val receipt = Receipt(
@@ -169,7 +169,7 @@ class NativeVoiceProvider : ContentProvider() {
         val reportedSource = source?.takeIf(stopSourcePattern::matches) ?: "unspecified"
         val stopped = receipt.copy(stopped = true, stopSource = reportedSource)
         Log.i(
-            LocalVoiceTaskRuntime.LOG_TAG,
+            LOG_TAG,
             "stop_received owner=${receipt.owner} event=${receipt.request} source=$reportedSource " +
                 "elapsed_ms=${SystemClock.elapsedRealtime()}"
         )
@@ -179,7 +179,7 @@ class NativeVoiceProvider : ContentProvider() {
         }
         save(stopped)
         Log.i(
-            LocalVoiceTaskRuntime.LOG_TAG,
+            LOG_TAG,
             "stopped owner=${receipt.owner} event=${receipt.request} source=$reportedSource"
         )
         return snapshot(stopped)
@@ -193,7 +193,7 @@ class NativeVoiceProvider : ContentProvider() {
             }
         }
         val reportedSource = source?.takeIf(stopSourcePattern::matches) ?: "unspecified"
-        Log.i(LocalVoiceTaskRuntime.LOG_TAG, "stopped before_submit event=$request source=$reportedSource")
+        Log.i(LOG_TAG, "stopped before_submit event=$request source=$reportedSource")
         return preempted(session, request)
     }
 
@@ -355,6 +355,7 @@ class NativeVoiceProvider : ContentProvider() {
         selectionArgs: Array<out String>?): Int = throw UnsupportedOperationException()
 
     private companion object {
+        const val LOG_TAG = "NativeVoiceLocal"
         val PENDING_STATES = setOf(RUNNING, UNKNOWN, MISSING)
         const val UNLOCK_PROMPT_TEXT = "请先解锁手机，解锁后我继续帮你处理。"
         const val WAITING_USER_PROMPT_TEXT = "这一步需要你在 Floryx 应用内确认后才能继续，请打开 Floryx 处理。"

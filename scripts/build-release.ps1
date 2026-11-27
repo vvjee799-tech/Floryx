@@ -78,7 +78,38 @@ if ($metadataText -notmatch "package: name='com\.floryx\.app'" -or
 }
 
 $digest = (Get-FileHash -LiteralPath $artifact -Algorithm SHA256).Hash.ToLowerInvariant()
-[IO.File]::WriteAllText((Join-Path $outputRoot 'SHA256SUMS.txt'), "$digest  $artifactName`n", [Text.UTF8Encoding]::new($false))
+
+& $gradle :native-voice-bridge:testDebugUnitTest :native-voice-bridge:lintRelease :native-voice-bridge:assembleRelease -PnativeVoiceBridge=true --max-workers=1 --no-parallel --console=plain 2>&1 |
+    Tee-Object -FilePath $buildLog -Append
+if ($LASTEXITCODE -ne 0) { throw 'Voice bridge release verification or build failed.' }
+
+$bridgeReleaseApk = Join-Path $projectRoot 'native-voice-bridge\build\outputs\apk\release\native-voice-bridge-release.apk'
+if (!(Test-Path -LiteralPath $bridgeReleaseApk)) { throw "Expected APK missing: $bridgeReleaseApk" }
+
+$bridgeArtifactName = "Floryx-VoiceBridge-v$version.apk"
+$bridgeArtifact = Join-Path $outputRoot $bridgeArtifactName
+Copy-Item -LiteralPath $bridgeReleaseApk -Destination $bridgeArtifact -Force
+
+$bridgeCertOutput = & (Join-Path $buildTools 'apksigner.bat') verify --verbose --print-certs $bridgeArtifact 2>&1
+if ($LASTEXITCODE -ne 0) { throw "Voice bridge APK signature verification failed:`n$($bridgeCertOutput -join "`n")" }
+$bridgeCertMatch = [regex]::Match(($bridgeCertOutput -join "`n"), 'Signer #1 certificate SHA-256 digest:\s*([0-9a-fA-F]{64})')
+$bridgeCertificateSha256 = if ($bridgeCertMatch.Success) { $bridgeCertMatch.Groups[1].Value.ToLowerInvariant() } else { '' }
+if (!$bridgeCertificateSha256 -or $bridgeCertificateSha256 -ne $certificateSha256) {
+    throw 'Voice bridge signing certificate does not match main app release certificate.'
+}
+
+$bridgeMetadata = & (Join-Path $buildTools 'aapt.exe') dump badging $bridgeArtifact 2>&1
+if ($LASTEXITCODE -ne 0) { throw 'Could not inspect the voice bridge APK with aapt.' }
+$bridgeMetadataText = $bridgeMetadata -join "`n"
+if ($bridgeMetadataText -notmatch "package: name='com\.floryx\.nativevoicebridge'" -or
+    $bridgeMetadataText -notmatch "versionCode='$versionCode'" -or
+    $bridgeMetadataText -notmatch "versionName='$([regex]::Escape($version))'" -or
+    $bridgeMetadataText -match 'application-debuggable') {
+    throw 'Voice bridge APK identity, version, or non-debuggable release flags are incorrect.'
+}
+
+$bridgeDigest = (Get-FileHash -LiteralPath $bridgeArtifact -Algorithm SHA256).Hash.ToLowerInvariant()
+[IO.File]::WriteAllText((Join-Path $outputRoot 'SHA256SUMS.txt'), "$digest  $artifactName`n$bridgeDigest  $bridgeArtifactName`n", [Text.UTF8Encoding]::new($false))
 
 $summary = [ordered]@{
     version = $version
@@ -89,6 +120,12 @@ $summary = [ordered]@{
     certificateSha256 = $certificateSha256
     sha256 = $digest
     apk = $artifact
+    voiceBridge = [ordered]@{
+        applicationId = 'com.floryx.nativevoicebridge'
+        certificateSha256 = $bridgeCertificateSha256
+        sha256 = $bridgeDigest
+        apk = $bridgeArtifact
+    }
 }
 $summary | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $outputRoot 'artifact-verification.json') -Encoding utf8
 $summary | ConvertTo-Json

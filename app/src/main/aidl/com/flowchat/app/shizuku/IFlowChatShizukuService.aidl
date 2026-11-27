@@ -21,4 +21,5 @@ interface IFlowChatShizukuService {
     String openSavedCalendarEvent(String arguments, long eventId, long calendarId, int userId) = 15;
     boolean reconnectSelectedAccessibilityService(int userId) = 16;
     boolean restoreSystemClearedAccessibilityService(int userId) = 17;
+    String pasteFocusedText(boolean replaceExisting) = 18;
 }

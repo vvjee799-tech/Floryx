@@ -114,6 +114,7 @@
     <string name="device_error_visual_target">目标位置无效，请根据最新画面重新定位。</string>
     <string name="device_error_visual_obscured">目标被其他窗口遮挡，请查看当前页面后继续。</string>
     <string name="tool_name_input_text">文字输入</string>
+    <string name="tool_name_paste_focused_text">粘贴文字</string>
     <string name="device_error_text_limit">编辑后的文字超过输入限制，请缩短内容并查看当前输入框。</string>
     <string name="device_error_control_unsupported">此控件未提供所需操作，请查看当前页面。</string>
     <string name="device_error_input_focus">请先选中目标输入框，再查看最新草稿和选区。</string>
@@ -139,6 +140,7 @@
     <string name="tool_action_observe_screen">查看当前页面</string>
     <string name="tool_action_tap_ui_element">点击页面控件</string>
     <string name="tool_action_input_text">填写文字</string>
+    <string name="tool_action_paste_focused_text">粘贴文字</string>
     <string name="tool_action_swipe_screen">滑动页面</string>
     <string name="tool_action_press_back">返回上一页</string>
     <string name="tool_action_press_home">回到桌面</string>

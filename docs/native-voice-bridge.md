@@ -22,35 +22,43 @@
 
 1. **系统环境**：设备已解锁并具备 **Root 权限**，且已安装支持 **Xposed API 102** 的框架（如 LSPosed）。
 2. **目标宿主版本**：仅适配并严格校验官方签名的 `com.vivo.ai.copilot` 版本 **`6.11.1.1`**（`versionCode = 6110101`）。其它版本或其它品牌系统原生助手**无法工作**，校验不匹配时模块会自动安全跳过，不会接管。
-3. **同签名 Debug 宿主要求**：出于安全校验，桥接模块（`com.floryx.nativevoicebridge`）与 Floryx 宿主之间强制校验签名一致（`PackageManager.SIGNATURE_MATCH`），且宿主侧接收端点（`NativeVoiceProvider`）仅在开启了显式 Gradle 编译开关的 Debug 构建中启用。
+3. **同签名宿主要求**：出于安全校验，桥接模块（`com.floryx.nativevoicebridge`）与 Floryx 宿主之间强制校验签名一致（`PackageManager.SIGNATURE_MATCH`）。模块会优先自动绑定正式版 `com.floryx.app`，若未安装同签名正式版则会回退尝试调试版 `com.floryx.app.debug`。
 
 ---
 
-## 为什么 v1.0.0 Release 不附带桥接成品 APK？
+## 正式版直接安装与启用（推荐，v1.0.1+）
 
-- 默认正式包 `Floryx-v1.0.0.apk`（Release 构建）出于精简、安全与通用性考虑，**不包含** `NativeVoiceProvider` 桥接服务端点。
-- 若单独在 Release 中分发一个 Debug 签名的桥接模块 APK，普通用户下载后既无法与 `Floryx-v1.0.0.apk` 配对（包名与签名均不匹配），也缺乏对应版本的系统前置条件。
-- 因此在 `v1.0.0` 中，该模块仅随仓库源码提供给有经验的开发者自行配对编译；后续版本会评估在正式版中提供标准开关与配对分发方式。
+自 **`v1.0.1`** 起，GitHub Release 会同时发布使用**同一张正式签名证书**构建的配对安装包：
+
+- `Floryx-v<version>.apk`（主应用：`com.floryx.app`）
+- `Floryx-VoiceBridge-v<version>.apk`（桥接模块：`com.floryx.nativevoicebridge`）
+
+> 🛡️ **安全说明**：普通用户仅安装主应用 `Floryx-v<version>.apk` 时，`NativeVoiceProvider` 仅放行与 Floryx 签名完全一致的 `com.floryx.nativevoicebridge` 或官方原版 `com.vivo.ai.copilot`（`6.11.1.1`），其他第三方应用无法调用，不会带来额外暴露面。
+
+安装与启用步骤：
+
+1. 在兼容设备上安装同一次发布的 `Floryx-v<version>.apk` 与 `Floryx-VoiceBridge-v<version>.apk`（若此前装过旧的 `com.flowchat.nativevoicebridge` 测试桥接模块，请先卸载旧模块）。
+2. 打开 **Floryx**，至少配置并启用一个大模型服务商与模型（若尚未开启「手机操作」无障碍或悬浮窗，可按需开启）。
+3. 打开 **LSPosed 管理器 → 模块 → Floryx 语音桥接**：
+   - 打开模块总开关；
+   - 作用域**仅勾选「蓝心小V」**（`com.vivo.ai.copilot`），无需勾选其他应用；
+4. **强行停止一次「蓝心小V」**（或重启手机），随后直接语音/按键唤醒小 V 即可。
 
 ---
 
-## 源码配对编译与启用（进阶用户）
+## 从源码配对编译（开发者 / Debug 调试）
 
-在具备 JDK 21 与 Android SDK 35 的环境中，使用同一套签名配置同步编译开启了真机语音运行时的 Debug 宿主与桥接模块：
+如果你使用的是自签 Debug 包（`com.floryx.app.debug`）或需要调试语音桥接代码，可在具备 JDK 21 与 Android SDK 35 的环境中同步编译开启了真机语音运行时的 Debug 宿主与桥接模块（桥接模块会自动识别同签名的 `com.floryx.app.debug`）：
 
 ```powershell
-# 1. 编译开启原生语音桥接的 Floryx Dev 与桥接模块 APK
+# 编译开启原生语音桥接的 Floryx Dev 与桥接模块 Debug APK
 .\gradlew.bat :app:assembleDebug :native-voice-bridge:assembleDebug `
   -PnativeVoiceBridge=true -PnativeVoiceRealRuntime=true
 ```
 
-生成的两个同签名 APK 位于：
+生成的两个同签名 Debug APK 位于：
 - `app/build/outputs/apk/debug/app-debug.apk`（`com.floryx.app.debug`）
 - `native-voice-bridge/build/outputs/apk/debug/native-voice-bridge-debug.apk`（`com.floryx.nativevoicebridge`）
-
-安装与启用步骤：
-1. 将上述两个同签名 APK 安装到同一台兼容设备，并确认已在 Floryx Dev 中配置好模型服务商与所需权限（如无障碍等）。
-2. 在 LSPosed 管理器中启用「**Floryx 语音桥接**」模块，作用域仅勾选 `com.vivo.ai.copilot`（无需勾选其他应用），随后重启系统助手进程或重启手机使其生效。
 
 ---
 

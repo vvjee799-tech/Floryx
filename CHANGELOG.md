@@ -2,6 +2,31 @@
 
 本项目遵循[语义化版本规范](https://semver.org/lang/zh-CN/)。
 
+## [1.0.1] - 2026-11-27
+
+正式为 Release 版本接入受同签名校验保护的「蓝心小 V」原生语音桥接能力，并同步随 Release 提供配对签名桥接模块安装包。
+
+### 新增 (Added)
+
+- **正式版原生语音桥接支持与配对分发**
+  - 在正式版主应用 `com.floryx.app` 中集成受 `PackageManager.SIGNATURE_MATCH` 与原版宿主校验保护的 `NativeVoiceProvider`，用户无需再自行编译 Debug 包即可配对使用。
+  - 在 GitHub Release 随主包同步分发同一张正式发布证书签名的可选实验模块 `Floryx-VoiceBridge-v1.0.1.apk`（`com.floryx.nativevoicebridge`）。
+  - 语音桥接模块（`VoiceBridgeWire`、`XiaovRelayClient`、`NativeVoiceBridge`）支持自动解析宿主包名，优先绑定同签名正式版 `com.floryx.app`，并继续兼容调试版 `com.floryx.app.debug`。
+- **面向对象/自绘界面输入框的安全中文粘贴（`paste_focused_text`）**
+  - 新增聚焦输入框安全剪贴板粘贴通道，兼容微信等不向无障碍暴露 `SET_TEXT` 的自绘/Opaque 输入框，直接支持中文、Emoji 与超长文本；沿用密码、支付与 `FLAG_SECURE` 拦截并通过视觉画面复核结果。
+
+### 修复 (Fixed)
+
+- **修复语音桥接未显式保存助手模型偏好时的失败提示**
+  - 修复用户在服务商设置或常规对话中已配好服务商与模型、但未在聊天底部切换列表重选过模型时，唤醒小 V 提示「任务未能完成，请重试」的问题；当独立助手模型偏好为空（或原选择指向已删除服务商）时，按顺序自动回退到最近未归档对话的模型或已启用、校验合法且配置了 API Key 的服务商默认模型（同时继续尊重用户显式关闭服务商的设置）。
+- **修复自动化任务打开 Floryx 自身导致的中断及命令行探测输入问题**
+  - 在 `open_app` 底层拒绝启动 Floryx 自身包名，避免在跨应用执行中误切回前台触发“切回即暂停”而意外中断任务。
+  - 在 `AndroidUiCommandPolicy` 中拦截裸 `input text` / `input keyevent` / `input keycombination` 命令，并强化提示约束，避免模型向真实聊天输入框写入探测占位文字。
+
+### 构建与发布 (Build & Verification)
+
+- 升级 [scripts/build-release.ps1](scripts/build-release.ps1) 与发布指南，自动连带构建、R8/证书同签核验与产出配对的 `Floryx-v<version>.apk` 与 `Floryx-VoiceBridge-v<version>.apk`，并在 `SHA256SUMS.txt` 中列出双份文件校验和。
+
 ## [1.0.0] - 2026-11-27
 
 Floryx 首个正式发布版本。正式启用全新应用包名 **`com.floryx.app`** 与独立正式签名密钥，全面整理并收敛早期内部迭代，提供稳定、完整、开箱即用的 Android 端侧自主多模态 AI 智能体体验。

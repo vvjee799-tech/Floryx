@@ -839,6 +839,175 @@ class ShizukuDeviceAssistantGateway @Inject constructor(
     override suspend fun editText(request: com.flowchat.app.domain.device.DeviceTextEditRequest, screenId: String): DeviceToolResult =
         editTextInternal(request, screenId)
 
+    override suspend fun pasteFocusedText(text: String, screenId: String, replaceExisting: Boolean): DeviceToolResult {
+        if (executionInBackground()) return backgroundUnsupported()
+        if (text.isEmpty() || text.length > com.flowchat.app.domain.device.DeviceTextEditing.MaxLength) {
+            return DeviceToolResult(
+                success = false,
+                summary = "Text must be 1..${com.flowchat.app.domain.device.DeviceTextEditing.MaxLength} UTF-16 units. No text was pasted.",
+                errorCode = "invalid_text_argument",
+                actionOutcome = com.flowchat.app.domain.device.DeviceActionOutcome.NotDispatched
+            )
+        }
+        return uiActionMutex.withLock {
+            val accessibility = requireAccessibilityService() ?: return@withLock accessibilityUnavailable()
+            val task = taskControl.currentTask
+            checkExecutionTarget()
+            checkPhoneAction(task)
+            val current = accessibility.observeScreen() ?: return@withLock DeviceToolResult(
+                success = false,
+                summary = "The current screen could not be read. No text was pasted.",
+                errorCode = "screen_unavailable",
+                actionOutcome = com.flowchat.app.domain.device.DeviceActionOutcome.NotDispatched
+            )
+            if (current.sensitive || current.packageName == context.packageName) {
+                snapshotGuard.remember(null)
+                visualFrameGuard.clear()
+                return@withLock DeviceToolResult(
+                    success = false,
+                    summary = if (current.sensitive) "Device actions are blocked on sensitive screens." else "Floryx will not automate its own interface.",
+                    errorCode = if (current.sensitive) "sensitive_screen_blocked" else "self_automation_blocked",
+                    screen = current,
+                    actionOutcome = com.flowchat.app.domain.device.DeviceActionOutcome.NotDispatched
+                )
+            }
+            val freshVisual = visualFrameGuard.current(screenId, current, SystemClock.elapsedRealtime(), task) != null
+            val freshSnapshot = snapshotGuard.matches(screenId, current, null)
+            if (!freshVisual && !freshSnapshot) {
+                val refreshed = if (Build.VERSION.SDK_INT >= 30) captureStableVisualFrameLocked() else observeScreenLocked()
+                return@withLock refreshed.copy(
+                    success = false,
+                    errorCode = "stale_screen",
+                    summary = "The screen changed or the screen_id is missing/expired. No text was pasted. Inspect the fresh screen/image and tap to focus the target input first.",
+                    actionOutcome = com.flowchat.app.domain.device.DeviceActionOutcome.NotDispatched
+                )
+            }
+            val visualBefore = if (Build.VERSION.SDK_INT >= 30) captureStableVisualFrameLocked() else null
+            visualBefore?.screen?.let { fresh ->
+                if (fresh.sensitive || visualBefore.errorCode == "sensitive_screen_blocked" || fresh.packageName == context.packageName) {
+                    snapshotGuard.remember(null)
+                    visualFrameGuard.clear()
+                    return@withLock visualBefore.copy(
+                        success = false,
+                        errorCode = if (fresh.sensitive || visualBefore.errorCode == "sensitive_screen_blocked") "sensitive_screen_blocked" else "self_automation_blocked",
+                        summary = "Clipboard paste is blocked on this screen. No text was pasted.",
+                        actionOutcome = com.flowchat.app.domain.device.DeviceActionOutcome.NotDispatched
+                    )
+                }
+            }
+            val clipboard = accessibility.getSystemService(android.content.ClipboardManager::class.java)
+                ?: context.getSystemService(android.content.ClipboardManager::class.java)
+                ?: return@withLock DeviceToolResult(
+                    success = false,
+                    summary = "Clipboard service is unavailable. No text was pasted.",
+                    errorCode = "clipboard_unavailable",
+                    actionOutcome = com.flowchat.app.domain.device.DeviceActionOutcome.NotDispatched
+                )
+            val previousClip = runCatching { withContext(Dispatchers.Main.immediate) { clipboard.primaryClip } }.getOrNull()
+            val copied = runCatching {
+                withContext(Dispatchers.Main.immediate) {
+                    clipboard.setPrimaryClip(android.content.ClipData.newPlainText("Floryx", text))
+                }
+            }.isSuccess
+            if (!copied) {
+                return@withLock DeviceToolResult(
+                    success = false,
+                    summary = "Could not copy text to the system clipboard. No text was pasted.",
+                    errorCode = "clipboard_write_failed",
+                    actionOutcome = com.flowchat.app.domain.device.DeviceActionOutcome.NotDispatched
+                )
+            }
+            suspend fun restoreClipboardBestEffort() {
+                if (previousClip != null) {
+                    runCatching { withContext(Dispatchers.Main.immediate) { clipboard.setPrimaryClip(previousClip) } }
+                }
+            }
+            delay(80L)
+            val accessibilityPasted = try {
+                accessibility.pasteIntoFocusedInput(current, replaceExisting) { checkPhoneAction(task) }
+            } catch (rejected: DeviceDispatchRejected) {
+                restoreClipboardBestEffort()
+                val refreshed = accessibility.observeScreen()
+                snapshotGuard.remember(refreshed)
+                return@withLock DeviceToolResult(
+                    success = false,
+                    summary = "Clipboard paste was not dispatched (${rejected.code}).",
+                    errorCode = rejected.code,
+                    screen = refreshed,
+                    actionOutcome = com.flowchat.app.domain.device.DeviceActionOutcome.NotDispatched
+                )
+            }
+            if (!accessibilityPasted) {
+                if (!connectionState.value.isConnected) {
+                    restoreClipboardBestEffort()
+                    return@withLock DeviceToolResult(
+                        success = false,
+                        summary = "Focused input does not expose accessibility paste and Shizuku/Root is not connected.",
+                        errorCode = "ui_paste_unsupported",
+                        screen = current,
+                        actionOutcome = com.flowchat.app.domain.device.DeviceActionOutcome.NotDispatched
+                    )
+                }
+                val keyResult = callService { it.pasteFocusedText(replaceExisting) }
+                if (!keyResult.success) {
+                    restoreClipboardBestEffort()
+                    val refreshed = if (Build.VERSION.SDK_INT >= 30) captureStableVisualFrameLocked() else observeScreenLocked()
+                    return@withLock refreshed.copy(
+                        success = false,
+                        errorCode = keyResult.errorCode ?: "paste_keyevent_failed",
+                        summary = keyResult.summary,
+                        actionOutcome = com.flowchat.app.domain.device.DeviceActionOutcome.Unverified
+                    )
+                }
+            }
+            snapshotGuard.remember(null)
+            visualFrameGuard.clear()
+            delay(220L)
+            val after = if (Build.VERSION.SDK_INT >= 30) captureStableVisualFrameLocked() else observeScreenLocked()
+            restoreClipboardBestEffort()
+            if (after.screen?.sensitive == true) {
+                return@withLock DeviceToolResult(
+                    success = false,
+                    summary = "The action completed on a sensitive screen. Further automation is blocked.",
+                    errorCode = "sensitive_screen_blocked",
+                    screen = after.screen
+                )
+            }
+            val oldImage = visualBefore?.screenImage
+            val newImage = after.screenImage
+            val pixelsChanged = if (oldImage != null && newImage != null) {
+                val sameWindow = oldImage.geometry == newImage.geometry &&
+                    oldImage.sourceWidth == newImage.sourceWidth &&
+                    oldImage.sourceHeight == newImage.sourceHeight
+                if (!sameWindow) true else try {
+                    AutomationTimings.measure("screen.compare_pixels") {
+                        withContext(Dispatchers.Default) {
+                            ScreenImageMatcher.compare(
+                                oldImage,
+                                newImage,
+                                VisualTapTarget(oldImage.screenId, 500, 500, "paste result")
+                            ).pixelsChanged
+                        }
+                    }
+                } catch (error: CancellationException) {
+                    throw error
+                } catch (_: Exception) {
+                    false
+                }
+            } else false
+            val uiChanged = after.screen != null && after.screen.progressKey() != current.progressKey()
+            val progressObserved = pixelsChanged || uiChanged
+            after.copy(
+                success = true,
+                summary = "Dispatched clipboard paste to the focused input. Inspect the attached image/screen to verify the visible text before continuing or sending.",
+                before = current.packageName,
+                after = after.screen?.packageName,
+                actionOutcome = if (progressObserved) com.flowchat.app.domain.device.DeviceActionOutcome.ProgressObserved
+                else com.flowchat.app.domain.device.DeviceActionOutcome.Unverified
+            )
+        }
+    }
+
     private suspend fun editTextInternal(request: com.flowchat.app.domain.device.DeviceTextEditRequest, screenId: String?): DeviceToolResult =
         if (executionInBackground()) background.input(request, screenId) else performScreenAction(
         toolName = com.flowchat.app.domain.tools.AgentToolDefinitions.InputTextToolName,
